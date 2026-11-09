@@ -112,30 +112,27 @@ coordinates, not one amplitude per physical-qubit basis state. Clifford
 structure outside that active space remains encoded by the prepared coordinate
 description.
 
-Shared trajectory execution retains packed classical values and an independent
-random stream for every shot, while equivalent shots use one coefficient state.
-Prepared rotation signs and measurement outcomes split groups as needed.
-Before an action can exceed the retained state capacity, dispatch suspends at
-an explicit storage boundary. The pool grows without changing sampled noise,
-branches, or live coefficients, then the same prepared action resumes.
+In shared-trajectory execution (`SurvivorSampler`), each shot keeps its own
+packed classical values and RNG stream while shots on identical quantum
+branches share a single coefficient state. Prepared rotation signs and
+measurement outcomes split groups only when trajectories diverge. To reduce
+wasted evolution before and during sharing, plan preparation also extracts
+noise-only entrance checks—eliminating unmeasured variables from postselected
+detector equations (for example, `m XOR n0 = 0` and `m XOR n1 = 0` imply
+`n0 XOR n1 = 0`)—and schedules each remaining postselected detector immediately
+after its last contributing record write.
 
-Entrance checks are noise-only necessary conditions evaluated before quantum
-work. Preparation derives them by eliminating unavailable measurement and readout
-variables from selected detector equations. For example, requiring
-both `m XOR n0 = 0` and `m XOR n1 = 0` implies the noise-only condition
-`n0 XOR n1 = 0`. These necessary checks reject individual shots before quantum
-work; the original detector checks still determine final acceptance. Expected
-reference parities are included in the equations.
-Preparation also schedules selected detectors after the last contributing record
-write, including readout noise. This preserves each detector's record snapshot
-while allowing rejected trajectories to skip subsequent quantum actions. Workers
-share this action order and apply the plan's selected scalar or SIMD kernels.
+Two execution modes may suspend ordinary dispatch at an explicit boundary to
+grow storage without losing live state:
 
-Noncomputational transitions use explicit boundaries to change future
-execution. A leakage or loss instrument may stop at an explicit boundary,
-prepare a trajectory-specific suffix, grow reusable storage if necessary, and
-resume without losing the live coefficients, records, symbols, or RNG
-position. See [Noncomputational States](noncomputational.md).
+- **Shared-trajectory state-pool growth:** Before a split can exceed a worker's
+  allocated states, dispatch suspends, grows the state pool within the configured
+  byte budget, and resumes the prepared action with sampled noise, branches, and
+  coefficients intact.
+- **Noncomputational transitions:** A leakage or loss instrument may stop at an
+  explicit boundary, prepare a trajectory-specific suffix, grow reusable storage
+  if necessary, and resume without losing live coefficients, records, symbols,
+  or RNG position. See [Noncomputational States](noncomputational.md).
 
 ## Online Noncomputational Execution
 

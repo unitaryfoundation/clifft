@@ -30,12 +30,12 @@ direct multi-coordinate kernels. SymFT's packed cross-shot execution also
 inspired Clifft's packed sampling path.
 
 SymFT's [counts-focused CPU optimization work](https://github.com/haoliri0/SOFT/pull/19)
-motivated independent classical batches, noise-only entrance filtering, and
-skipping unused expectation probes in aggregate sampling. Clifft derives
-necessary selected-detector equations during preparation and retains per-shot
-classical offsets while sharing coefficient storage. These are Clifft-specific
-adaptations; SymFT's compiled CPU path falls back for circuits with expectation
-probes.
+also motivated decoupling classical batch capacity from quantum state storage,
+filtering shots with noise-only detector constraints before quantum evolution,
+and skipping unused expectation probes in aggregate survivor sampling. Clifft
+derives its entrance checks by eliminating measurement variables from selected
+detector equations during plan preparation, and skips unused expectation probes
+directly in its compiled CPU plans (where SymFT's compiled CPU path falls back).
 
 The [method provenance](theory/overview.md#method-provenance) describes this
 lineage and the implementation boundaries. The [symbolic sampling](updates/symbolic-sampling.md)
@@ -73,10 +73,11 @@ and tableau algebra. The MSC reconstruction regression inputs are preserved
 copies of the noisy SOFT/Tsim benchmark corpus.
 
 Tsim's [trajectory sharing](https://github.com/QuEraComputing/tsim/pull/198)
-informed Clifft's reuse of equivalent quantum evolution, measurement-driven
-splitting, and rejection of individual shots within a shared group. Clifft
-applies its own prepared Pauli kernels and independent per-shot streams, with
-storage growth at explicit dispatch boundaries.
+informed Clifft's reuse of quantum state evolution across shots,
+measurement-driven group splitting, and per-shot pruning within shared groups.
+Clifft combines this grouping model with its prepared active-Pauli kernels,
+independent per-shot RNG streams, and bounded state-pool growth at explicit
+dispatch boundaries.
 
 - Rafael Haenel, Xiuzhe Luo, and Chen Zhao, ["Tsim: Fast Universal Simulator for Quantum Error Correction"](https://arxiv.org/abs/2604.01059)
   (2026).

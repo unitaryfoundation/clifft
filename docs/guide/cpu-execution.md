@@ -28,95 +28,6 @@ Clifft chooses whether that budget is better spent across shots or within a
 wide shot. It separately decides whether packing shots into SIMD lanes is
 worthwhile. Benchmark before overriding either decision.
 
-## Reusing survivor sampling work
-
-Repeated postselected count jobs can spend more time preparing noise and evolving
-identical trajectories than collecting survivors. `SurvivorSampler` retains
-worker storage across calls, rejects shots using necessary detector constraints
-before quantum work, and shares a coefficient state until shots need different
-rotation signs or measurement outcomes. Remaining selected detectors are checked
-as soon as their input records are ready, so rejected shots skip later evolution.
-
-```python
-import clifft
-
-program = clifft.compile(
-    "H 0 1\nT 0 1\nDEPOLARIZE1(0.001) 0 1\nH 0 1\nM 0 1\n"
-    "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]",
-    postselection_mask=[1],
-    reconstruction=True,
-)
-sampler = clifft.SurvivorSampler(
-    program,
-    batch_size=8192,
-    threads=2,
-    initial_states=128,
-    noise_preparation=clifft.NoisePreparation.SITE_SPARSE,
-)
-result = sampler.sample(100_000, seed=42)
-print(result.passed_shots, result.observable_ones)
-```
-
-This interface returns aggregate survivor, logical-error, and observable counts;
-its per-shot arrays are empty. It uses the program's `keep_records=False` plan,
-including reconstruction when selected. Instrument continuations are unsupported.
-Use the ordinary sampling functions for retained rows or fixed-fault conditioning.
-Plans with zero active width use the packed classical executor with the selected
-noise preparation; they need no trajectory groups or separate entrance checks.
-
-The settings are explicit so you can measure the complete workload:
-
-- `batch_size` defaults to 8192 and accepts a positive integer, `"auto"`, or `"tune"`.
-  A numeric value sets the classical batch capacity. Larger batches can amortize
-  noise preparation but leave too few batches to occupy all workers on small calls.
-  Automatic capacity conservatively fits the state budget even if every lane
-  becomes distinct. The default numeric capacity can be larger when sharing keeps
-  the state count small; it remains subject to the state budget below.
-- `batch_size="tune"` calibrates capacities on the first nonzero sample call and
-  retains the selected capacity for later calls. Its candidates stay within the
-  conservative automatic limit, so it cannot discover larger batches that rely on
-  sharing to fit. `tuning_budget_seconds` sets the soft deadline, and
-  `result.batch_tuning` retains the calibration report. Trials
-  are excluded from returned counts. This tunes capacity with your chosen noise
-  and sharing settings; it does not select those strategies for you.
-- `initial_states` reserves up to that many coefficient states per worker, within
-  the state budget. When a later action needs more states, dispatch suspends and
-  grows the pool before resuming with the same sampled noise and branches.
-- `max_state_bytes` bounds the combined coefficient and collapse-scratch allocations
-  across workers, including page alignment. Its default is 64 MiB; classical
-  batches and prepared plans are separate. A numeric capacity whose next action
-  could require more states than this budget permits raises `RuntimeError` at a
-  suspension boundary.
-  Increase the budget or reduce the capacity or worker count before retrying.
-  Successfully allocated states stay available for subsequent calls.
-- `NoisePreparation.SITE_SPARSE` applies sampled faults directly to expression
-  columns. `SITE_ROWS` collects each shot's effects contiguously before
-  transposing them, which can help when faults affect many expressions.
-  `DENSE` uses the ordinary packed propagation path; `SPARSE` applies direct
-  updates in that path's original noise-event order.
-- `compact_outputs=True` expands record snapshots and derived symbols into the
-  expressions needed for survivor counts. This can reduce noise propagation and
-  classical record work, at the cost of additional preparation during construction.
-- `group_by_noise=True` groups shots by their effect on future rotation signs
-  before evolution. This avoids repeated sign scans but may retain more distinct
-  states and split measurement branches earlier. Compare it with the default
-  incremental grouping on your workload; it is ignored when `sharing=False`.
-- `sharing=False` uses independent coefficient evolution, which can avoid grouping
-  overhead when most trajectories differ. `early_postselection=False` skips the
-  preparation of entrance constraints and retains the original detector order;
-  this can reduce setup costs when few shots will be rejected.
-
-Compare construction time and sustained sampling separately. Small jobs or
-circuits with many distinct trajectories may favor ordinary sampling. This
-interface uses cross-shot threads. With automatic capacity, changing the worker
-budget can change batch size and seeded results. Calibration is timing-dependent,
-so pin a numeric capacity to replay a configuration.
-
-A fixed seed, batch size, and noise preparation reproduce counts independently
-of worker scheduling and state-pool growth. Different batch sizes or noise
-preparations can change seeded results while preserving their distribution.
-Calls on one sampler serialize; separate samplers can run concurrently.
-
 ## Common controls
 
 | Argument | Default | Meaning |
@@ -128,8 +39,8 @@ Calls on one sampler serialize; separate samplers can run concurrently.
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
 
 The four standard sampling functions accept all five controls. `SurvivorSampler`
-uses cross-shot workers and accepts the first three controls, with a numeric
-`batch_size` default of 8192. For leakage and loss,
+uses cross-shot workers and accepts `threads`, `batch_size` (defaulting to
+`8192`), and `tuning_budget_seconds`. For leakage and loss,
 `clifft.noncomp.sample()` and `NonComputationalProgram.sample()` accept
 cross-shot `threads`, `batch_size` (`"auto"`, `"tune"`, or a positive integer),
 and `tuning_budget_seconds`. Compile-once fixed execution supports batching and
@@ -222,6 +133,84 @@ workload or machine changes; selections are not cached automatically.
     To reproduce the worker allocation as well as the batch size, pass
     `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
     nonempty call and preserve any explicit intra-shot threshold.
+
+## Reusing survivor sampling work
+
+Repeated postselected count jobs can spend most of their time preparing
+classical noise and evolving identical quantum trajectories. `SurvivorSampler`
+retains worker storage across calls, filters out shots that fail noise-only
+detector constraints before quantum evolution, and shares a single quantum
+state across shots until rotation signs or measurement outcomes diverge.
+Remaining postselected detectors are checked as soon as their measurement
+records are ready, so rejected shots skip later evolution.
+
+```python
+import clifft
+
+program = clifft.compile(
+    "H 0 1\nT 0 1\nDEPOLARIZE1(0.001) 0 1\nH 0 1\nM 0 1\n"
+    "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]",
+    postselection_mask=[1],
+    reconstruction=True,
+)
+sampler = clifft.SurvivorSampler(
+    program,
+    batch_size=8192,
+    threads=2,
+    initial_states=128,
+    noise_preparation=clifft.NoisePreparation.SITE_SPARSE,
+)
+result = sampler.sample(100_000, seed=42)
+print(result.passed_shots, result.observable_ones)
+```
+
+`SurvivorSampler.sample()` returns a `SampleResult` populated with aggregate
+survivor, logical-error, and observable counts (its per-shot arrays are empty).
+Use `clifft.sample_survivors(..., keep_records=True)` when you need retained
+per-shot rows, `clifft.sample_k_survivors()` for fixed-fault conditioning, or
+`clifft.noncomp` for leakage and loss instruments. Circuits with zero active
+width run directly on the packed classical executor.
+
+### Batch size and state memory
+
+Because equivalent shots share quantum states, `SurvivorSampler` can often run
+much larger classical batches than ordinary packed execution:
+
+- **`batch_size`** (default `8192`): Sets the classical batch capacity per
+  worker. Larger batches amortize classical noise preparation, while smaller
+  calls may prefer a smaller batch size so work distributes across all threads.
+  `"auto"` conservatively sizes batches so every lane could split into its own
+  quantum state within `max_state_bytes`. `"tune"` calibrates candidates up to
+  that conservative `"auto"` limit on the first nonzero `.sample()` call and
+  reuses the winner on subsequent calls.
+- **`initial_states`** (default `128`): Number of quantum states preallocated
+  per worker (capped by `max_state_bytes`). If trajectory splitting needs more
+  states mid-batch, the worker grows its state pool on the fly without
+  discarding in-progress shots.
+- **`max_state_bytes`** (default `64 MiB`): Total memory limit across all
+  workers for quantum coefficient and measurement-collapse scratch storage
+  (classical buffers and compiled plans are separate). If a batch splits into
+  more trajectories than `max_state_bytes` allows, `.sample()` raises
+  `RuntimeError`; reduce `batch_size` or `threads`, or raise `max_state_bytes`.
+
+### Noise preparation and sharing controls
+
+| Option | Default | When to change |
+|---|---|---|
+| `noise_preparation` | `NoisePreparation.SITE_SPARSE` | `SITE_SPARSE` updates affected expressions directly per noise site. Try `SITE_ROWS` when individual faults touch many expressions, `DENSE` for high noise rates, or `SPARSE` to preserve `DENSE` RNG draw order. |
+| `compact_outputs` | `False` | Set `True` on long runs to inline record snapshots and strip unselected detectors and `EXP_VAL` probes into a count-only plan at construction time. |
+| `group_by_noise` | `False` | Set `True` to partition surviving shots once before quantum evolution by their effect on future rotation signs. Avoids per-rotation sign scans, though it can create more initial states and split measurements earlier. Ignored when `sharing=False`. |
+| `sharing` | `True` | Set `False` to give each surviving shot its own quantum state when almost every trajectory diverges. |
+| `early_postselection` | `True` | Set `False` when postselection rarely rejects shots and entrance-check setup is not worthwhile. |
+
+When benchmarking, measure sampler construction and `.sample()` throughput
+separately: options like `compact_outputs=True` and `group_by_noise=True` do
+extra work during construction to speed up repeated `.sample()` calls.
+
+With a fixed `seed`, `batch_size`, and `noise_preparation`, `.sample()` returns
+identical counts regardless of `threads` or when the state pool grows. Calls on
+a single `SurvivorSampler` instance serialize; use separate instances to sample
+concurrently from multiple Python threads.
 
 ## Power-user tuning
 
