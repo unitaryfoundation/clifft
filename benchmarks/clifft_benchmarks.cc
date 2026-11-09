@@ -1,3 +1,4 @@
+#include "clifft/api/program.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -221,6 +222,30 @@ void compile_plan_cultivation_d5(benchmark::State& state) {
     for ([[maybe_unused]] auto _ : state) {
         auto plan = compile_text(source);
         benchmark::DoNotOptimize(plan);
+    }
+}
+
+// Reconstruction lowers noise parities onto auxiliary wires. Time both output
+// variants and their optimization pipelines as well as the original plan.
+void compile_reconstruction_msc_d5(benchmark::State& state) {
+    const auto text = read_fixture("reconstruction_msc_d5.stim");
+    const auto compile = [&] {
+        const auto source = parse(text);
+        auto hir = trace(source);
+        default_hir_pass_manager().run(hir);
+        return Program::compile(source, hir, true);
+    };
+    const auto validation = compile();
+    for (bool records : {false, true}) {
+        if (!validation.uses_reconstruction(records) ||
+            validation.sampling_plan(records).peak_active_width() != 6) {
+            state.SkipWithError("MSC reconstruction did not select width six");
+            return;
+        }
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        const auto program = compile();
+        benchmark::DoNotOptimize(program);
     }
 }
 
@@ -777,6 +802,7 @@ BENCHMARK_CAPTURE(phase_rank_limited_region, 32000, 32000)->Name("phase_rank_lim
 BENCHMARK_CAPTURE(phase_postselection, 4096, 4096)->Name("phase_postselection_4096");
 #endif
 BENCHMARK(compile_plan_cultivation_d5)->Name("compile_plan_cultivation_d5");
+BENCHMARK(compile_reconstruction_msc_d5)->Name("compile_reconstruction_msc_d5");
 #ifdef CLIFFT_BENCHMARK_HAS_ACTIVE_WIDTH
 BENCHMARK(compile_schedule_plan_coherent_d5_r5)->Name("compile_schedule_plan_coherent_d5_r5");
 BENCHMARK(schedule_pass_coherent_d5_r5)->Name("schedule_pass_coherent_d5_r5");

@@ -14,14 +14,15 @@ bool is_expansion(const HeisenbergOp& op) {
     return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
 }
 
-bool can_bypass_to(const HirModule& hir, size_t moving, size_t target) {
+bool can_bypass_to(const HirModule& hir, size_t moving, size_t target,
+                   const PauliCommutation& axis) {
     assert(moving < target && target < hir.ops.size());
     assert(!is_expansion(hir.ops[target]));
-    if (!can_swap(hir.ops[moving], hir.ops[target], hir)) {
+    if (!can_swap(hir.ops[moving], hir.ops[target], hir, &axis)) {
         return false;
     }
     for (size_t next = target; next > moving + 1; --next) {
-        if (!can_swap(hir.ops[moving], hir.ops[next - 1], hir)) {
+        if (!can_swap(hir.ops[moving], hir.ops[next - 1], hir, &axis)) {
             return false;
         }
     }
@@ -42,8 +43,9 @@ void StatevectorSqueezePass::run(HirModule& hir) {
         if (hir.ops[i].op_type() != OpType::MEASURE) {
             continue;
         }
+        const PauliCommutation axis(hir.destab_mask(hir.ops[i]), hir.stab_mask(hir.ops[i]));
         size_t curr = i;
-        while (curr > 0 && can_swap(hir.ops[curr - 1], hir.ops[curr], hir)) {
+        while (curr > 0 && can_swap(hir.ops[curr], hir.ops[curr - 1], hir, &axis)) {
             std::swap(hir.ops[curr - 1], hir.ops[curr]);
             if (has_sm) {
                 std::swap(hir.source_map[curr - 1], hir.source_map[curr]);
@@ -70,7 +72,8 @@ void StatevectorSqueezePass::run(HirModule& hir) {
         }
 
         for (size_t i = hir.ops.size() - 2;; --i) {
-            if (is_expansion(hir.ops[i])) {
+            if (is_expansion(hir.ops[i]) && !non_expansions.empty() && non_expansions.back() > i) {
+                const PauliCommutation axis(hir.destab_mask(hir.ops[i]), hir.stab_mask(hir.ops[i]));
                 size_t curr = i;
                 while (curr < hir.ops.size() - 1) {
                     // Crossing another expansion is useful only when it lets
@@ -82,7 +85,7 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                             break;
                         }
                         const size_t target = *target_it;
-                        if (!can_bypass_to(hir, curr, target)) {
+                        if (!can_bypass_to(hir, curr, target, axis)) {
                             break;
                         }
                         std::rotate(hir.ops.begin() + static_cast<std::ptrdiff_t>(curr),
@@ -107,7 +110,7 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                         continue;
                     }
 
-                    if (!can_swap(hir.ops[curr], hir.ops[curr + 1], hir)) {
+                    if (!can_swap(hir.ops[curr], hir.ops[curr + 1], hir, &axis)) {
                         break;
                     }
                     std::swap(hir.ops[curr], hir.ops[curr + 1]);

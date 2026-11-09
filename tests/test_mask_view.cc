@@ -1,10 +1,12 @@
 #include "clifft/util/bitmask.h"
 #include "clifft/util/mask_view.h"
 #include "clifft/util/pauli_arena.h"
+#include "clifft/util/symplectic.h"
 
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <random>
 #include <span>
 
 using clifft::BitMask;
@@ -18,6 +20,35 @@ using clifft::PauliMaskArena;
 using clifft::PauliMaskHandle;
 using clifft::PauliMaskView;
 using clifft::view;
+
+TEST_CASE("Pauli commutation ranges agree with scalar symplectic products") {
+    std::mt19937_64 rng(71829);
+    constexpr size_t words = 5;
+    for (size_t begin = 0; begin <= words; ++begin) {
+        for (size_t end = begin; end <= words; ++end) {
+            for (size_t trial = 0; trial < 8; ++trial) {
+                std::array<uint64_t, words> ax{}, az{}, bx{}, bz{};
+                for (size_t w = 0; w < words; ++w) {
+                    if (w >= begin && w < end) {
+                        ax[w] = rng();
+                        az[w] = rng();
+                    }
+                    bx[w] = rng();
+                    bz[w] = rng();
+                }
+                bool odd = false;
+                for (size_t q = 0; q < words * 64; ++q) {
+                    odd ^= ((ax[q / 64] >> (q % 64)) & 1) && ((bz[q / 64] >> (q % 64)) & 1);
+                    odd ^= ((az[q / 64] >> (q % 64)) & 1) && ((bx[q / 64] >> (q % 64)) & 1);
+                }
+                const clifft::PauliCommutation check(MaskView{ax}, MaskView{az});
+                CHECK(check.anti_commutes(MaskView{bx}, MaskView{bz}) == odd);
+            }
+        }
+    }
+    const clifft::PauliCommutation empty(MaskView{}, MaskView{});
+    CHECK_FALSE(empty.anti_commutes(MaskView{}, MaskView{}));
+}
 
 // =========================================================================
 // MaskView: read-only access

@@ -25,10 +25,20 @@ TEST_CASE("Program preserves the original plan across bounded reconstruction fai
     }
     REQUIRE(selected.original().inspect() == original.original().inspect());
     auto limits = ReconstructionLimits{};
+    limits.max_operations = source.nodes.size();
+    const auto at_source_limit = Program::compile(source, hir, true, true, limits);
+    --limits.max_operations;
+    const auto oversized = Program::compile(source, hir, true, true, limits);
+    for (bool keep_records : {false, true}) {
+        REQUIRE(at_source_limit.uses_reconstruction(keep_records));
+        REQUIRE(at_source_limit.sampling_plan(keep_records).inspect() ==
+                selected.sampling_plan(keep_records).inspect());
+    }
+    limits = {};
     limits.max_dilation_qubits = 1;
     const auto bounded = Program::compile(source, hir, true, true, limits);
     const auto transformed = Program::compile(source, hir, true, false);
-    for (const auto* fallback : {&bounded, &transformed}) {
+    for (const auto* fallback : {&bounded, &transformed, &oversized}) {
         for (bool keep_records : {false, true}) {
             REQUIRE_FALSE(fallback->uses_reconstruction(keep_records));
             REQUIRE_FALSE(fallback->reconstruction_fallback_reason(keep_records).empty());
