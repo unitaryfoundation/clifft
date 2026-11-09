@@ -104,7 +104,9 @@ detector, observable, and expectation-value rows for each survivor.
 
 Marked detectors are checked during execution. Clifft discards a shot as soon
 as it can determine that the shot fails, avoiding later work that cannot
-contribute to the surviving sample.
+contribute to the surviving sample. For repeated count-only runs over the same
+compiled program, see
+[`SurvivorSampler`](cpu-execution.md#sharing-trajectories-in-survivor-sampling).
 
 ## Understand `SampleResult`
 

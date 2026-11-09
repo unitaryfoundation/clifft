@@ -32,6 +32,14 @@ compatibility limits.
 
 ::: clifft.sample_k_survivors
 
+Aggregate survivor jobs can share quantum trajectories and retain worker storage
+with `SurvivorSampler`. See the guide for its
+[interface status and controls](../guide/cpu-execution.md#sharing-trajectories-in-survivor-sampling).
+
+::: clifft.SurvivorSampler
+
+::: clifft.NoisePreparation
+
 ## Optional Sinter Integration
 
 Install `clifft[sinter]` for this optional integration with Stim/Sinter 1.16.

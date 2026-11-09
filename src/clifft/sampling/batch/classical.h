@@ -4,6 +4,7 @@
 #include "clifft/sampling/batch/external_inputs.h"
 #include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/batch/random_bits.h"
+#include "clifft/sampling/early_postselection.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/util/shot_seed.h"
 #include "clifft/util/xoshiro.h"
@@ -72,6 +73,7 @@ class BatchClassicalState {
     void reset_classical(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept;
 
     void sample_presampled_noise() noexcept;
+    void apply_early_postselection(const EarlyPostselection& checks) noexcept;
     void assign_external_inputs(const BatchExternalInputs& inputs) noexcept;
     void assign_forced_faults(KFaultSampler& fault_sampler) noexcept;
     struct NoiseSiteActivator;

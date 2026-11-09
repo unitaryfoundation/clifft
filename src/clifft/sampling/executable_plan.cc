@@ -53,6 +53,25 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     ExecutablePlanBuilder::build(*this, plan);
 }
 
+ExecutablePlan ExecutablePlan::compact_outputs(bool early_postselection,
+                                               BatchNoiseMode noise_mode) const {
+    return ExecutablePlanBuilder::compact_outputs(*this, early_postselection, noise_mode);
+}
+
+std::vector<AffineBool> ExecutablePlan::affine_registers() const {
+    std::vector<AffineBool> expressions;
+    expressions.reserve(num_expression_registers());
+    for (uint8_t constant : expression_register_constants_) {
+        expressions.emplace_back(constant != 0);
+    }
+    for (uint32_t symbol = 0; symbol < num_symbols_; ++symbol) {
+        for (uint32_t reg : expression_dependencies_.dependent_registers(symbol)) {
+            expressions[reg] ^= AffineBool::symbol(SymbolId{symbol});
+        }
+    }
+    return expressions;
+}
+
 void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,
                                                       size_t num_registers) const noexcept {
 #ifndef NDEBUG

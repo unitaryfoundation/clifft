@@ -68,6 +68,10 @@ class ExecutablePlan {
 
     explicit ExecutablePlan(const SamplingPlan& plan);
 
+    // Builds a separate count-only plan with expanded record snapshots.
+    [[nodiscard]] ExecutablePlan compact_outputs(
+        bool early_postselection = true, BatchNoiseMode noise_mode = BatchNoiseMode::Dense) const;
+
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
@@ -134,8 +138,13 @@ class ExecutablePlan {
     friend class BatchExecutor;
     friend class BatchClassicalState;
     friend class PreparedBatchNoise;
+    friend class EarlyPostselection;
+    friend class SharingExecutor;
+    friend class SharingKey;
     friend class BatchPresampledProgram;
     friend class ExecutablePlanBuilder;
+
+    [[nodiscard]] std::vector<AffineBool> affine_registers() const;
 
     // Actions retain only this index so repeated affine expressions stay in
     // shared plan storage.

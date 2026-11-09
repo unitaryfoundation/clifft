@@ -147,6 +147,24 @@ void BatchClassicalState::reset_classical(const SeedRoot& root, uint32_t first_s
     initialize_expression_registers();
 }
 
+void BatchClassicalState::apply_early_postselection(const EarlyPostselection& checks) noexcept {
+    assert(checks.plan_ == plan_ && "entrance checks must match the executor plan");
+    for (const auto& check : checks.checks_) {
+        for (size_t word = 0; word < word_capacity_; ++word) {
+            uint64_t rejected = check.constant ? live_words_[word] : 0;
+            for (uint32_t reg : check.registers) {
+                rejected ^= expression_registers_.column(reg)[word];
+            }
+            rejected &= live_words_[word];
+            live_words_[word] &= ~rejected;
+            live_count_ -= static_cast<uint32_t>(std::popcount(rejected));
+        }
+        if (live_count_ == 0) {
+            break;
+        }
+    }
+}
+
 void BatchClassicalState::fill_random_half_bits() noexcept {
     for (size_t word = 0; word < word_capacity_; ++word) {
         scratch_words_[word] = rng_() & live_words_[word];

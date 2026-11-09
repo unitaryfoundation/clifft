@@ -112,11 +112,39 @@ coordinates, not one amplitude per physical-qubit basis state. Clifford
 structure outside that active space remains encoded by the prepared coordinate
 description.
 
-Noncomputational transitions are the deliberate exception to fixed ordinary
-execution. A leakage or loss instrument may stop at an explicit boundary,
-prepare a trajectory-specific suffix, grow reusable storage if necessary, and
-resume without losing the live coefficients, records, symbols, or RNG
-position. See [Noncomputational States](noncomputational.md).
+In shared-trajectory execution (`SurvivorSampler`), each shot keeps its own
+packed classical values and RNG stream while shots on identical quantum
+branches share a single coefficient state. This resembles copy-on-write:
+equivalent shots evolve one coefficient vector together, and splitting a group
+copies that vector so the resulting groups can evolve independently. Prepared
+rotation signs and measurement outcomes determine group splitting. Optional
+upfront grouping separates shots by their effects on future rotation signs,
+which can split groups earlier.
+
+Plan preparation also extracts **entrance checks**: noise-only necessary
+conditions evaluated before quantum evolution. Eliminating unknown measurement
+variables from selected detector equations can expose these conditions; for
+example, `m XOR n0 = 0` and `m XOR n1 = 0` imply `n0 XOR n1 = 0`.
+Preparation preserves expected detector parities and record snapshots: a later
+asymmetric readout update cannot change an earlier detector's value. Passing the
+entrance checks does not guarantee acceptance: the original selected detector
+checks still decide it. Each runs after its last contributing record write,
+allowing rejected shots to skip later evolution.
+
+Before an action's possible splits can exceed a worker's allocated states,
+dispatch suspends at an explicit storage-growth boundary. The worker grows its
+state pool within the configured byte budget, then resumes the prepared action
+with sampled noise, branches, coefficients, and RNG position intact. The budget
+check uses a conservative bound on possible splits, so it may raise before the
+actual number of states needed is known.
+
+Noncomputational trajectories use a separate execution path; `SurvivorSampler`
+does not support leakage or loss instrument continuations. In that path, an
+instrument may stop at an explicit boundary, prepare a trajectory-specific
+suffix, grow reusable storage if necessary, and resume without losing live
+coefficients, records, symbols, or RNG position. See
+[Noncomputational States](noncomputational.md) and the
+[leakage and loss interface](../guide/leakage-and-loss.md#compiling-and-execution).
 
 ## Online Noncomputational Execution
 

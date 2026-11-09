@@ -30,9 +30,9 @@ direct multi-coordinate kernels. SymFT's packed cross-shot execution also
 inspired Clifft's packed sampling path.
 
 SymFT's [counts-focused CPU optimization work](https://github.com/haoliri0/SOFT/pull/19)
-also motivated skipping unused expectation probes in Clifft's scalar aggregate
-sampling. This is a Clifft-specific adaptation; SymFT's compiled CPU path falls
-back for circuits with expectation probes.
+also motivated decoupling classical batch capacity from quantum state storage,
+filtering shots with noise-only detector constraints before quantum evolution,
+and skipping unused expectation probes in aggregate survivor sampling.
 
 The [method provenance](theory/overview.md#method-provenance) describes this
 lineage and the implementation boundaries. The [symbolic sampling](updates/symbolic-sampling.md)
@@ -68,6 +68,13 @@ measurement-first active-width scheduling. Clifft implements Clifford dilation,
 causal stabilizer dressing, and projection folding directly with its own parser
 and tableau algebra. The MSC reconstruction regression inputs are preserved
 copies of the noisy SOFT/Tsim benchmark corpus.
+
+Tsim's [trajectory sharing](https://github.com/QuEraComputing/tsim/pull/198)
+informed Clifft's reuse of quantum state evolution across shots,
+measurement-driven group splitting, and per-shot pruning within shared groups.
+Clifft combines this grouping model with its prepared active-Pauli kernels,
+independent per-shot RNG streams, and bounded state-pool growth at explicit
+dispatch boundaries.
 
 - Rafael Haenel, Xiuzhe Luo, and Chen Zhao, ["Tsim: Fast Universal Simulator for Quantum Error Correction"](https://arxiv.org/abs/2604.01059)
   (2026).
