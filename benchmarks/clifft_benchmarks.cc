@@ -371,12 +371,18 @@ constexpr uint32_t kSharedShots = 65536;
 
 // Reconstructed cultivation keeps the quantum width small enough to share
 // thousands of noisy trajectories while retaining selected detector checks.
-Program shared_cultivation_program(const char* name) {
-    const auto circuit = parse_file(fixture(name));
-    auto hir = trace(circuit);
-    hir.postselection.mask.assign(hir.num_detectors, 1);
-    default_hir_pass_manager().run(hir);
-    return Program::compile(circuit, hir, true);
+// Reuse compilation across calibration and repetitions within each process.
+template <uint32_t Distance>
+const Program& shared_cultivation_program() {
+    static const Program program = [] {
+        const auto name = "reconstruction_msc_d" + std::to_string(Distance) + ".stim";
+        const auto circuit = parse_file(fixture(name.c_str()));
+        auto hir = trace(circuit);
+        hir.postselection.mask.assign(hir.num_detectors, 1);
+        default_hir_pass_manager().run(hir);
+        return Program::compile(circuit, hir, true);
+    }();
+    return program;
 }
 
 // Inspect the same prepared execution outside timing: a configured sampler
@@ -409,9 +415,10 @@ bool validate_shared_cultivation(benchmark::State& state, const Program& program
     return true;
 }
 
-void sample_shared_cultivation(benchmark::State& state, const char* name,
-                               sampling::BatchNoiseMode mode, bool compact, bool group) {
-    const auto program = shared_cultivation_program(name);
+template <uint32_t Distance>
+void sample_shared_cultivation(benchmark::State& state, sampling::BatchNoiseMode mode, bool compact,
+                               bool group) {
+    const auto& program = shared_cultivation_program<Distance>();
     if (!validate_shared_cultivation(state, program, mode, compact, group)) {
         return;
     }
@@ -434,9 +441,10 @@ void sample_shared_cultivation(benchmark::State& state, const char* name,
 
 // Construction includes output compaction, sparse noise metadata, early checks,
 // optional upfront grouping metadata, and worker storage; compilation is excluded.
-void prepare_shared_cultivation(benchmark::State& state, const char* name,
-                                sampling::BatchNoiseMode mode, bool group) {
-    const auto program = shared_cultivation_program(name);
+template <uint32_t Distance>
+void prepare_shared_cultivation(benchmark::State& state, sampling::BatchNoiseMode mode,
+                                bool group) {
+    const auto& program = shared_cultivation_program<Distance>();
     if (!validate_shared_cultivation(state, program, mode, true, group)) {
         return;
     }
@@ -447,21 +455,21 @@ void prepare_shared_cultivation(benchmark::State& state, const char* name,
     }
 }
 
-BENCHMARK_CAPTURE(sample_shared_cultivation, incremental_d5, "reconstruction_msc_d5.stim",
+BENCHMARK_CAPTURE(sample_shared_cultivation<5>, incremental_d5,
                   sampling::BatchNoiseMode::SiteSparse, false, false)
     ->Name("sample_shared_cultivation_d5_incremental_65536_shots");
-BENCHMARK_CAPTURE(sample_shared_cultivation, grouped_d5, "reconstruction_msc_d5.stim",
-                  sampling::BatchNoiseMode::SiteRows, true, true)
+BENCHMARK_CAPTURE(sample_shared_cultivation<5>, grouped_d5, sampling::BatchNoiseMode::SiteRows,
+                  true, true)
     ->Name("sample_shared_cultivation_d5_compact_grouped_65536_shots");
-BENCHMARK_CAPTURE(sample_shared_cultivation, incremental_d7, "reconstruction_msc_d7.stim",
+BENCHMARK_CAPTURE(sample_shared_cultivation<7>, incremental_d7,
                   sampling::BatchNoiseMode::SiteSparse, true, false)
-    ->Name("sample_shared_msc_d7_compact_65536_shots");
-BENCHMARK_CAPTURE(prepare_shared_cultivation, grouped_d5, "reconstruction_msc_d5.stim",
-                  sampling::BatchNoiseMode::SiteRows, true)
+    ->Name("sample_shared_cultivation_d7_compact_65536_shots");
+BENCHMARK_CAPTURE(prepare_shared_cultivation<5>, grouped_d5, sampling::BatchNoiseMode::SiteRows,
+                  true)
     ->Name("prepare_shared_cultivation_d5_compact_grouped");
-BENCHMARK_CAPTURE(prepare_shared_cultivation, incremental_d7, "reconstruction_msc_d7.stim",
+BENCHMARK_CAPTURE(prepare_shared_cultivation<7>, incremental_d7,
                   sampling::BatchNoiseMode::SiteSparse, false)
-    ->Name("prepare_shared_msc_d7_compact");
+    ->Name("prepare_shared_cultivation_d7_compact");
 #endif
 
 // Most shots reject before the noisy suffix. Retained survivor records keep

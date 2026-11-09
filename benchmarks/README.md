@@ -56,13 +56,15 @@ attributing gains to individual options require separate comparisons. All use
 reconstruction, FP64, one worker, capacity 8192, and an initial reservation of
 128 states.
 
-`sample_shared_*` times 65,536 attempts per call after warming one retained
-`SurvivorSampler`; compilation and construction are excluded, while aggregate
-result allocation and destruction are included. `prepare_shared_*` times
-construction and destruction from one retained `Program`, including compaction,
-noise/check/grouping metadata, and worker allocation, with no sampling in the
-timed loop. It excludes Program compilation and reconstruction. Existing
-`compile_plan_*` rows measure their own original-plan workloads separately.
+Each fixture's `Program` is compiled once per process and reused across
+calibration and repetitions. `sample_shared_*` times 65,536 attempts per call
+after warming one retained `SurvivorSampler`; compilation and construction are
+excluded, while aggregate result allocation and destruction are included.
+`prepare_shared_*` times repeated construction and destruction from that retained
+`Program`, including compaction, noise/check/grouping metadata, and worker
+allocation, with no sampling in the timed loop. It excludes Program compilation
+and reconstruction. Existing `compile_plan_*` rows measure their own
+original-plan workloads separately.
 
 Untimed checks require reconstruction, nonzero active width, entrance rejection,
 and fewer quantum groups than entering shots. Compact and grouped cases also
