@@ -19,8 +19,10 @@ class KFaultSampler;
 
 namespace clifft::sampling {
 
-// Immutable preparation shared by workers using direct fault propagation.
-// Site traversal skips silent shots independently for each categorical site.
+// Noise setup computed once for an executable plan and reused by its workers.
+// Stores the selected mode and any prepared fault probabilities and expression
+// update masks it needs. This data is read-only during execution; each worker's
+// BatchClassicalState keeps its own random draws and mutable buffers.
 // The plan outlives this object, and both outlive every executor using them.
 class PreparedBatchNoise {
   public:
@@ -36,8 +38,12 @@ class PreparedBatchNoise {
     std::vector<uint64_t> outcome_rows_;
 };
 
-// Packed noise, affine registers, and outputs shared by CPU batch executors.
-// Classical lane capacity is independent of coefficient storage.
+// Mutable classical data and operations for one worker's batch of shots.
+// Packs shot values into bit columns and tracks noise, expressions, measurement
+// records, outputs, and surviving shots. It can reuse PreparedBatchNoise for
+// fault sampling. Executors such as BatchExecutor add quantum coefficient
+// storage and dispatch, so classical batch capacity does not determine the number
+// of coefficient states. Buffers are allocated at construction and reused.
 class BatchClassicalState {
   public:
     [[nodiscard]] std::span<const uint64_t> survivor_mask() const noexcept { return live_words_; }

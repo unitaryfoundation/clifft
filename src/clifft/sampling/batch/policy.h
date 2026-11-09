@@ -46,12 +46,12 @@ enum class BatchOutputMode : uint8_t {
     AggregateSurvivors,
 };
 
-// Selects how sampled faults update the packed affine registers.
+// Selects how faults are sampled and applied to classical expressions.
 enum class BatchNoiseMode : uint8_t {
-    Dense,
-    Sparse,
-    SiteSparse,
-    SiteRows,
+    Dense,       // Propagate sampled faults through intermediate bit columns.
+    Sparse,      // Update expressions directly with the same random draws as Dense.
+    SiteSparse,  // Sample faults site by site and update expression columns.
+    SiteRows,    // Sample as SiteSparse, collect effects per shot, then transpose.
 };
 
 // Selects the source of noise and the corresponding retained readout storage.
