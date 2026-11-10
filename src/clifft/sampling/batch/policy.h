@@ -199,6 +199,13 @@ struct BatchWorkerStorageLayout {
                                                   BatchOutputMode output_mode,
                                                   BatchSamplingMode sampling_mode,
                                                   const PreparedBatchNoise* noise = nullptr);
+
+// The same footprint without the interleaved coefficient state.
+[[nodiscard]] uint64_t batch_worker_classical_bytes(const ExecutablePlan& plan,
+                                                    uint32_t lane_capacity,
+                                                    BatchOutputMode output_mode,
+                                                    BatchSamplingMode sampling_mode,
+                                                    const PreparedBatchNoise* noise = nullptr);
 #endif
 
 }  // namespace batch_detail

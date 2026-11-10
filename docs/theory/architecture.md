@@ -138,7 +138,7 @@ hold all mutable state.
 
 Before an action's possible splits can exceed a worker's allocated states,
 dispatch suspends at an explicit storage-growth boundary. The worker grows its
-state pool within the configured byte budget, then resumes the prepared action
+state pool within its own byte budget, then resumes the prepared action
 with sampled noise, branches, coefficients, and RNG position intact. The budget
 check uses a conservative bound on possible splits, so it may raise before the
 actual number of states needed is known.

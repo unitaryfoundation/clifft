@@ -1,6 +1,7 @@
 #include "clifft/sampling/sharing_executor.h"
 
 #include "clifft/sampling/measurement_branch.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <bit>
@@ -74,7 +75,7 @@ SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
 SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                                  const EarlyPostselection& checks, uint32_t lane_capacity,
                                  uint32_t initial_states, bool share, const SharingKey* key,
-                                 uint64_t max_state_bytes)
+                                 uint64_t max_worker_state_bytes)
     : BatchClassicalState(plan, BatchOutputMode::AggregateSurvivors, BatchSamplingMode::Ordinary,
                           batch_detail::batch_worker_storage_layout(
                               plan, lane_capacity, BatchOutputMode::AggregateSurvivors,
@@ -110,9 +111,9 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
         }
     }
     max_states_ = static_cast<uint32_t>(std::min<uint64_t>(
-        lane_capacity, max_state_bytes / State::storage_bytes(plan.peak_active_width())));
+        lane_capacity, max_worker_state_bytes / State::storage_bytes(plan.peak_active_width())));
     if (max_states_ == 0) {
-        throw std::invalid_argument("max_state_bytes cannot hold one shared state per worker");
+        throw std::invalid_argument("max_worker_state_bytes cannot hold one shared state");
     }
     initial_states = std::min(initial_states, max_states_);
     states_.reserve(initial_states);
@@ -144,12 +145,104 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
     }
 }
 
+uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
+                                                  const PreparedBatchNoise& noise,
+                                                  const SharingKey* key, uint32_t lane_capacity) {
+    // Per-lane RNG streams, group links, and branch choices.
+    constexpr uint64_t kLaneBytes =
+        sizeof(Xoshiro256PlusPlus) + 4 * sizeof(uint32_t) + sizeof(uint8_t);
+    uint64_t bytes =
+        saturating_add_u64(batch_detail::batch_worker_classical_bytes(
+                               plan, lane_capacity, BatchOutputMode::AggregateSurvivors,
+                               BatchSamplingMode::Ordinary, &noise),
+                           saturating_multiply_u64(lane_capacity, kLaneBytes));
+    bytes =
+        saturating_add_u64(bytes, saturating_multiply_u64(plan.num_actions(), sizeof(uint32_t)));
+    if (const uint64_t stride = key ? (key->num_bits() + 63) / 64 : 0; stride != 0) {
+        bytes = saturating_add_u64(
+            bytes, saturating_multiply_u64(lane_capacity, stride * sizeof(uint64_t)));
+        bytes = saturating_add_u64(
+            bytes,
+            saturating_multiply_u64(std::bit_ceil(uint64_t{lane_capacity} * 2), sizeof(uint32_t)));
+    }
+    return bytes;
+}
+
+uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
+                                  const SharingKey* key, uint64_t max_worker_state_bytes) {
+    // Width-zero plans keep no coefficient states.
+    const uint32_t width = plan.peak_active_width();
+    uint32_t capacity =
+        width == 0
+            ? kMaxAutoSharedBatchShots
+            : static_cast<uint32_t>(std::min<uint64_t>(
+                  kMaxAutoSharedBatchShots, max_worker_state_bytes / State::storage_bytes(width)));
+    // The sampler retains one observable counter per output alongside the executor.
+    const uint64_t counter_bytes =
+        saturating_multiply_u64(plan.num_observables(), sizeof(uint64_t));
+    while (capacity > 1 &&
+           saturating_add_u64(SharingExecutor::classical_storage_bytes(plan, noise, key, capacity),
+                              counter_bytes) > kMaxAutoSharedWorkerClassicalBytes) {
+        capacity /= 2;
+    }
+    return capacity;
+}
+
+BatchExecutionPolicy resolve_shared_execution_policy(uint32_t safe_capacity, uint32_t shots,
+                                                     uint32_t workers) noexcept {
+    assert(safe_capacity != 0 && workers != 0 && "shared policy needs a capacity and a worker");
+    if (shots == 0) {
+        return {};
+    }
+    // An even share gives every requested worker a batch. Below the lane floor,
+    // fewer workers with fuller batches share more states per coefficient update.
+    const uint64_t share = (uint64_t{shots} + workers - 1) / workers;
+    const uint32_t capacity = static_cast<uint32_t>(std::min<uint64_t>(
+        {safe_capacity, shots, std::max<uint64_t>(share, kMinAutoSharedLanesPerWorker)}));
+    const uint64_t batches = (uint64_t{shots} + capacity - 1) / capacity;
+    return {.lane_capacity = capacity,
+            .worker_count = static_cast<uint32_t>(std::min<uint64_t>(workers, batches))};
+}
+
+std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(uint32_t safe_capacity,
+                                                                         uint32_t shots,
+                                                                         uint32_t workers) {
+    std::vector<batch_detail::BatchTuningCandidate> candidates;
+    if (shots == 0) {
+        return candidates;
+    }
+    // Probes larger than this add calibration time without changing the ranking.
+    constexpr uint32_t kMaxProbeShots = 65536;
+    const auto append = [&](uint32_t requested) {
+        const uint32_t capacity = std::min({requested, safe_capacity, shots});
+        if (std::ranges::any_of(candidates, [&](const auto& candidate) {
+                return candidate.policy.lane_capacity == capacity;
+            })) {
+            return;
+        }
+        const uint64_t batches = (uint64_t{shots} + capacity - 1) / capacity;
+        const uint32_t used = static_cast<uint32_t>(std::min<uint64_t>(workers, batches));
+        // One full batch per worker measures the candidate at its production
+        // fill; the floor keeps single-lane probes long enough to time.
+        constexpr uint64_t kMinProbeShots = 256;
+        const uint32_t probe_shots =
+            static_cast<uint32_t>(std::max(kMinProbeShots, uint64_t{capacity} * used));
+        candidates.push_back(
+            {{capacity, used}, probe_shots, std::max(kMaxProbeShots, probe_shots)});
+    };
+    append(resolve_shared_execution_policy(safe_capacity, shots, workers).lane_capacity);
+    for (const uint32_t capacity : {1u, 64u, 256u, 1024u, 4096u, kMaxAutoSharedBatchShots}) {
+        append(capacity);
+    }
+    return candidates;
+}
+
 void SharingExecutor::grow_state_pool(uint32_t required) {
     assert(required <= lane_capacity_ && "shared states cannot outnumber classical lanes");
     if (required > max_states_) {
         throw std::runtime_error(
-            "shared state pool exceeds max_state_bytes; increase the budget or reduce batch_size "
-            "or threads");
+            "shared state pool exceeds max_worker_state_bytes; increase the budget or reduce "
+            "batch_size");
     }
     // This is an explicit suspension boundary. Live coefficients and sampled
     // outcomes remain intact while storage grows, then the same action resumes.

@@ -9,15 +9,10 @@
 #include <algorithm>
 #include <cassert>
 #include <chrono>
-#include <limits>
 #include <stdexcept>
 #include <variant>
 
 namespace clifft {
-
-namespace {
-constexpr uint32_t kMaxAutoSharingBatchShots = 8192;
-}
 
 struct SurvivorSampler::Worker {
     using Executor = std::variant<sampling::BatchExecutor, sampling::SharingExecutor>;
@@ -28,16 +23,17 @@ struct SurvivorSampler::Worker {
 
     Worker(const sampling::ExecutablePlan& plan, const sampling::PreparedBatchNoise& noise,
            const sampling::EarlyPostselection* checks, uint32_t capacity, uint32_t initial_states,
-           bool sharing, const sampling::SharingKey* key, uint64_t max_state_bytes)
+           bool sharing, const sampling::SharingKey* key, uint64_t max_worker_state_bytes)
         : executor(make_executor(plan, noise, checks, capacity, initial_states, sharing, key,
-                                 max_state_bytes)),
+                                 max_worker_state_bytes)),
           observable_ones(plan.num_observables()) {}
 
     static Executor make_executor(const sampling::ExecutablePlan& plan,
                                   const sampling::PreparedBatchNoise& noise,
                                   const sampling::EarlyPostselection* checks, uint32_t capacity,
                                   uint32_t initial_states, bool sharing,
-                                  const sampling::SharingKey* key, uint64_t max_state_bytes) {
+                                  const sampling::SharingKey* key,
+                                  uint64_t max_worker_state_bytes) {
         // Width-zero plans have no coefficient evolution to share. Their packed
         // executor applies classical checks without per-shot group bookkeeping.
         if (plan.peak_active_width() == 0) {
@@ -46,7 +42,7 @@ struct SurvivorSampler::Worker {
                             sampling::BatchSamplingMode::Ordinary, &noise);
         }
         return Executor(std::in_place_type<sampling::SharingExecutor>, plan, noise, *checks,
-                        capacity, initial_states, sharing, key, max_state_bytes);
+                        capacity, initial_states, sharing, key, max_worker_state_bytes);
     }
 };
 
@@ -54,33 +50,25 @@ SurvivorSampler::SurvivorSampler(const Program& program, std::optional<uint32_t>
                                  uint32_t threads, uint32_t initial_states,
                                  sampling::BatchNoiseMode noise_mode, bool sharing,
                                  bool early_postselection, bool group_by_noise,
-                                 uint64_t max_state_bytes,
+                                 uint64_t max_worker_state_bytes,
                                  std::optional<double> tuning_budget_seconds)
     : program_(program),
-      batch_size_(batch_size.value_or(kMaxAutoSharingBatchShots)),
+      call_sized_(!batch_size),
       worker_count_(resolve_thread_budget(threads)),
       initial_states_(initial_states),
-      worker_state_bytes_(max_state_bytes / worker_count_),
+      worker_state_bytes_(max_worker_state_bytes),
       sharing_(sharing),
       tuning_budget_seconds_(tuning_budget_seconds) {
     sampling::batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
-    if (batch_size == 0 || initial_states == 0 || max_state_bytes == 0) {
+    if (batch_size == 0 || initial_states == 0 || max_worker_state_bytes == 0) {
         throw std::invalid_argument(
-            "batch_size, initial_states, and max_state_bytes must be positive");
+            "batch_size, initial_states, and max_worker_state_bytes must be positive");
     }
     // The count-only plan keeps the compiled plan's peak width, so the state
     // budget is checked before the Program builds any preparation.
     const uint32_t width = program_.sampling_plan(false).peak_active_width();
-    if (width != 0) {
-        const uint64_t states = worker_state_bytes_ / sampling::State::storage_bytes(width);
-        if (states == 0) {
-            throw std::invalid_argument("max_state_bytes cannot hold one shared state per worker");
-        }
-        // Automatic capacities fit even when every lane needs a distinct state.
-        // Explicit capacities can exploit sharing beyond this conservative bound.
-        if (!batch_size) {
-            batch_size_ = static_cast<uint32_t>(std::min<uint64_t>(batch_size_, states));
-        }
+    if (width != 0 && worker_state_bytes_ < sampling::State::storage_bytes(width)) {
+        throw std::invalid_argument("max_worker_state_bytes cannot hold one shared state");
     }
     const auto& preparation = program_.sampling_preparation(false, early_postselection);
     plan_ = &preparation.plan();
@@ -93,15 +81,24 @@ SurvivorSampler::SurvivorSampler(const Program& program, std::optional<uint32_t>
             key_ = &preparation.sharing_key();
         }
     }
-    prepare_workers(batch_size_);
+    // Automatic capacities fit even when every lane needs a distinct state.
+    // Explicit capacities can exploit sharing beyond this conservative bound.
+    if (batch_size) {
+        prepare_workers({*batch_size, worker_count_});
+    } else {
+        safe_capacity_ =
+            sampling::max_safe_shared_capacity(*plan_, *noise_, key_, worker_state_bytes_);
+    }
 }
 
-void SurvivorSampler::prepare_workers(uint32_t capacity) {
-    workers_.clear();
-    batch_size_ = capacity;
-    workers_.reserve(worker_count_);
-    for (uint32_t worker = 0; worker < worker_count_; ++worker) {
-        workers_.push_back(std::make_unique<Worker>(*plan_, *noise_, checks_, capacity,
+void SurvivorSampler::prepare_workers(sampling::BatchExecutionPolicy policy) {
+    if (batch_size_ != policy.lane_capacity) {
+        workers_.clear();
+        batch_size_ = policy.lane_capacity;
+    }
+    workers_.reserve(policy.worker_count);
+    while (workers_.size() < policy.worker_count) {
+        workers_.push_back(std::make_unique<Worker>(*plan_, *noise_, checks_, batch_size_,
                                                     initial_states_, sharing_, key_,
                                                     worker_state_bytes_));
     }
@@ -110,25 +107,8 @@ void SurvivorSampler::prepare_workers(uint32_t capacity) {
 void SurvivorSampler::tune(uint32_t shots, std::optional<uint64_t> seed) {
     using namespace sampling;
     using namespace sampling::batch_detail;
-    const BatchExecutionPolicy baseline{batch_size_, worker_count_};
-    std::vector<BatchTuningCandidate> candidates;
-    const auto append = [&](uint32_t capacity) {
-        if (capacity > baseline.lane_capacity ||
-            std::ranges::any_of(candidates, [&](const auto& candidate) {
-                return candidate.policy.lane_capacity == capacity;
-            })) {
-            return;
-        }
-        const uint32_t probe_shots = static_cast<uint32_t>(
-            std::min<uint64_t>(std::numeric_limits<uint32_t>::max(),
-                               std::max<uint64_t>(256, uint64_t{capacity} * worker_count_)));
-        candidates.push_back(
-            {{capacity, worker_count_}, probe_shots, std::max(uint32_t{65536}, probe_shots)});
-    };
-    append(baseline.lane_capacity);
-    for (uint32_t capacity : {uint32_t{1}, uint32_t{64}, uint32_t{256}, uint32_t{1024}}) {
-        append(capacity);
-    }
+    const auto candidates = shared_tuning_candidates(safe_capacity_, shots, worker_count_);
+    const BatchExecutionPolicy baseline = candidates.front().policy;
     const auto now = [] {
         return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
             .count();
@@ -136,14 +116,12 @@ void SurvivorSampler::tune(uint32_t shots, std::optional<uint64_t> seed) {
     auto report =
         sweep_batch_candidates(candidates, baseline, 1, *tuning_budget_seconds_,
                                make_seed_root(shots, seed), now, [&](BatchExecutionPolicy policy) {
-                                   prepare_workers(policy.lane_capacity);
+                                   prepare_workers(policy);
                                    return [this](uint32_t count, uint64_t trial_seed) {
                                        (void)sample_batches(count, trial_seed);
                                    };
                                });
-    if (batch_size_ != report.batch_size) {
-        prepare_workers(report.batch_size);
-    }
+    prepare_workers({report.batch_size, report.shot_workers});
     tuning_report_ = std::move(report);
 }
 
@@ -152,8 +130,18 @@ SurvivorSampler::~SurvivorSampler() = default;
 sampling::SamplingSurvivorResult SurvivorSampler::sample(uint32_t shots,
                                                          std::optional<uint64_t> seed) {
     std::lock_guard lock(mutex_);
-    if (shots != 0 && tuning_budget_seconds_ && !tuning_report_) {
-        tune(shots, seed);
+    if (shots != 0 && call_sized_) {
+        if (tuning_report_) {
+            // The tuned capacity is retained; later calls only add the workers they can fill.
+            const uint64_t batches = (uint64_t{shots} + batch_size_ - 1) / batch_size_;
+            prepare_workers(
+                {batch_size_, static_cast<uint32_t>(std::min<uint64_t>(worker_count_, batches))});
+        } else if (tuning_budget_seconds_) {
+            tune(shots, seed);
+        } else {
+            prepare_workers(
+                sampling::resolve_shared_execution_policy(safe_capacity_, shots, worker_count_));
+        }
     }
     auto result = sample_batches(shots, seed);
     result.batch_tuning = tuning_report_;

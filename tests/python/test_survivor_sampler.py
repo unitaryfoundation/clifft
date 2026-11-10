@@ -194,9 +194,9 @@ def test_detector_snapshot_precedes_asymmetric_readout(reconstruction):
         {"initial_states": -1},
         {"initial_states": 2**32},
         {"threads": -1},
-        {"max_state_bytes": 0},
-        {"max_state_bytes": -1},
-        {"max_state_bytes": 1},
+        {"max_worker_state_bytes": 0},
+        {"max_worker_state_bytes": -1},
+        {"max_worker_state_bytes": 1},
         {"tuning_budget_seconds": 0},
         {"batch_size": "tune", "tuning_budget_seconds": -1},
         {"batch_size": "tune", "tuning_budget_seconds": float("nan")},
@@ -207,20 +207,53 @@ def test_configuration_uses_existing_option_validation(options):
         clifft.SurvivorSampler(clifft.compile(SOURCE), **options)
 
 
-def test_state_budget_is_shared_across_workers_and_failure_allows_reuse():
+def test_state_budget_applies_per_worker_and_failure_allows_reuse():
     program = clifft.compile(SOURCE)
     # This narrow plan needs one 4096-byte allocation per shared state.
     with pytest.raises(ValueError):
-        clifft.SurvivorSampler(program, threads=2, max_state_bytes=4096)
+        clifft.SurvivorSampler(program, threads=2, max_worker_state_bytes=4095)
     sampler = clifft.SurvivorSampler(
-        program, batch_size=65, threads=2, max_state_bytes=8192, sharing=False
+        program, batch_size=65, threads=2, max_worker_state_bytes=8192, sharing=False
     )
     with pytest.raises(RuntimeError):
         sampler.sample(130, seed=23)
     assert sampler.sample(1, seed=23).passed_shots == 1
-    auto = clifft.SurvivorSampler(program, batch_size="auto", threads=2, max_state_bytes=8192)
-    explicit = clifft.SurvivorSampler(program, batch_size=1, threads=2, max_state_bytes=8192)
-    assert counts(auto.sample(131, seed=23)) == counts(explicit.sample(131, seed=23))
+    # Two states fit each worker's budget whatever the worker count.
+    for threads in (1, 2, 4):
+        auto = clifft.SurvivorSampler(
+            program, batch_size="auto", threads=threads, max_worker_state_bytes=8192
+        )
+        explicit = clifft.SurvivorSampler(
+            program, batch_size=2, threads=threads, max_worker_state_bytes=8192
+        )
+        assert counts(auto.sample(131, seed=23)) == counts(explicit.sample(131, seed=23))
+
+
+def test_auto_capacity_follows_each_call_and_ignores_call_history():
+    program = clifft.compile(SOURCE)
+    sampler = clifft.SurvivorSampler(program, batch_size="auto", threads=2)
+    # Both calls fit one batch, so each matches a capacity equal to its shots.
+    for shots in (1301, 257, 1301):
+        explicit = clifft.SurvivorSampler(program, batch_size=shots, threads=2)
+        assert counts(sampler.sample(shots, seed=29)) == counts(explicit.sample(shots, seed=29))
+    # A call with a full share per worker splits evenly across the workers.
+    explicit = clifft.SurvivorSampler(program, batch_size=2048, threads=2)
+    assert counts(sampler.sample(4096, seed=29)) == counts(explicit.sample(4096, seed=29))
+
+
+def test_tuning_candidates_stay_within_the_worker_state_budget():
+    program = clifft.compile(SOURCE)
+    sampler = clifft.SurvivorSampler(
+        program,
+        batch_size="tune",
+        tuning_budget_seconds=0.15,
+        threads=2,
+        max_worker_state_bytes=100 * 4096,
+    )
+    report = sampler.sample(1301, seed=25).batch_tuning
+    assert report.baseline_batch_size == 100
+    assert {trial.batch_size for trial in report.trials} <= {1, 64, 100}
+    assert report.batch_size <= 100
 
 
 def test_tuning_is_reused_and_replays_at_the_selected_numeric_capacity():

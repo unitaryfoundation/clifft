@@ -480,6 +480,139 @@ TEST_CASE("Shared state budgets include scratch and bound growth at suspension")
     REQUIRE(worker.surviving_shots() == 1);
 }
 
+namespace {
+
+// Hadamard-conjugated T gates on separate qubits hold all of them active at once.
+ExecutablePlan parallel_t_plan(uint32_t width) {
+    std::string qubits;
+    for (uint32_t qubit = 0; qubit < width; ++qubit) {
+        qubits += " " + std::to_string(qubit);
+    }
+    ExecutablePlan plan(plan_sampling(
+        trace(parse("H" + qubits + "\nT" + qubits + "\nH" + qubits + "\nM" + qubits))));
+    REQUIRE(plan.peak_active_width() == width);
+    return plan;
+}
+
+}  // namespace
+
+TEST_CASE("Safe shared capacity gives every lane a state within one worker budget") {
+    const auto [width, expected] = GENERATE(table<uint32_t, uint32_t>(
+        {{1, kMaxAutoSharedBatchShots}, {8, kMaxAutoSharedBatchShots}, {10, 2730}, {13, 341}}));
+    const ExecutablePlan plan = parallel_t_plan(width);
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    const uint32_t capacity =
+        max_safe_shared_capacity(plan, noise, nullptr, kDefaultSharedWorkerStateBudget);
+    REQUIRE(capacity == expected);
+    const uint64_t state_bytes = State::storage_bytes(width);
+    REQUIRE(capacity * state_bytes <= kDefaultSharedWorkerStateBudget);
+    REQUIRE(max_safe_shared_capacity(plan, noise, nullptr, 3 * state_bytes) == 3);
+    REQUIRE(max_safe_shared_capacity(plan, noise, nullptr, state_bytes - 1) == 0);
+}
+
+TEST_CASE("Safe shared capacity halves until classical buffers fit their bound") {
+    // Each observable keeps one packed column, about 1 KiB at 8192 lanes.
+    std::string text = "H 0\nT 0\nH 0\nM 0\n";
+    for (uint32_t observable = 0; observable < 70000; ++observable) {
+        text += "OBSERVABLE_INCLUDE(" + std::to_string(observable) + ") rec[-1]\n";
+    }
+    const ExecutablePlan plan(plan_sampling(trace(parse(text))));
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    const uint32_t capacity =
+        max_safe_shared_capacity(plan, noise, nullptr, kDefaultSharedWorkerStateBudget);
+    REQUIRE(capacity == kMaxAutoSharedBatchShots / 2);
+    REQUIRE(SharingExecutor::classical_storage_bytes(plan, noise, nullptr, capacity) <=
+            kMaxAutoSharedWorkerClassicalBytes);
+    REQUIRE(SharingExecutor::classical_storage_bytes(plan, noise, nullptr, 2 * capacity) >
+            kMaxAutoSharedWorkerClassicalBytes);
+
+    // At a small capacity, the per-action split factors dominate the lane scratch.
+    const uint64_t retained_bytes = packed_bit_columns_storage_bytes(plan.num_observables(), 64) +
+                                    plan.num_actions() * sizeof(uint32_t);
+    REQUIRE(SharingExecutor::classical_storage_bytes(plan, noise, nullptr, 64) >= retained_bytes);
+}
+
+TEST_CASE("Safe shared capacity includes the worker observable counters") {
+    // Executor buffers fit at 8192 lanes, but the sampler's counters exceed the remaining budget.
+    const ExecutablePlan plan(
+        plan_sampling(trace(parse("H 0\nT 0\nH 0\nM 0\nOBSERVABLE_INCLUDE(64299) rec[-1]\n"))));
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    REQUIRE(
+        SharingExecutor::classical_storage_bytes(plan, noise, nullptr, kMaxAutoSharedBatchShots) <=
+        kMaxAutoSharedWorkerClassicalBytes);
+    const uint32_t capacity =
+        max_safe_shared_capacity(plan, noise, nullptr, kDefaultSharedWorkerStateBudget);
+    REQUIRE(capacity == kMaxAutoSharedBatchShots / 2);
+}
+
+TEST_CASE("Automatic shared policy sizes batches to the call and its workers") {
+    struct Case {
+        uint32_t safe, shots, workers, capacity, used;
+    };
+    const auto c = GENERATE(values<Case>({
+        // Long calls fill the safe capacity on every worker.
+        {8192, 1 << 20, 8, 8192, 8},
+        {8192, 65536, 8, 8192, 8},
+        {341, 65536, 8, 341, 8},
+        // An even share gives each requested worker one batch.
+        {8192, 16384, 8, 2048, 8},
+        {8192, 16385, 8, 2049, 8},
+        // Below the lane floor, fewer workers keep fuller batches.
+        {8192, 4096, 8, kMinAutoSharedLanesPerWorker, 4},
+        {8192, 100, 8, 100, 1},
+        {8192, 100, 1, 100, 1},
+        // The safe capacity still bounds a single worker.
+        {5, 100, 1, 5, 1},
+    }));
+    const auto policy = resolve_shared_execution_policy(c.safe, c.shots, c.workers);
+    REQUIRE(policy.lane_capacity == c.capacity);
+    REQUIRE(policy.worker_count == c.used);
+}
+
+TEST_CASE("Shared tuning candidates start at the baseline and stay within the safe capacity") {
+    const auto [safe, shots, workers] = GENERATE(table<uint32_t, uint32_t, uint32_t>(
+        {{8192, 16384, 8}, {8192, 1 << 20, 8}, {341, 65536, 4}, {8192, 100, 2}, {1, 100, 1}}));
+    const auto candidates = shared_tuning_candidates(safe, shots, workers);
+    const auto baseline = resolve_shared_execution_policy(safe, shots, workers);
+    REQUIRE(candidates.front().policy.lane_capacity == baseline.lane_capacity);
+    REQUIRE(candidates.front().policy.worker_count == baseline.worker_count);
+    const uint32_t limit = std::min(safe, shots);
+    bool reaches_limit = false;
+    for (size_t i = 0; i < candidates.size(); ++i) {
+        const auto& policy = candidates[i].policy;
+        REQUIRE(policy.lane_capacity <= limit);
+        REQUIRE(policy.worker_count <= workers);
+        REQUIRE(uint64_t{policy.lane_capacity} * (policy.worker_count - 1) < shots);
+        reaches_limit |= policy.lane_capacity == limit;
+        for (size_t j = 0; j < i; ++j) {
+            REQUIRE(candidates[j].policy.lane_capacity != policy.lane_capacity);
+        }
+    }
+    REQUIRE(reaches_limit);
+    REQUIRE(shared_tuning_candidates(safe, 0, workers).empty());
+}
+
+TEST_CASE("Automatic survivor sampling replays the per-worker capacity at any worker count") {
+    const auto circuit = parse(
+        "H 0 1\nT 0 1\nDEPOLARIZE1(0.04) 0 1\nH 0 1\nM(0.13) 0 1\n"
+        "OBSERVABLE_INCLUDE(0) rec[-2]");
+    const Program program{ExecutablePlan(plan_sampling(trace(circuit)))};
+    const uint32_t width = program.sampling_plan(false).peak_active_width();
+    // Seven states fit each worker, however many workers share the call.
+    const uint64_t budget = 7 * State::storage_bytes(width);
+    const uint32_t threads = GENERATE(1u, 2u, 5u);
+    const auto mode = BatchNoiseMode::SiteSparse;
+    SurvivorSampler automatic(program, std::nullopt, threads, 128, mode, true, true, false, budget);
+    SurvivorSampler numeric(program, 7, threads, 128, mode, true, true, false, budget);
+    const auto expected = numeric.sample(1301, 31);
+    const auto result = automatic.sample(1301, 31);
+    REQUIRE(result.passed_shots == expected.passed_shots);
+    REQUIRE(result.observable_ones == expected.observable_ones);
+    REQUIRE_THROWS_AS(SurvivorSampler(program, std::nullopt, threads, 128, mode, true, true, false,
+                                      State::storage_bytes(width) - 1),
+                      std::invalid_argument);
+}
+
 TEST_CASE("Survivor construction rejects instruments in each preparation path") {
     const auto options = test::source_dependent_jump_options();
     const auto hir = trace(parse("LEVEL_TRANSITION[jump] 0"), &options);
