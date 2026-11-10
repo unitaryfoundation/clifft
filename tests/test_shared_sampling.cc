@@ -525,6 +525,24 @@ TEST_CASE("Safe shared capacity halves until classical buffers fit their bound")
             kMaxAutoSharedWorkerClassicalBytes);
     REQUIRE(SharingExecutor::classical_storage_bytes(plan, noise, nullptr, 2 * capacity) >
             kMaxAutoSharedWorkerClassicalBytes);
+
+    // At a small capacity, the per-action split factors dominate the lane scratch.
+    const uint64_t retained_bytes = packed_bit_columns_storage_bytes(plan.num_observables(), 64) +
+                                    plan.num_actions() * sizeof(uint32_t);
+    REQUIRE(SharingExecutor::classical_storage_bytes(plan, noise, nullptr, 64) >= retained_bytes);
+}
+
+TEST_CASE("Safe shared capacity includes the worker observable counters") {
+    // Executor buffers fit at 8192 lanes, but the sampler's counters exceed the remaining budget.
+    const ExecutablePlan plan(
+        plan_sampling(trace(parse("H 0\nT 0\nH 0\nM 0\nOBSERVABLE_INCLUDE(64299) rec[-1]\n"))));
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    REQUIRE(
+        SharingExecutor::classical_storage_bytes(plan, noise, nullptr, kMaxAutoSharedBatchShots) <=
+        kMaxAutoSharedWorkerClassicalBytes);
+    const uint32_t capacity =
+        max_safe_shared_capacity(plan, noise, nullptr, kDefaultSharedWorkerStateBudget);
+    REQUIRE(capacity == kMaxAutoSharedBatchShots / 2);
 }
 
 TEST_CASE("Automatic shared policy sizes batches to the call and its workers") {

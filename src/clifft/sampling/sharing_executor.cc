@@ -156,6 +156,8 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
                                plan, lane_capacity, BatchOutputMode::AggregateSurvivors,
                                BatchSamplingMode::Ordinary, &noise),
                            saturating_multiply_u64(lane_capacity, kLaneBytes));
+    bytes =
+        saturating_add_u64(bytes, saturating_multiply_u64(plan.num_actions(), sizeof(uint32_t)));
     if (const uint64_t stride = key ? (key->num_bits() + 63) / 64 : 0; stride != 0) {
         bytes = saturating_add_u64(
             bytes, saturating_multiply_u64(lane_capacity, stride * sizeof(uint64_t)));
@@ -175,8 +177,12 @@ uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatc
             ? kMaxAutoSharedBatchShots
             : static_cast<uint32_t>(std::min<uint64_t>(
                   kMaxAutoSharedBatchShots, max_worker_state_bytes / State::storage_bytes(width)));
-    while (capacity > 1 && SharingExecutor::classical_storage_bytes(plan, noise, key, capacity) >
-                               kMaxAutoSharedWorkerClassicalBytes) {
+    // The sampler retains one observable counter per output alongside the executor.
+    const uint64_t counter_bytes =
+        saturating_multiply_u64(plan.num_observables(), sizeof(uint64_t));
+    while (capacity > 1 &&
+           saturating_add_u64(SharingExecutor::classical_storage_bytes(plan, noise, key, capacity),
+                              counter_bytes) > kMaxAutoSharedWorkerClassicalBytes) {
         capacity /= 2;
     }
     return capacity;
