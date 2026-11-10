@@ -144,12 +144,24 @@ SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, size_t end,
             ++remaining_uses_[static_cast<uint32_t>(hir.ops[i].controlling_meas())];
         }
     }
+    rows_.reserve(hir.num_qubits);
     for (uint32_t q = 0; q < hir.num_qubits; ++q) {
         PauliString axis(hir.num_qubits);
         axis.set_pauli(q, false, true);
         const auto pivot = pivot_of(axis);
-        rows_.emplace(pivot, Row{std::move(axis), {}, q / 64, q / 64 + 1});
+        add_row(pivot, Row{std::move(axis), {}, q / 64, q / 64 + 1});
     }
+}
+
+SymbolicStabilizers::Rows::const_iterator SymbolicStabilizers::first_row_from(
+    uint32_t pivot) const {
+    return std::ranges::lower_bound(rows_, pivot, {}, &Rows::value_type::first);
+}
+
+void SymbolicStabilizers::add_row(uint32_t pivot, Row row) {
+    const auto at = first_row_from(pivot);
+    assert(at == rows_.end() || at->first != pivot);
+    rows_.emplace(at, pivot, std::move(row));
 }
 
 bool SymbolicStabilizers::multiply(Row& left, const Row& right, size_t& products) const {
@@ -242,7 +254,7 @@ std::optional<SymbolicStabilizers::AffineBool> SymbolicStabilizers::affine_eigen
     PauliString axis, bool& capped) const {
     Row reduced{std::move(axis), {}};
     size_t products = 0;
-    for (auto it = rows_.lower_bound(pivot_of(reduced.axis)); it != rows_.end(); ++it) {
+    for (auto it = first_row_from(pivot_of(reduced.axis)); it != rows_.end(); ++it) {
         if (body_bit(reduced.axis, it->first) && !multiply(reduced, it->second, products)) {
             capped = true;
             return std::nullopt;
@@ -263,7 +275,7 @@ bool SymbolicStabilizers::insert_row(Row row) {
     fixed_valid_ = false;
     assert(row.axis.is_hermitian());
     size_t products = 0;
-    for (auto it = rows_.lower_bound(pivot_of(row.axis)); it != rows_.end(); ++it) {
+    for (auto it = first_row_from(pivot_of(row.axis)); it != rows_.end(); ++it) {
         if (body_bit(row.axis, it->first) && !multiply(row, it->second, products)) {
             return false;
         }
@@ -274,7 +286,8 @@ bool SymbolicStabilizers::insert_row(Row row) {
         const PauliCommutation range(row.axis.x(), row.axis.z());
         row.begin = range.begin_word();
         row.end = range.end_word();
-        rows_.emplace(pivot_of(row.axis), std::move(row));
+        const auto pivot = pivot_of(row.axis);
+        add_row(pivot, std::move(row));
     }
     return true;
 }

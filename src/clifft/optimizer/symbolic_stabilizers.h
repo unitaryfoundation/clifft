@@ -7,6 +7,8 @@
 #include <cstddef>
 #include <map>
 #include <optional>
+#include <utility>
+#include <vector>
 
 namespace clifft {
 
@@ -84,7 +86,12 @@ class SymbolicStabilizers {
     SymbolicStabilizerOptions options_;
     uint64_t next_symbol_ = 0;
     size_t next_record_age_ = 0;
-    std::map<uint32_t, Row> rows_;
+    // Rows sorted by pivot. Each fault channel, measurement, and feedback Pauli
+    // visits every row, so the rows are stored contiguously.
+    using Rows = std::vector<std::pair<uint32_t, Row>>;
+    [[nodiscard]] Rows::const_iterator first_row_from(uint32_t pivot) const;
+    void add_row(uint32_t pivot, Row row);
+    Rows rows_;
     std::map<uint32_t, Record> records_;
     // Uses follow emitted classical operations even when rotations are moved.
     // This schedule survives discarded constraints and uses O(feedback records) storage.
