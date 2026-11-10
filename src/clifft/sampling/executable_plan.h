@@ -68,9 +68,9 @@ class ExecutablePlan {
 
     explicit ExecutablePlan(const SamplingPlan& plan);
 
-    // Builds a separate count-only plan with expanded record snapshots.
-    [[nodiscard]] ExecutablePlan compact_outputs(
-        bool early_postselection = true, BatchNoiseMode noise_mode = BatchNoiseMode::Dense) const;
+    // Builds a separate count-only plan with expanded record snapshots. The
+    // plan has no presampled program; dense PreparedBatchNoise builds one.
+    [[nodiscard]] ExecutablePlan compact_outputs(bool early_postselection = true) const;
 
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }

@@ -8,6 +8,7 @@
 #include <cassert>
 #include <iterator>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <unordered_map>
 #include <utility>
@@ -55,12 +56,9 @@ uint64_t expression_hash(bool constant, std::span<const uint32_t> terms) noexcep
 }  // namespace
 
 std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
-    const ExecutablePlan& executable, std::span<const uint32_t> expression_terms,
-    std::span<const uint32_t> expression_term_begins) {
+    const ExecutablePlan& executable) {
 #if defined(__EMSCRIPTEN__)
     (void)executable;
-    (void)expression_terms;
-    (void)expression_term_begins;
     return std::nullopt;
 #else
     if (executable.has_instruments_) {
@@ -75,21 +73,15 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     for (const auto& outcome : executable.noise_outcomes_) {
         bound_presampled_symbols[outcome.symbol] = 1;
     }
-    const size_t num_expressions = expression_term_begins.size();
+    const size_t num_expressions = executable.num_expression_registers();
     std::vector<std::vector<uint32_t> > presampled_terms(num_expressions);
     uint64_t original_presampled_terms = 0;
-    for (size_t expression = 0; expression < num_expressions; ++expression) {
-        const uint32_t begin = expression_term_begins[expression];
-        const uint32_t end = expression + 1 < num_expressions
-                                 ? expression_term_begins[expression + 1]
-                                 : static_cast<uint32_t>(expression_terms.size());
-        for (uint32_t term = begin; term < end; ++term) {
-            const uint32_t symbol = expression_terms[term];
-            if (!presampled[symbol]) {
-                continue;
-            }
-            ++original_presampled_terms;
-            if (bound_presampled_symbols[symbol] == 0) {
+    // Symbols ascend, so each expression's term list is already canonical.
+    for (uint32_t symbol : executable.presampled_symbols_) {
+        const auto registers = executable.expression_dependencies_.dependent_registers(symbol);
+        original_presampled_terms += registers.size();
+        if (bound_presampled_symbols[symbol] == 0) {
+            for (uint32_t expression : registers) {
                 presampled_terms[expression].push_back(symbol);
             }
         }
@@ -171,9 +163,9 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
 
     std::unordered_multimap<uint64_t, uint32_t> interned;
     std::vector<ExpressionBlock> blocks;
-    blocks.reserve(expression_term_begins.size());
-    interned.reserve(expression_term_begins.size());
-    for (size_t expression = 0; expression < expression_term_begins.size(); ++expression) {
+    blocks.reserve(num_expressions);
+    interned.reserve(num_expressions);
+    for (size_t expression = 0; expression < num_expressions; ++expression) {
         std::vector<uint32_t> terms = std::move(presampled_terms[expression]);
 
         const bool constant = executable.expression_register_constants_[expression] != 0;

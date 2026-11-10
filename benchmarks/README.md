@@ -44,28 +44,33 @@ This is a regression canary, not a comparison with another simulator.
 
 Shared execution can reduce repeated coefficient evolution, but its preparation
 cost matters for short jobs. `--benchmark_filter='^(sample|prepare)_shared_'`
-keeps retained sampling and sampler construction visible as separate canary rows.
+keeps first-use preparation, repeated sampler construction, and retained
+sampling visible as separate canary rows.
 These cases reuse the noisy cultivation fixtures, postselect all detectors,
 and request aggregate survivor and observable counts with raw parities.
 
 The d3 sampling case covers packed dormant measurements and rare symmetric
 readout. Both d3 and d5 use upfront noise grouping and site-row noise. The d7
-sampling case covers incremental sharing and site-sparse noise. A separate case
-measures d5 grouped sampler construction. These are fixed configurations for
-regression monitoring. Choosing defaults and attributing gains to individual
-options require separate comparisons. All use compact outputs, FP64, one worker,
-capacity 8192, and an initial reservation of 128 states. Reconstruction is
-requested for all cases and selected for d5 and d7; d3 uses its original
-width-four plan.
+sampling case covers incremental sharing and site-sparse noise. Two further
+cases measure d5 grouped first-use preparation and repeated sampler
+construction. These are fixed configurations for regression monitoring.
+Choosing defaults and attributing gains to individual options require separate
+comparisons. All use FP64, one worker, capacity 8192, and an initial
+reservation of 128 states. Reconstruction is requested for all cases and
+selected for d5 and d7; d3 uses its original width-four plan.
 
 Each fixture's `Program` is compiled once per process and reused across
 calibration and repetitions. `sample_shared_*` times 65,536 attempts per call
 after warming one retained `SurvivorSampler`; compilation and construction are
 excluded, while aggregate result allocation and destruction are included.
-`prepare_shared_*` times repeated construction and destruction from that retained
-`Program`, including compaction, noise/check/grouping metadata, and worker
-allocation, with no sampling in the timed loop. It excludes Program compilation
-and reconstruction. Existing `compile_plan_*` rows measure their own
+`prepare_shared_cultivation_d5_first_use_compact_grouped` times one independent
+build of the immutable preparation per iteration: the count-only plan, site-row
+noise metadata, early checks, and the grouping key. It builds no workers and
+excludes Program compilation and reconstruction.
+`prepare_shared_cultivation_d5_compact_grouped` times repeated sampler
+construction and destruction from the retained `Program`, which reuses the
+program's preparation and allocates workers. Neither prepare row runs sampling
+in the timed loop. Existing `compile_plan_*` rows measure their own
 original-plan workloads separately.
 
 Untimed checks require the expected reconstruction selection, nonzero active

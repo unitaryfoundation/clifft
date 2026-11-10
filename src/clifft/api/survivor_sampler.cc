@@ -1,5 +1,6 @@
 #include "clifft/api/survivor_sampler.h"
 
+#include "clifft/api/sampling_preparation.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/sharing_executor.h"
@@ -25,7 +26,7 @@ struct SurvivorSampler::Worker {
     std::vector<uint64_t> observable_ones;
 
     Worker(const sampling::ExecutablePlan& plan, const sampling::PreparedBatchNoise& noise,
-           const sampling::EarlyPostselection& checks, uint32_t capacity, uint32_t initial_states,
+           const sampling::EarlyPostselection* checks, uint32_t capacity, uint32_t initial_states,
            bool sharing, const sampling::SharingKey* key, uint64_t max_state_bytes)
         : executor(make_executor(plan, noise, checks, capacity, initial_states, sharing, key,
                                  max_state_bytes)),
@@ -33,7 +34,7 @@ struct SurvivorSampler::Worker {
 
     static Executor make_executor(const sampling::ExecutablePlan& plan,
                                   const sampling::PreparedBatchNoise& noise,
-                                  const sampling::EarlyPostselection& checks, uint32_t capacity,
+                                  const sampling::EarlyPostselection* checks, uint32_t capacity,
                                   uint32_t initial_states, bool sharing,
                                   const sampling::SharingKey* key, uint64_t max_state_bytes) {
         // Width-zero plans have no coefficient evolution to share. Their packed
@@ -43,7 +44,7 @@ struct SurvivorSampler::Worker {
                             sampling::BatchOutputMode::AggregateSurvivors,
                             sampling::BatchSamplingMode::Ordinary, &noise);
         }
-        return Executor(std::in_place_type<sampling::SharingExecutor>, plan, noise, checks,
+        return Executor(std::in_place_type<sampling::SharingExecutor>, plan, noise, *checks,
                         capacity, initial_states, sharing, key, max_state_bytes);
     }
 };
@@ -51,25 +52,22 @@ struct SurvivorSampler::Worker {
 SurvivorSampler::SurvivorSampler(const Program& program, std::optional<uint32_t> batch_size,
                                  uint32_t threads, uint32_t initial_states,
                                  sampling::BatchNoiseMode noise_mode, bool sharing,
-                                 bool early_postselection, bool compact_outputs,
-                                 bool group_by_noise, uint64_t max_state_bytes,
+                                 bool early_postselection, bool group_by_noise,
+                                 uint64_t max_state_bytes,
                                  std::optional<double> tuning_budget_seconds)
-    : program_(&program),
+    : program_(program),
       batch_size_(batch_size.value_or(kMaxAutoSharingBatchShots)),
       worker_count_(resolve_thread_budget(threads)),
       initial_states_(initial_states),
       worker_state_bytes_(max_state_bytes / worker_count_),
       sharing_(sharing),
       tuning_budget_seconds_(tuning_budget_seconds),
-      compact_plan_(compact_outputs ? std::optional(program.sampling_plan(false).compact_outputs(
-                                          early_postselection, noise_mode))
-                                    : std::nullopt),
-      plan_(compact_plan_ ? *compact_plan_ : program.sampling_plan(false)),
-      noise_(plan_, noise_mode),
-      checks_(plan_, early_postselection && plan_.peak_active_width() != 0),
-      key_(sharing && group_by_noise && plan_.peak_active_width() != 0
-               ? std::optional<sampling::SharingKey>(plan_)
-               : std::nullopt) {
+      preparation_(program_.sampling_preparation(false, early_postselection)),
+      plan_(preparation_.plan()),
+      noise_(preparation_.noise(noise_mode)),
+      checks_(plan_.peak_active_width() != 0 ? &preparation_.checks() : nullptr),
+      key_(sharing && group_by_noise && plan_.peak_active_width() != 0 ? &preparation_.sharing_key()
+                                                                       : nullptr) {
     sampling::batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
     if (batch_size == 0 || initial_states == 0 || max_state_bytes == 0) {
         throw std::invalid_argument(
@@ -96,8 +94,8 @@ void SurvivorSampler::prepare_workers(uint32_t capacity) {
     workers_.reserve(worker_count_);
     for (uint32_t worker = 0; worker < worker_count_; ++worker) {
         workers_.push_back(std::make_unique<Worker>(plan_, noise_, checks_, capacity,
-                                                    initial_states_, sharing_,
-                                                    key_ ? &*key_ : nullptr, worker_state_bytes_));
+                                                    initial_states_, sharing_, key_,
+                                                    worker_state_bytes_));
     }
 }
 
@@ -158,7 +156,7 @@ sampling::SamplingSurvivorResult SurvivorSampler::sample_batches(uint32_t shots,
                                                                  std::optional<uint64_t> seed) {
     sampling::SamplingSurvivorResult result;
     result.total_shots = shots;
-    result.observable_ones.resize(program_->original().num_observables());
+    result.observable_ones.resize(program_.original().num_observables());
     if (shots == 0) {
         return result;
     }

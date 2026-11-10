@@ -11,6 +11,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -21,22 +22,32 @@ class KFaultSampler;
 namespace clifft::sampling {
 
 // Noise setup computed once for an executable plan and reused by its workers.
-// Stores the selected mode and any prepared fault probabilities and expression
-// update masks it needs. This data is read-only during execution; each worker's
-// BatchClassicalState keeps its own random draws and mutable buffers.
+// Stores the selected mode, any prepared fault probabilities and expression
+// update masks it needs, and, for dense noise on a plan without a lowered
+// presampled program, the program built for that plan. This data is read-only
+// during execution; each worker's BatchClassicalState keeps its own random
+// draws and mutable buffers.
 // The plan outlives this object, and both outlive every executor using them.
 class PreparedBatchNoise {
   public:
     PreparedBatchNoise(const ExecutablePlan& plan, BatchNoiseMode mode);
     [[nodiscard]] BatchNoiseMode mode() const noexcept { return mode_; }
+    // Carrier columns used by dense propagation. Zero for the sparse modes and
+    // when sampled faults propagate one symbol at a time.
+    [[nodiscard]] uint32_t num_carriers() const noexcept;
 
   private:
     friend class BatchClassicalState;
+    // Dense propagation program: the one lowering prepared for the plan, or
+    // the one built here for a plan without it, such as a compact plan.
+    [[nodiscard]] const BatchPresampledProgram* presampled_program() const noexcept;
+
     const ExecutablePlan* plan_;
     BatchNoiseMode mode_;
     size_t row_stride_ = 0;
     std::vector<PreparedBernoulli> sites_;
     std::vector<uint64_t> outcome_rows_;
+    std::optional<BatchPresampledProgram> presampled_program_;
 };
 
 // Mutable classical data and operations for one worker's batch of shots.
@@ -101,6 +112,8 @@ class BatchClassicalState {
     const PreparedBatchNoise* noise_;
     std::vector<uint64_t> noise_rows_;
     const ExecutablePlan* plan_;
+    // Dense propagation program, or null to propagate each symbol separately.
+    const BatchPresampledProgram* presampled_program_;
     const BatchOutputMode output_mode_;
     const BatchSamplingMode sampling_mode_;
     uint32_t lane_capacity_ = 0;

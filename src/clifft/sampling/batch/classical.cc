@@ -53,6 +53,25 @@ PreparedBatchNoise::PreparedBatchNoise(const ExecutablePlan& plan, BatchNoiseMod
             }
         }
     }
+    if (mode == BatchNoiseMode::Dense && !plan.batch_presampled_program_.has_value()) {
+        presampled_program_ = BatchPresampledProgram::build(plan);
+    }
+}
+
+const BatchPresampledProgram* PreparedBatchNoise::presampled_program() const noexcept {
+    if (mode_ != BatchNoiseMode::Dense) {
+        return nullptr;
+    }
+    if (presampled_program_.has_value()) {
+        return &*presampled_program_;
+    }
+    return plan_->batch_presampled_program_.has_value() ? &*plan_->batch_presampled_program_
+                                                        : nullptr;
+}
+
+uint32_t PreparedBatchNoise::num_carriers() const noexcept {
+    const BatchPresampledProgram* program = presampled_program();
+    return program != nullptr ? program->num_carriers() : 0;
 }
 
 BatchClassicalState::BatchClassicalState(const ExecutablePlan& plan, BatchOutputMode output_mode,
@@ -61,6 +80,10 @@ BatchClassicalState::BatchClassicalState(const ExecutablePlan& plan, BatchOutput
                                          const PreparedBatchNoise* noise)
     : noise_(noise),
       plan_(validate_batch_plan(plan, sampling_mode)),
+      presampled_program_(noise ? noise->presampled_program()
+                          : plan.batch_presampled_program_.has_value()
+                              ? &*plan.batch_presampled_program_
+                              : nullptr),
       output_mode_(output_mode),
       sampling_mode_(sampling_mode),
       lane_capacity_(storage.lane_capacity),
@@ -92,12 +115,12 @@ BatchClassicalState::BatchClassicalState(const ExecutablePlan& plan, BatchOutput
 
 void BatchClassicalState::assign_external_inputs(const BatchExternalInputs& inputs) noexcept {
     for (uint32_t input = 0; input < plan_->presampled_symbols_.size(); ++input) {
-        if (!plan_->batch_presampled_program_.has_value()) {
+        if (presampled_program_ == nullptr) {
             symbols_.assign(plan_->presampled_symbols_[input], inputs.bits_.column(input),
                             live_words_);
             continue;
         }
-        const auto& program = *plan_->batch_presampled_program_;
+        const auto& program = *presampled_program_;
         const auto assignment = program.input_assignments_[input];
         if (assignment.count == 0) {
             continue;
@@ -125,7 +148,7 @@ void BatchClassicalState::reset_classical(const SeedRoot& root, uint32_t first_s
     assert(shots <= lane_capacity_ && "packed batch must fit retained capacity");
     live_count_ = shots;
     fill_low_lane_mask(live_words_, shots);
-    if (plan_->batch_presampled_program_.has_value()) {
+    if (presampled_program_ != nullptr) {
         batch_noise_carriers_.clear();
     } else {
         symbols_.clear();
@@ -181,9 +204,9 @@ void BatchClassicalState::initialize_expression_registers() noexcept {
 }
 
 void BatchClassicalState::initialize_presampled_expressions() noexcept {
-    assert(plan_->batch_presampled_program_.has_value() &&
+    assert(presampled_program_ != nullptr &&
            "presampled expression program must contain matching levels");
-    const BatchPresampledProgram& program = *plan_->batch_presampled_program_;
+    const BatchPresampledProgram& program = *presampled_program_;
     const size_t levels = program.initialization_level_offsets_.size() - 1;
     for (size_t level = 0; level < levels; ++level) {
         const uint32_t initialization_begin = program.initialization_level_offsets_[level];
@@ -218,7 +241,7 @@ void BatchClassicalState::finalize_presampled_symbols() noexcept {
         }
         return;
     }
-    if (!plan_->batch_presampled_program_.has_value()) {
+    if (presampled_program_ == nullptr) {
         for (uint32_t symbol : plan_->presampled_symbols_) {
             propagate_symbol(symbol, symbols_.column(symbol));
         }
@@ -236,7 +259,7 @@ struct BatchClassicalState::NoiseSiteActivator {
     explicit NoiseSiteActivator(BatchClassicalState& executor)
         : sites(executor.plan_->noise_sites_),
           outcomes(executor.plan_->noise_outcomes_),
-          has_program(executor.plan_->batch_presampled_program_.has_value()),
+          has_program(executor.presampled_program_ != nullptr),
           mode(executor.noise_ ? executor.noise_->mode_ : BatchNoiseMode::Dense),
           dependencies(&executor.plan_->expression_dependencies_),
           row_stride(executor.noise_ ? executor.noise_->row_stride_ : 0),
@@ -248,7 +271,7 @@ struct BatchClassicalState::NoiseSiteActivator {
             return;
         }
         if (has_program) {
-            const BatchPresampledProgram& program = *executor.plan_->batch_presampled_program_;
+            const BatchPresampledProgram& program = *executor.presampled_program_;
             outcome_assignments = program.outcome_assignments_;
             assigned_carriers = program.assigned_carriers_;
             destination = executor.batch_noise_carriers_.mutable_view();

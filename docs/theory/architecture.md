@@ -131,7 +131,10 @@ Preparation preserves expected detector parities and record snapshots: a later
 asymmetric readout update cannot change an earlier detector's value. Passing the
 entrance checks does not guarantee acceptance: the original selected detector
 checks still decide it. Each runs after its last contributing record write,
-allowing rejected shots to skip later evolution.
+allowing rejected shots to skip later evolution. On first use, a `Program`
+builds the count-only plan, noise metadata, entrance checks, and any grouping
+key, and shares them, immutable, across samplers and concurrent calls; workers
+hold all mutable state.
 
 Before an action's possible splits can exceed a worker's allocated states,
 dispatch suspends at an explicit storage-growth boundary. The worker grows its

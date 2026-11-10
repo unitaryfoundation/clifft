@@ -1785,8 +1785,9 @@ NB_MODULE(_clifft_core, m) {
         "budget. Before an action, the pool grows to cover a conservative bound on possible "
         "splits or raises RuntimeError if that bound exceeds max_state_bytes, even if sampled "
         "outcomes would need fewer states. "
-        "compact_outputs=True builds a count-only plan with inlined record snapshots and only "
-        "required outputs. group_by_noise=True partitions surviving shots upfront by their "
+        "Counts run a count-only plan with inlined record snapshots and only the required "
+        "outputs. The Program prepares it on first use and shares it with later samplers. "
+        "group_by_noise=True partitions surviving shots upfront by their "
         "effect on future rotation signs (ignored when sharing=False).\n\n"
         "Supports computational-space circuits without leakage/loss instrument continuations. "
         "Calls on one instance serialize; separate instances can run concurrently.")
@@ -1795,8 +1796,8 @@ NB_MODULE(_clifft_core, m) {
             [](clifft::SurvivorSampler* self, const clifft::Program& program,
                const BatchOption& batch_option, const ThreadOption& thread_option,
                int64_t initial_states, clifft::sampling::BatchNoiseMode noise, bool sharing,
-               bool early_postselection, bool compact_outputs, bool group_by_noise,
-               int64_t max_state_bytes, std::optional<double> tuning_budget_seconds) {
+               bool early_postselection, bool group_by_noise, int64_t max_state_bytes,
+               std::optional<double> tuning_budget_seconds) {
                 const auto batch = parse_batch_option(batch_option, tuning_budget_seconds);
                 const auto states = parse_positive_uint32_option(
                     ThreadOption{initial_states}, "initial_states", "a positive integer");
@@ -1807,23 +1808,23 @@ NB_MODULE(_clifft_core, m) {
                 nb::gil_scoped_release release;
                 new (self) clifft::SurvivorSampler(
                     program, batch.batch_size, threads, *states, noise, sharing,
-                    early_postselection, compact_outputs, group_by_noise,
-                    static_cast<uint64_t>(max_state_bytes), batch.tuning_budget_seconds);
+                    early_postselection, group_by_noise, static_cast<uint64_t>(max_state_bytes),
+                    batch.tuning_budget_seconds);
             },
             nb::arg("program"), nb::kw_only(), nb::arg("batch_size") = BatchOption{int64_t{8192}},
             nb::arg("threads") = ThreadOption{int64_t{1}}, nb::arg("initial_states") = 128,
             nb::arg("noise_preparation") = clifft::sampling::BatchNoiseMode::SiteSparse,
             nb::arg("sharing") = true, nb::arg("early_postselection") = true,
-            nb::arg("compact_outputs") = false, nb::arg("group_by_noise") = false,
+            nb::arg("group_by_noise") = false,
             nb::arg("max_state_bytes") = clifft::sampling::kDefaultBatchTotalWorkerBudget,
-            nb::arg("tuning_budget_seconds") = nb::none(), nb::keep_alive<1, 2>(),
+            nb::arg("tuning_budget_seconds") = nb::none(),
             nb::sig("def __init__(self, program: Program, *, "
                     "batch_size: int | typing.Literal['auto', 'tune'] = 8192, "
                     "threads: int | typing.Literal['auto'] = 1, "
                     "initial_states: int = 128, "
                     "noise_preparation: NoisePreparation = NoisePreparation.SITE_SPARSE, "
                     "sharing: bool = True, early_postselection: bool = True, "
-                    "compact_outputs: bool = False, group_by_noise: bool = False, "
+                    "group_by_noise: bool = False, "
                     "max_state_bytes: int = 67108864, "
                     "tuning_budget_seconds: float | None = None) -> None"))
         .def(

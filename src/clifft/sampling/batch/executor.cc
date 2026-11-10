@@ -27,11 +27,10 @@ namespace {
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
                              BatchOutputMode output_mode, BatchSamplingMode sampling_mode,
                              const PreparedBatchNoise* noise)
-    : BatchExecutor(
-          plan, output_mode, sampling_mode,
-          batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode, sampling_mode,
-                                                    noise ? noise->mode() : BatchNoiseMode::Dense),
-          noise) {}
+    : BatchExecutor(plan, output_mode, sampling_mode,
+                    batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode,
+                                                              sampling_mode, noise),
+                    noise) {}
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,
                              BatchSamplingMode sampling_mode,

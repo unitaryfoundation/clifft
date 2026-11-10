@@ -36,6 +36,11 @@
 #include "clifft/api/survivor_sampler.h"
 #endif
 
+#if __has_include("clifft/api/sampling_preparation.h")
+#define CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
+#include "clifft/api/sampling_preparation.h"
+#endif
+
 #include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
@@ -387,18 +392,73 @@ const Program& shared_cultivation_program() {
     return program;
 }
 
+// One independently built copy of the immutable preparation shared execution
+// reads: count-only plan, noise metadata, early checks, and optional grouping key.
+class SharedPreparation {
+  public:
+#ifdef CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
+    SharedPreparation(const Program& program, sampling::BatchNoiseMode mode, bool group)
+        : preparation_(program.sampling_plan(false), false, true),
+          plan_(preparation_.plan()),
+          noise_(preparation_.noise(mode)),
+          checks_(preparation_.checks()),
+          key_(group ? &preparation_.sharing_key() : nullptr) {}
+#else
+    SharedPreparation(const Program& program, sampling::BatchNoiseMode mode, bool group)
+        : compact_(program.sampling_plan(false).compact_outputs(true, mode)),
+          plan_(compact_),
+          noise_(compact_, mode),
+          checks_(compact_),
+          owned_key_(group ? std::optional<sampling::SharingKey>(compact_) : std::nullopt),
+          key_(owned_key_ ? &*owned_key_ : nullptr) {}
+#endif
+
+    const sampling::ExecutablePlan& plan() const { return plan_; }
+    const sampling::PreparedBatchNoise& noise() const { return noise_; }
+    const sampling::EarlyPostselection& checks() const { return checks_; }
+    const sampling::SharingKey* key() const { return key_; }
+
+  private:
+#ifdef CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
+    SamplingPreparation preparation_;
+    const sampling::ExecutablePlan& plan_;
+    const sampling::PreparedBatchNoise& noise_;
+    const sampling::EarlyPostselection& checks_;
+#else
+    sampling::ExecutablePlan compact_;
+    const sampling::ExecutablePlan& plan_;
+    sampling::PreparedBatchNoise noise_;
+    sampling::EarlyPostselection checks_;
+    std::optional<sampling::SharingKey> owned_key_;
+#endif
+    const sampling::SharingKey* key_;
+};
+
+// SurvivorSampler is not movable, so each caller receives it by guaranteed
+// elision. Older revisions select compact outputs with an explicit argument.
+SurvivorSampler make_shared_sampler(const Program& program, sampling::BatchNoiseMode mode,
+                                    bool group) {
+#ifdef CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
+    return SurvivorSampler(program, kSharedBatchCapacity, 1, kSharedInitialStates, mode, true, true,
+                           group);
+#else
+    return SurvivorSampler(program, kSharedBatchCapacity, 1, kSharedInitialStates, mode, true, true,
+                           true, group);
+#endif
+}
+
 // Inspect the same prepared execution outside timing: a configured sampler
 // alone does not establish that noise rejection and state sharing do useful work.
 bool validate_shared_cultivation(benchmark::State& state, const Program& program,
                                  sampling::BatchNoiseMode mode, bool group,
                                  bool expect_reconstruction) {
     const auto& original = program.sampling_plan(false);
-    const auto plan = original.compact_outputs(true, mode);
-    const sampling::PreparedBatchNoise noise(plan, mode);
-    const sampling::EarlyPostselection checks(plan);
-    const auto key = group ? std::optional<sampling::SharingKey>(plan) : std::nullopt;
-    sampling::SharingExecutor executor(plan, noise, checks, kSharedBatchCapacity,
-                                       kSharedInitialStates, true, key ? &*key : nullptr);
+    const SharedPreparation prepared(program, mode, group);
+    const auto& plan = prepared.plan();
+    const auto& checks = prepared.checks();
+    const auto* key = prepared.key();
+    sampling::SharingExecutor executor(plan, prepared.noise(), checks, kSharedBatchCapacity,
+                                       kSharedInitialStates, true, key);
     executor.run_batch(seed_root_from_seed(731), 0, kSharedBatchCapacity);
     if (program.uses_reconstruction(false) != expect_reconstruction ||
         plan.peak_active_width() == 0 || !plan.has_postselection() || checks.num_checks() == 0 ||
@@ -423,8 +483,7 @@ void sample_shared_cultivation(benchmark::State& state, sampling::BatchNoiseMode
     if (!validate_shared_cultivation(state, program, mode, group, Distance != 3)) {
         return;
     }
-    SurvivorSampler sampler(program, kSharedBatchCapacity, 1, kSharedInitialStates, mode, true,
-                            true, true, group);
+    auto sampler = make_shared_sampler(program, mode, group);
     const auto warmup = sampler.sample(kSharedShots, 731);
     if (warmup.total_shots != kSharedShots || warmup.passed_shots == 0 ||
         warmup.passed_shots >= warmup.total_shots ||
@@ -440,8 +499,9 @@ void sample_shared_cultivation(benchmark::State& state, sampling::BatchNoiseMode
     state.SetItemsProcessed(state.iterations() * kSharedShots);
 }
 
-// Construction includes output compaction, sparse noise metadata, early checks,
-// upfront grouping metadata, and worker storage; compilation is excluded.
+// Repeated sampler construction from the retained Program. With Program reuse
+// this row times worker allocation plus a lookup of the shared preparation;
+// compilation is excluded.
 void prepare_shared_cultivation_d5(benchmark::State& state) {
     const auto& program = shared_cultivation_program<5>();
     constexpr auto mode = sampling::BatchNoiseMode::SiteRows;
@@ -449,9 +509,22 @@ void prepare_shared_cultivation_d5(benchmark::State& state) {
         return;
     }
     for ([[maybe_unused]] auto _ : state) {
-        SurvivorSampler sampler(program, kSharedBatchCapacity, 1, kSharedInitialStates, mode, true,
-                                true, true, true);
+        auto sampler = make_shared_sampler(program, mode, true);
         benchmark::DoNotOptimize(sampler);
+    }
+}
+
+// First-use cost of the immutable preparation, excluding compilation and
+// workers: output compaction, noise metadata, early checks, and grouping metadata.
+void prepare_shared_cultivation_d5_first_use(benchmark::State& state) {
+    const auto& program = shared_cultivation_program<5>();
+    constexpr auto mode = sampling::BatchNoiseMode::SiteRows;
+    if (!validate_shared_cultivation(state, program, mode, true, true)) {
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        SharedPreparation prepared(program, mode, true);
+        benchmark::DoNotOptimize(prepared);
     }
 }
 
@@ -465,6 +538,8 @@ BENCHMARK_CAPTURE(sample_shared_cultivation<7>, incremental_d7,
                   sampling::BatchNoiseMode::SiteSparse, false)
     ->Name("sample_shared_cultivation_d7_compact_65536_shots");
 BENCHMARK(prepare_shared_cultivation_d5)->Name("prepare_shared_cultivation_d5_compact_grouped");
+BENCHMARK(prepare_shared_cultivation_d5_first_use)
+    ->Name("prepare_shared_cultivation_d5_first_use_compact_grouped");
 #endif
 
 // Most shots reject before the noisy suffix. Retained survivor records keep

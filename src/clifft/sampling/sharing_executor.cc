@@ -78,7 +78,7 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
     : BatchClassicalState(plan, BatchOutputMode::AggregateSurvivors, BatchSamplingMode::Ordinary,
                           batch_detail::batch_worker_storage_layout(
                               plan, lane_capacity, BatchOutputMode::AggregateSurvivors,
-                              BatchSamplingMode::Ordinary, noise.mode()),
+                              BatchSamplingMode::Ordinary, &noise),
                           &noise),
       checks_(&checks),
       share_(share),
