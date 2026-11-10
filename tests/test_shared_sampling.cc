@@ -1,3 +1,4 @@
+#include "clifft/api/sampling_preparation.h"
 #include "clifft/api/survivor_sampler.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
@@ -17,11 +18,16 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
+#include <string>
 
 using namespace clifft;
 using namespace clifft::sampling;
 
 namespace {
+
+#ifndef CLIFFT_FIXTURES_DIR
+#define CLIFFT_FIXTURES_DIR "tests/fixtures"
+#endif
 
 // Observes entrance rejection before any measurement draws or state evolution.
 class EntranceProbe : public BatchClassicalState {
@@ -351,19 +357,23 @@ TEST_CASE("Compact outputs preserve snapshots and feedback across noise preparat
     )"));
     hir.postselection.mask = {1, 1};
     hir.postselection.expected_detectors = {1, 0};
-    const ExecutablePlan original(plan_sampling(hir));
-    const auto compact = original.compact_outputs(early, mode);
-    if (mode != BatchNoiseMode::Dense) {
-        REQUIRE(compact.num_batch_noise_carriers() == 0);
-    }
+    const Program program{ExecutablePlan(plan_sampling(hir))};
+    const auto& rows = program.sampling_preparation(true, early);
+    const auto& counts = program.sampling_preparation(false, early);
+    const auto& original = rows.plan();
+    const auto& compact = counts.plan();
+    REQUIRE(&original == &program.sampling_plan(true));
+    REQUIRE(compact.num_batch_noise_carriers() == 0);
     REQUIRE(original.num_visible_records() > 0);
     REQUIRE(compact.num_visible_records() == 0);
     REQUIRE(compact.num_expression_registers() < original.num_expression_registers());
     REQUIRE(compact.estimated_batch_lane_work(BatchOutputMode::Rows) ==
             original.estimated_batch_lane_work(BatchOutputMode::Rows));
-    const PreparedBatchNoise old_noise(original, mode), noise(compact, mode);
-    const EarlyPostselection old_checks(original, early), checks(compact, early);
-    const SharingKey key(compact);
+    const auto& old_noise = rows.noise(mode);
+    const auto& noise = counts.noise(mode);
+    const auto& old_checks = rows.checks();
+    const auto& checks = counts.checks();
+    const auto& key = counts.sharing_key();
     SharingExecutor reference(original, old_noise, old_checks, 129, 1);
     SharingExecutor worker(compact, noise, checks, 129, 1);
     SharingExecutor grouped(compact, noise, checks, 129, 1, true, &key);
@@ -474,11 +484,9 @@ TEST_CASE("Survivor construction rejects instruments in each preparation path") 
     const auto options = test::source_dependent_jump_options();
     const auto hir = trace(parse("LEVEL_TRANSITION[jump] 0"), &options);
     const Program program{ExecutablePlan(plan_sampling(hir))};
-    const bool compact = GENERATE(false, true);
     const bool early = GENERATE(false, true);
-    REQUIRE_THROWS_AS(
-        SurvivorSampler(program, 65, 1, 1, BatchNoiseMode::SiteSparse, true, early, compact),
-        std::invalid_argument);
+    REQUIRE_THROWS_AS(SurvivorSampler(program, 65, 1, 1, BatchNoiseMode::SiteSparse, true, early),
+                      std::invalid_argument);
 }
 
 TEST_CASE("Compact count plans omit unselected detectors and expectations") {
@@ -507,4 +515,55 @@ TEST_CASE("Pregrouped rotations retain their existing state budget") {
     REQUIRE(worker.peak_groups() == 2);
     REQUIRE(worker.state_capacity() == 2);
     REQUIRE(worker.surviving_shots() == 65);
+}
+
+TEST_CASE("Dense noise preparation builds the presampled program for compact plans") {
+    auto hir = trace(parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/surface_d7_r7_p001.stim"));
+    hir.postselection.mask.assign(hir.num_detectors, 1);
+    default_hir_pass_manager().run(hir);
+    const Program program{ExecutablePlan(plan_sampling(hir))};
+    const auto& compiled = program.sampling_plan(false);
+    REQUIRE(compiled.num_batch_noise_carriers() > 0);
+
+    const auto& counts = program.sampling_preparation(false);
+    REQUIRE(counts.plan().num_batch_noise_carriers() == 0);
+    REQUIRE(counts.noise(BatchNoiseMode::Dense).num_carriers() > 0);
+    REQUIRE(counts.noise(BatchNoiseMode::Sparse).num_carriers() == 0);
+    const auto& rows = program.sampling_preparation(true);
+    REQUIRE(&program.sampling_plan(true) == &compiled);
+    REQUIRE(rows.noise(BatchNoiseMode::Dense).num_carriers() ==
+            compiled.num_batch_noise_carriers());
+
+    BatchExecutor ordinary(compiled, 257, BatchOutputMode::AggregateSurvivors,
+                           BatchSamplingMode::Ordinary);
+    BatchExecutor dense(counts.plan(), 257, BatchOutputMode::AggregateSurvivors,
+                        BatchSamplingMode::Ordinary, &counts.noise(BatchNoiseMode::Dense));
+    BatchExecutor sparse(counts.plan(), 257, BatchOutputMode::AggregateSurvivors,
+                         BatchSamplingMode::Ordinary, &counts.noise(BatchNoiseMode::Sparse));
+    BatchExecutor full(rows.plan(), 257, BatchOutputMode::AggregateSurvivors,
+                       BatchSamplingMode::Ordinary, &rows.noise(BatchNoiseMode::Dense));
+    uint64_t survivors = 0, rejected = 0;
+    for (uint64_t seed : {0, 1, 731}) {
+        const auto root = seed_root_from_seed(seed);
+        for (uint32_t shots : {257, 0, 1, 63, 65, 257}) {
+            ordinary.run_batch(root, 13, shots);
+            survivors += ordinary.surviving_shots();
+            rejected += shots - ordinary.surviving_shots();
+            for (auto* candidate : {&dense, &sparse, &full}) {
+                candidate->run_batch(root, 13, shots);
+                REQUIRE(candidate->surviving_shots() == ordinary.surviving_shots());
+                REQUIRE(std::ranges::equal(candidate->survivor_mask(), ordinary.survivor_mask()));
+                for (size_t column = 0; column < compiled.num_observables(); ++column) {
+                    const auto actual = candidate->observable_columns().column(column);
+                    const auto expected = ordinary.observable_columns().column(column);
+                    for (size_t word = 0; word < actual.size(); ++word) {
+                        REQUIRE(((actual[word] ^ expected[word]) &
+                                 ordinary.survivor_mask()[word]) == 0);
+                    }
+                }
+            }
+        }
+    }
+    REQUIRE(survivors > 0);
+    REQUIRE(rejected > 0);
 }

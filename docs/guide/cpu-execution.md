@@ -142,7 +142,10 @@ repeated work and state memory. It also retains worker storage across calls
 and rejects shots that fail noise-only necessary conditions before quantum
 evolution. The selected detectors still determine final acceptance; they are
 checked as soon as their measurement records are ready, so rejected shots skip
-later evolution.
+later evolution. The first sampler built from a `Program` prepares the
+count-only plan, noise metadata, and early checks on that program. Later
+samplers built from the same program reuse them, and each sampler owns its
+workers.
 
 !!! note "Interface under review"
     The constructor options and defaults are being reviewed and may change
@@ -204,19 +207,20 @@ much larger classical batches than ordinary packed execution:
 | Option | Default | When to change |
 |---|---|---|
 | `noise_preparation` | `NoisePreparation.SITE_SPARSE` | `SITE_SPARSE` updates affected expressions directly per noise site. Try `SITE_ROWS` when individual faults touch many expressions, `DENSE` for high noise rates, or `SPARSE` to preserve `DENSE` RNG draw order. |
-| `compact_outputs` | `False` | Set `True` on long runs to inline record snapshots and strip unselected detectors and `EXP_VAL` probes into a count-only plan at construction time. |
 | `group_by_noise` | `False` | Set `True` to partition surviving shots once before quantum evolution by their effect on future rotation signs. Avoids per-rotation sign scans, though it can create more initial states and split measurements earlier. Ignored when `sharing=False`. |
 | `sharing` | `True` | Set `False` to give each surviving shot its own quantum state when almost every trajectory diverges. |
 | `early_postselection` | `True` | Set `False` when postselection rarely rejects shots and entrance-check setup is not worthwhile. |
 
-When benchmarking, measure sampler construction and `.sample()` throughput
-separately: options like `compact_outputs=True` and `group_by_noise=True` do
-extra work during construction to speed up repeated `.sample()` calls.
+The first sampler built from a program pays for the shared preparation,
+including the grouping key when `group_by_noise=True`. Later samplers from that
+program reuse it and only allocate workers. When benchmarking, measure first
+construction, repeated construction, and `.sample()` throughput separately.
 
 With a fixed `seed`, numeric `batch_size`, and `noise_preparation`, `.sample()`
-returns identical counts regardless of `threads` or when the state pool grows.
-`"auto"` can choose a different capacity when the worker budget changes, and
-`"tune"` depends on measured timings. To replay a calibrated run, reuse
+returns identical counts regardless of `threads`, when the state pool grows, or
+whether an earlier sampler already prepared the program. `"auto"` can choose a
+different capacity when the worker budget changes, and `"tune"` depends on
+measured timings. To replay a calibrated run, reuse
 `result.batch_tuning.batch_size` as a numeric capacity. Calls on a single
 `SurvivorSampler` instance serialize; use separate instances to sample
 concurrently from multiple Python threads.

@@ -863,8 +863,7 @@ TEST_CASE("Direct sparse noise preserves seeded quantum and classical outputs") 
     BatchExecutor direct(plan, 129, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, &sparse);
     REQUIRE(plan.num_presampled_symbols() > 0);
     const auto storage = clifft::sampling::batch_detail::batch_worker_storage_layout(
-        plan, 129, BatchOutputMode::Rows, BatchSamplingMode::Ordinary,
-        clifft::sampling::BatchNoiseMode::Sparse);
+        plan, 129, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, &sparse);
     REQUIRE(storage.noise_carrier_columns == 0);
     REQUIRE(storage.symbol_columns == 0);
     for (uint64_t seed : {0, 1, 731}) {

@@ -1,33 +1,56 @@
 #include "clifft/api/program.h"
 
+#include "clifft/api/sampling_preparation.h"
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/planner.h"
 
+#include <array>
+#include <optional>
 #include <utility>
 
 namespace clifft {
 
-Program::Program(sampling::ExecutablePlan original) : original_(std::move(original)) {}
+struct Program::Data {
+    struct SamplingVariant {
+        std::optional<sampling::ExecutablePlan> plan;
+        std::string fallback_reason = "reconstruction is disabled";
+    };
+
+    explicit Data(sampling::ExecutablePlan plan) : original(std::move(plan)) {}
+
+    sampling::ExecutablePlan original;
+    // Prepared once during compilation, then immutable for concurrent sampling.
+    std::array<SamplingVariant, 2> variants;
+    // Indexed by keep_records, then by whether early checks apply.
+    std::array<std::array<detail::LazyPrepared<SamplingPreparation>, 2>, 2> preparations;
+};
+
+Program::Program(sampling::ExecutablePlan original)
+    : data_(std::make_shared<const Data>(std::move(original))) {}
+
+Program::Program(std::shared_ptr<const Data> data) : data_(std::move(data)) {}
 
 Program Program::compile(const Circuit& source, const HirModule& original_hir, bool reconstruction,
                          bool passes_preserve_sampling, const ReconstructionLimits& limits) {
-    Program program{sampling::ExecutablePlan(sampling::plan_sampling(original_hir))};
+    auto data =
+        std::make_shared<Data>(sampling::ExecutablePlan(sampling::plan_sampling(original_hir)));
     if (!reconstruction) {
-        return program;
+        return Program(std::move(data));
     }
+    const auto& original = data->original;
     for (bool keep_records : {false, true}) {
-        auto& variant = program.variants_[keep_records];
+        auto& variant = data->variants[keep_records];
         if (!passes_preserve_sampling) {
             variant.fallback_reason =
                 "HIR passes do not certify preservation of the sampling distribution";
             continue;
         }
-        if (program.original_.num_exp_vals() != 0) {
+        if (original.num_exp_vals() != 0) {
             variant.fallback_reason = "EXP_VAL requires the original state evolution";
             continue;
         }
-        if (program.original_.peak_active_width() == 0) {
+        if (original.peak_active_width() == 0) {
             variant.fallback_reason = "original active width is already zero";
             continue;
         }
@@ -47,7 +70,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
         }
         // Avoid expensive lowering and HIR passes without a scheduled width
         // reduction. This cost policy can skip reductions found by later passes.
-        if (result.reconstruction->peak_active_width >= program.original_.peak_active_width()) {
+        if (result.reconstruction->peak_active_width >= original.peak_active_width()) {
             variant.fallback_reason = "reconstruction schedule does not reduce peak active width";
             continue;
         }
@@ -63,8 +86,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
         passes.run(*lowered.hir);
         // Check peak width before plan_sampling(), which enforces the active-width
         // cap and would otherwise throw on a wide candidate.
-        if (analyze_active_width(*lowered.hir).peak_width >=
-            program.original_.peak_active_width()) {
+        if (analyze_active_width(*lowered.hir).peak_width >= original.peak_active_width()) {
             variant.fallback_reason = "reconstruction does not reduce peak active width";
             continue;
         }
@@ -72,20 +94,31 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
         variant.plan.emplace(plan);
         variant.fallback_reason.clear();
     }
-    return program;
+    return Program(std::move(data));
+}
+
+const sampling::ExecutablePlan& Program::original() const noexcept {
+    return data_->original;
 }
 
 const sampling::ExecutablePlan& Program::sampling_plan(bool keep_records) const noexcept {
-    const auto& candidate = variants_[keep_records].plan;
-    return candidate ? *candidate : original_;
+    const auto& candidate = data_->variants[keep_records].plan;
+    return candidate ? *candidate : data_->original;
 }
 
 bool Program::uses_reconstruction(bool keep_records) const noexcept {
-    return variants_[keep_records].plan.has_value();
+    return data_->variants[keep_records].plan.has_value();
 }
 
 const std::string& Program::reconstruction_fallback_reason(bool keep_records) const {
-    return variants_[keep_records].fallback_reason;
+    return data_->variants[keep_records].fallback_reason;
+}
+
+const SamplingPreparation& Program::sampling_preparation(bool keep_records,
+                                                         bool early_postselection) const {
+    const auto& plan = sampling_plan(keep_records);
+    const bool early = early_postselection && plan.has_postselection();
+    return data_->preparations[keep_records][early].get(plan, keep_records, early);
 }
 
 }  // namespace clifft

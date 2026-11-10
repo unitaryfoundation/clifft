@@ -23,8 +23,7 @@ class ExecutablePlanBuilder {
         bool has_postselection = false;
     };
 
-    static ExecutablePlan compact_outputs(const ExecutablePlan& input, bool early_postselection,
-                                          BatchNoiseMode noise_mode);
+    static ExecutablePlan compact_outputs(const ExecutablePlan& input, bool early_postselection);
     static void build(ExecutablePlan& output, const SamplingPlan& source);
     ExecutablePlanBuilder(ExecutablePlan& output, const SamplingPlan& source);
 

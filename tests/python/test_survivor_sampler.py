@@ -23,15 +23,7 @@ def counts(result):
     )
 
 
-@pytest.mark.parametrize(
-    "strategy",
-    [
-        {},
-        {"compact_outputs": True},
-        {"group_by_noise": True},
-        {"compact_outputs": True, "group_by_noise": True},
-    ],
-)
+@pytest.mark.parametrize("strategy", [{}, {"group_by_noise": True}])
 @pytest.mark.parametrize("sharing", [False, True])
 @pytest.mark.parametrize("early", [False, True])
 @pytest.mark.parametrize("readout", [0.001, 0.13])
@@ -85,7 +77,6 @@ def test_program_ownership_and_concurrent_calls():
         batch_size=65,
         threads=2,
         initial_states=1,
-        compact_outputs=True,
         group_by_noise=True,
     )
     gc.collect()
@@ -95,11 +86,50 @@ def test_program_ownership_and_concurrent_calls():
     assert results == [expected] * 6
 
 
-@pytest.mark.parametrize("compact", [False, True])
-def test_no_observables_and_empty_action_stream(compact):
-    sampler = clifft.SurvivorSampler(
-        clifft.compile(""), batch_size=65, compact_outputs=compact, group_by_noise=True
-    )
+def test_preparation_reuse_leaves_seeded_counts_and_compiled_plans_unchanged():
+    def compiled():
+        return clifft.compile(SOURCE, postselection_mask=[1])
+
+    def sample(program, **options):
+        return counts(
+            clifft.SurvivorSampler(program, batch_size=65, **options).sample(1301, seed=7)
+        )
+
+    cold = sample(compiled())
+    program = compiled()
+    untouched = compiled()
+    inspected = program.sampling_plan(keep_records=False).inspect()
+    # Other configurations prepare different metadata on the same program first.
+    sample(program, noise_preparation=clifft.NoisePreparation.SITE_ROWS, group_by_noise=True)
+    sample(program, noise_preparation=clifft.NoisePreparation.DENSE, early_postselection=False)
+    assert sample(program) == cold
+    assert sample(program) == cold
+    assert 0 < cold[1] < 1301
+    assert program.sampling_plan(keep_records=False).inspect() == inspected
+    assert program.num_actions == untouched.num_actions
+    for keep_records in (False, True):
+        expected = clifft.sample_survivors(untouched, 1301, seed=5, keep_records=keep_records)
+        actual = clifft.sample_survivors(program, 1301, seed=5, keep_records=keep_records)
+        assert counts(actual) == counts(expected)
+        np.testing.assert_array_equal(actual.measurements, expected.measurements)
+        np.testing.assert_array_equal(actual.detectors, expected.detectors)
+        np.testing.assert_array_equal(actual.observables, expected.observables)
+
+
+def test_concurrent_first_use_shares_preparation_and_seeded_counts():
+    def run(program):
+        sampler = clifft.SurvivorSampler(program, batch_size=65, group_by_noise=True)
+        return counts(sampler.sample(1301, seed=17))
+
+    expected = run(clifft.compile(SOURCE, postselection_mask=[1]))
+    program = clifft.compile(SOURCE, postselection_mask=[1])
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: run(program), range(16)))
+    assert results == [expected] * 16
+
+
+def test_no_observables_and_empty_action_stream():
+    sampler = clifft.SurvivorSampler(clifft.compile(""), batch_size=65, group_by_noise=True)
     for shots in (0, 1, 131):
         result = sampler.sample(shots, seed=9)
         assert result.passed_shots == shots
@@ -109,8 +139,7 @@ def test_no_observables_and_empty_action_stream(compact):
 
 
 @pytest.mark.parametrize("mode", [clifft.NoisePreparation.DENSE, clifft.NoisePreparation.SPARSE])
-@pytest.mark.parametrize("compact", [False, True])
-def test_width_zero_reuses_packed_execution_with_exact_counts(mode, compact):
+def test_width_zero_reuses_packed_execution_with_exact_counts(mode):
     program = clifft.compile(
         "H 0\nCX 0 1\nDEPOLARIZE2(0.07) 0 1\nM(0.13) 0 1\n"
         "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]",
@@ -118,9 +147,7 @@ def test_width_zero_reuses_packed_execution_with_exact_counts(mode, compact):
         expected_detectors=[1],
     )
     assert program.sampling_plan(keep_records=False).peak_active_width == 0
-    sampler = clifft.SurvivorSampler(
-        program, batch_size=65, noise_preparation=mode, compact_outputs=compact
-    )
+    sampler = clifft.SurvivorSampler(program, batch_size=65, noise_preparation=mode)
     # Both interfaces retain capacity 65, including the final partial batch.
     for shots in (65, 130, 193, 65):
         expected = clifft.sample_survivors(
@@ -136,8 +163,7 @@ def test_invalid_configuration_is_rejected_before_sampling(options):
 
 
 @pytest.mark.parametrize("reconstruction", [False, True])
-@pytest.mark.parametrize("compact", [False, True])
-def test_detector_snapshot_precedes_asymmetric_readout(reconstruction, compact):
+def test_detector_snapshot_precedes_asymmetric_readout(reconstruction):
     program = clifft.compile(
         "H 0\nT 0\nH 0\nM 0\nDETECTOR rec[-1]\n"
         "READOUT_NOISE(0.2, 0.3) rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
@@ -147,7 +173,7 @@ def test_detector_snapshot_precedes_asymmetric_readout(reconstruction, compact):
         expected_observables=[1],
     )
     result = clifft.SurvivorSampler(
-        program, batch_size=257, initial_states=1, compact_outputs=compact, group_by_noise=True
+        program, batch_size=257, initial_states=1, group_by_noise=True
     ).sample(32768, seed=24)
     probability = np.sin(np.pi / 8) ** 2
     for count, mass in [

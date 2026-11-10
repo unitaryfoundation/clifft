@@ -152,8 +152,7 @@ batch_detail::BatchWorkEstimate ExecutablePlanBuilder::action_batch_lane_work(
 }
 
 ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& input,
-                                                      bool early_postselection,
-                                                      BatchNoiseMode noise_mode) {
+                                                      bool early_postselection) {
     if (input.has_instruments()) {
         throw std::invalid_argument("compact outputs require a fixed sampling plan");
     }
@@ -298,9 +297,9 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
     output.expression_dependencies_.validate(output.num_symbols_,
                                              output.num_expression_registers());
     prepare_noise_schedule(output, first_actions);
-    output.batch_presampled_program_ = noise_mode == BatchNoiseMode::Dense
-                                           ? BatchPresampledProgram::build(output, terms, begins)
-                                           : std::nullopt;
+    // The copied program describes the input's expression registers. Dense
+    // noise preparation builds one for the compact registers on request.
+    output.batch_presampled_program_.reset();
 
     // Count-only output omits expectation work and moves detector checks.
     output.estimated_batch_lane_work_ = {};
@@ -343,8 +342,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     prepare_batch_compaction_costs(output_, action_batch_lane_work_);
     build_expression_dependencies();
     prepare_noise_schedule(output_, symbol_first_actions_);
-    output_.batch_presampled_program_ =
-        BatchPresampledProgram::build(output_, expression_terms_, expression_term_begins_);
+    output_.batch_presampled_program_ = BatchPresampledProgram::build(output_);
     validate_executable_plan();
 }
 

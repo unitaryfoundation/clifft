@@ -11,6 +11,7 @@
 namespace clifft::sampling {
 
 class ExecutablePlan;
+class PreparedBatchNoise;
 
 // Largest lane capacity considered by automatic packed selection.
 inline constexpr uint32_t kDefaultMaxAutoBatchShots = 2048;
@@ -190,12 +191,14 @@ struct BatchWorkerStorageLayout {
 #if !defined(__EMSCRIPTEN__)
 [[nodiscard]] BatchWorkerStorageLayout batch_worker_storage_layout(
     const ExecutablePlan& plan, uint32_t lane_capacity, BatchOutputMode output_mode,
-    BatchSamplingMode sampling_mode, BatchNoiseMode noise_mode = BatchNoiseMode::Dense);
+    BatchSamplingMode sampling_mode, const PreparedBatchNoise* noise = nullptr);
 
 // Includes one BatchExternalInputs buffer when using external input mode.
-[[nodiscard]] uint64_t batch_worker_storage_bytes(
-    const ExecutablePlan& plan, uint32_t lane_capacity, BatchOutputMode output_mode,
-    BatchSamplingMode sampling_mode, BatchNoiseMode noise_mode = BatchNoiseMode::Dense);
+[[nodiscard]] uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan,
+                                                  uint32_t lane_capacity,
+                                                  BatchOutputMode output_mode,
+                                                  BatchSamplingMode sampling_mode,
+                                                  const PreparedBatchNoise* noise = nullptr);
 #endif
 
 }  // namespace batch_detail

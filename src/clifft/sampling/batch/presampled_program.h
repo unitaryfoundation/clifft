@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <span>
 #include <vector>
 
 namespace clifft::sampling {
@@ -11,14 +10,17 @@ namespace clifft::sampling {
 class BatchExecutor;
 class ExecutablePlan;
 class ExecutablePlanBuilder;
+class PreparedBatchNoise;
 
 // Immutable packed-only program for evaluating presampled affine inputs.
 // Categorical outcomes set XOR combinations of compact carrier columns based
 // on their downstream effects. For effects A={r0,r1} and B={r0,r2}, A can set
 // c0 while B sets c0 and c1, where c1={r1,r2}. The expression tape also reuses
-// shared prefixes: r1=a^b^d can copy r0=a^b and then XOR d. Absence from an
-// ExecutablePlan selects ordinary per-symbol propagation instead; rejected
-// candidates are destroyed before the plan retains any of their storage.
+// shared prefixes: r1=a^b^d can copy r0=a^b and then XOR d. The program is
+// owned either by a lowered ExecutablePlan or by dense PreparedBatchNoise;
+// without one, packed execution propagates each presampled symbol separately.
+// Rejected candidates are destroyed before an owner retains any of their
+// storage.
 class BatchPresampledProgram {
   public:
     [[nodiscard]] uint32_t num_carriers() const noexcept { return num_carriers_; }
@@ -28,6 +30,7 @@ class BatchPresampledProgram {
     friend class BatchClassicalState;
     friend class ExecutablePlan;
     friend class ExecutablePlanBuilder;
+    friend class PreparedBatchNoise;
 
     struct OutcomeAssignments {
         uint32_t begin = 0;
@@ -51,8 +54,7 @@ class BatchPresampledProgram {
     };
 
     [[nodiscard]] static std::optional<BatchPresampledProgram> build(
-        const ExecutablePlan& executable, std::span<const uint32_t> expression_terms,
-        std::span<const uint32_t> expression_term_begins);
+        const ExecutablePlan& executable);
     void validate(size_t num_noise_outcomes, size_t num_expression_registers,
                   size_t num_presampled_inputs) const noexcept;
 

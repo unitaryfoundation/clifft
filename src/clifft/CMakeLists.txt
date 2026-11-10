@@ -54,6 +54,7 @@ add_library(clifft_core STATIC
     sampling/state.cc
     api/basis_probabilities.cc
     api/program.cc
+    api/sampling_preparation.cc
     api/survivor_sampler.cc
     api/reference_syndrome.cc
     api/statevector.cc
