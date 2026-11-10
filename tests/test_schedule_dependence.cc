@@ -301,6 +301,47 @@ TEST_CASE("Schedule dependence closure matches can_swap with an evicting ancesto
     }
 }
 
+TEST_CASE("Schedule dependence closure matches can_swap across wide registers and barriers",
+          "[schedule_dependence]") {
+    clifft::Xoshiro256PlusPlus rng(0x5C4ED3);
+
+    SECTION("multi-word registers with non-contiguous support and expectation barriers") {
+        for (const uint32_t num_qubits : {65u, 129u, 195u}) {
+            for (int trial = 0; trial < 8; ++trial) {
+                std::string source =
+                    "H 0 " + std::to_string(num_qubits / 2) + " " + std::to_string(num_qubits - 1) +
+                    "\nCX 0 " + std::to_string(num_qubits / 2) + "\nCX " +
+                    std::to_string(num_qubits / 2) + " " + std::to_string(num_qubits - 1) + "\n";
+                source += clifft::test::generate_noisy_source(rng, num_qubits, 45);
+                source += "EXP_VAL X0*Z" + std::to_string(num_qubits - 1) + "\n";
+                source += clifft::test::generate_noisy_source(rng, num_qubits, 35);
+
+                const HirModule hir = clifft::trace(clifft::parse(source));
+                const size_t words = (hir.ops.size() + 63) / 64;
+                for (const bool noise_transparent : {false, true}) {
+                    CAPTURE(num_qubits, trial, noise_transparent);
+                    check_closure_matches_can_swap(hir, noise_transparent);
+
+                    ScheduleDependenceOptions evicted;
+                    evicted.ancestor_cache_bytes = 2 * words * sizeof(uint64_t);
+                    check_closure_matches_can_swap(hir, noise_transparent, evicted);
+                }
+            }
+        }
+    }
+
+    SECTION("dense narrow circuits with high per-qubit conflict counts") {
+        for (int trial = 0; trial < 12; ++trial) {
+            const std::string source = clifft::test::generate_noisy_source(rng, 4, 140);
+            const HirModule hir = clifft::trace(clifft::parse(source));
+            for (const bool noise_transparent : {false, true}) {
+                CAPTURE(trial, noise_transparent);
+                check_closure_matches_can_swap(hir, noise_transparent);
+            }
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Chain reduction has teeth
 // ---------------------------------------------------------------------------

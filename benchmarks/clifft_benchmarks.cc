@@ -364,17 +364,82 @@ void schedule_pass_cultivation_d5(benchmark::State& state) {
     }
 }
 
+// Eight independent 256-qubit stabilizer patches across 2,048 qubits (32 mask
+// words), each encoding two promoting T gates and one neutral T gate before
+// noisy syndrome rounds and X-basis readout. Unscheduled execution promotes
+// all eight patches before any readout collapses them; scheduling retires each
+// patch before promoting the next while exercising multi-word dependence
+// indexing, dormant-subspace updates, and neutral-rotation sinking.
+void schedule_pass_wide_low_width_2048(benchmark::State& state) {
+    constexpr uint32_t kBlocks = 8;
+    constexpr uint32_t kQubitsPerBlock = 256;
+    constexpr uint32_t kRounds = 2;
+    constexpr uint32_t kMeasPerRound = kBlocks * (kQubitsPerBlock / 2);
+
+    std::ostringstream source;
+    for (uint32_t block = 0; block < kBlocks; ++block) {
+        const uint32_t base = block * kQubitsPerBlock;
+        source << "H " << base << " " << (base + 2) << "\n";
+        source << "T " << base << " " << (base + 2) << "\n";
+        source << "CX " << base << " " << (base + 2) << "\n";
+        source << "T " << (base + 2) << "\n";
+        for (uint32_t data = 4; data < kQubitsPerBlock; data += 2) {
+            source << "CX " << base << " " << (base + data) << "\n";
+        }
+    }
+    for (uint32_t round = 0; round < kRounds; ++round) {
+        for (uint32_t block = 0; block < kBlocks; ++block) {
+            const uint32_t base = block * kQubitsPerBlock;
+            for (uint32_t q = base; q < base + kQubitsPerBlock; ++q) {
+                source << "DEPOLARIZE1(0.001) " << q << "\n";
+            }
+            for (uint32_t anc_offset = 1; anc_offset < kQubitsPerBlock; anc_offset += 2) {
+                const uint32_t anc = base + anc_offset;
+                const uint32_t left = base + anc_offset - 1;
+                const uint32_t right = base + ((anc_offset + 1) % kQubitsPerBlock);
+                source << "R " << anc << "\nCX " << left << " " << anc << "\nCX " << right << " "
+                       << anc << "\nM " << anc << "\n";
+                if (round > 0) {
+                    source << "DETECTOR rec[-1] rec[-" << (1 + kMeasPerRound) << "]\n";
+                }
+            }
+        }
+    }
+    for (uint32_t block = 0; block < kBlocks; ++block) {
+        const uint32_t base = block * kQubitsPerBlock;
+        for (uint32_t data = 0; data < kQubitsPerBlock; data += 2) {
+            source << "MX " << (base + data) << "\n";
+        }
+    }
+
+    HirModule prepared = trace(parse(source.str()));
+    PeepholeFusionPass{}.run(prepared);
+    StatevectorSqueezePass{}.run(prepared);
+
+    HirModule validation = prepared;
+    ActiveWidthSchedulePass validation_pass;
+    validation_pass.run(validation);
+    if (!validation_pass.applied() || validation_pass.incumbent_peak() != 9 ||
+        validation_pass.result_peak() != 1) {
+        state.SkipWithError("unexpected wide low-width scheduled peak");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        HirModule hir = prepared;
+        benchmark::DoNotOptimize(hir);
+        ActiveWidthSchedulePass{}.run(hir);
+        benchmark::DoNotOptimize(hir.ops.size());
+    }
+}
+
 // surface_d7_r7 is pure Clifford (no T_GATE/PHASE_ROTATION), so
 // ActiveWidthSchedulePass::run() early-exits on it before ever building
 // detail::ScheduleDependence -- none of the schedule_pass_* benchmarks
 // above ever pay for this build on this fixture. This benchmark
-// deliberately bypasses that early exit to measure build()'s
-// ancestor-bitset scan in isolation, on the corpus's largest movable-op
-// count: for each op it walks the zero bits of that op's ancestor bitset
-// (the earlier ops not yet implied by a recorded edge) and calls allowed()
-// only on those, so the cost this benchmark times is that word scan plus
-// one allowed() call per pair not already implied, not a full pairwise
-// scan.
+// deliberately bypasses that early exit to measure ScheduleDependence::build()
+// in isolation on a noisy QEC circuit with hundreds of movable measurements,
+// covering conflict-index construction, commutation checks, and transitive
+// ancestor pruning.
 void schedule_dependence_build_surface_d7(benchmark::State& state) {
     const HirModule prepared = prepare_for_schedule_pass("surface_d7_r7_p001.stim");
     size_t movable_count = 0;
@@ -923,6 +988,7 @@ BENCHMARK(compile_reconstruction_msc_d5)->Name("compile_reconstruction_msc_d5");
 BENCHMARK(compile_schedule_plan_coherent_d5_r5)->Name("compile_schedule_plan_coherent_d5_r5");
 BENCHMARK(schedule_pass_coherent_d5_r5)->Name("schedule_pass_coherent_d5_r5");
 BENCHMARK(schedule_pass_cultivation_d5)->Name("schedule_pass_cultivation_d5");
+BENCHMARK(schedule_pass_wide_low_width_2048)->Name("schedule_pass_wide_low_width_2048");
 BENCHMARK(schedule_dependence_build_surface_d7)->Name("schedule_dependence_build_surface_d7");
 #endif
 BENCHMARK(sample_qv10)->Name("sample_qv10_100_shots");

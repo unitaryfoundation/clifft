@@ -46,6 +46,7 @@ DISPLAY_NAMES = {
     "compile_schedule_plan_coherent_d5_r5": "Compile+schedule+plan, coherent QEC d5/r5",
     "schedule_pass_coherent_d5_r5": "Schedule pass, coherent QEC d5/r5",
     "schedule_pass_cultivation_d5": "Schedule pass, cultivation d5",
+    "schedule_pass_wide_low_width_2048": "Schedule pass, wide low-width 2,048 qubits",
     "schedule_dependence_build_surface_d7": "Schedule dependence build, surface code d7/r7",
     "sample_qv10_100_shots": "QV-10, 100 shots",
     "sample_cultivation_d5_1000_shots": "Cultivation d5, 1,000 shots",

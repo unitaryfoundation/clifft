@@ -630,15 +630,14 @@ void PhasePolynomialPass::run(HirModule& hir) {
             blocks_expanded_ += follow_up.blocks_expanded;
         }
     }
-    const auto after = analyze_active_width(*candidate);
+    const ActiveWidthCost after = summarize_active_width(*candidate);
     // This is a local structural guard, not a prediction of later scheduling
     // or hardware throughput.
     // Zero width has no dense work and is already optimal for both criteria.
     if (after.peak_width != 0) {
-        const auto before = analyze_active_width(hir);
+        const ActiveWidthCost before = summarize_active_width(hir);
         if (after.peak_width > before.peak_width ||
-            (after.peak_width == before.peak_width &&
-             estimate_dense_work(after) > estimate_dense_work(before))) {
+            (after.peak_width == before.peak_width && after.dense_work > before.dense_work)) {
             // A rejected optional candidate must not displace ordinary rewrites.
             if (rewriter.wide_rewrites) {
                 auto narrow_options = options_;

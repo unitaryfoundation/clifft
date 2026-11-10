@@ -715,3 +715,129 @@ TEST_CASE("Dormant updates agree with an embedded small reference across word bo
         }
     }
 }
+
+TEST_CASE("DormantSubspace maintains row-column invariants and exact rollback across word counts",
+          "[active_width]") {
+    for (const uint32_t n : {0u, 1u, 63u, 64u, 65u, 128u, 195u}) {
+        Xoshiro256PlusPlus rng(0xD04A17U + n);
+        DormantSubspace subspace(n);
+        REQUIRE_NOTHROW(subspace.verify_invariants());
+
+        DormantSubspace::UndoLog undo;
+        for (uint32_t step = 0; step < 120; ++step) {
+            CAPTURE(n, step);
+            const uint32_t width_before = subspace.active_width();
+            const std::vector<PauliString> gens_before = subspace.generators();
+
+            // Speculatively apply a batch of rotations and measurements, then
+            // roll back and check that the exact reduced basis is restored.
+            const uint32_t batch_len = 1 + static_cast<uint32_t>(rng() % 6);
+            for (uint32_t b = 0; b < batch_len; ++b) {
+                PauliString spec(n);
+                if (n > 0) {
+                    const uint32_t weight = 1 + static_cast<uint32_t>(rng() % 5);
+                    for (uint32_t w = 0; w < weight; ++w) {
+                        const uint32_t q = static_cast<uint32_t>(rng() % n);
+                        const uint64_t bits = rng();
+                        spec.set_pauli(q, (bits & 1U) != 0, (bits & 2U) != 0);
+                    }
+                }
+                if ((rng() & 1U) != 0) {
+                    subspace.apply_rotation(spec.x(), spec.z(), &undo);
+                } else {
+                    subspace.apply_measurement(spec.x(), spec.z(), &undo);
+                }
+                REQUIRE_NOTHROW(subspace.verify_invariants());
+            }
+
+            subspace.rollback(undo);
+            REQUIRE(undo.empty());
+            REQUIRE_NOTHROW(subspace.verify_invariants());
+            REQUIRE(subspace.active_width() == width_before);
+            REQUIRE(subspace.generators() == gens_before);
+
+            // Advance the committed state with a sparse multi-word operator.
+            PauliString committed(n);
+            if (n > 0) {
+                const uint32_t weight = 1 + static_cast<uint32_t>(rng() % 5);
+                for (uint32_t w = 0; w < weight; ++w) {
+                    const uint32_t q = static_cast<uint32_t>(rng() % n);
+                    const uint64_t bits = rng();
+                    committed.set_pauli(q, (bits & 1U) != 0, (bits & 2U) != 0);
+                }
+            }
+            if (step % 3 == 0) {
+                subspace.apply_rotation(committed);
+            } else {
+                subspace.apply_measurement(committed);
+            }
+            REQUIRE_NOTHROW(subspace.verify_invariants());
+        }
+    }
+}
+
+TEST_CASE("summarize_active_width agrees with full trace and dense work across circuits and orders",
+          "[active_width]") {
+    auto require_summary_matches = [](const HirModule& hir) {
+        const ActiveWidthTrace trace = analyze_active_width(hir);
+        const double expected_work = estimate_dense_work(trace);
+        const ActiveWidthCost summary = summarize_active_width(hir);
+        REQUIRE(summary.peak_width == trace.peak_width);
+        REQUIRE(summary.dense_work == expected_work);
+    };
+
+    SECTION("stabilizer circuits return zero cost") {
+        const HirModule clifford =
+            trace(parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/surface_d7_r7_p001.stim"));
+        const ActiveWidthCost summary = summarize_active_width(clifford);
+        REQUIRE(summary.peak_width == 0);
+        REQUIRE(summary.dense_work == 0.0);
+        require_summary_matches(clifford);
+    }
+
+    SECTION("random noisy circuits and permuted op orders") {
+        std::mt19937 rng(0x5044A1);
+        for (int trial = 0; trial < 80; ++trial) {
+            const uint32_t num_qubits = 4 + static_cast<uint32_t>(trial % 10);
+            const uint32_t num_ops = 15 + static_cast<uint32_t>(trial % 25);
+            const HirModule hir = trace(parse(random_stim_circuit(rng, num_qubits, num_ops)));
+            CAPTURE(trial);
+            require_summary_matches(hir);
+
+            std::vector<uint32_t> order(hir.ops.size());
+            for (size_t i = 0; i < order.size(); ++i) {
+                order[i] = static_cast<uint32_t>(i);
+            }
+            std::shuffle(order.begin(), order.end(), rng);
+
+            HirModule permuted = hir;
+            permuted.ops.clear();
+            permuted.ops.reserve(order.size());
+            for (uint32_t idx : order) {
+                permuted.ops.push_back(hir.ops[idx]);
+            }
+            const ActiveWidthTrace permuted_trace = analyze_active_width(permuted);
+            const ActiveWidthCost ordered_summary = summarize_active_width(hir, order);
+            REQUIRE(ordered_summary.peak_width == permuted_trace.peak_width);
+            REQUIRE(ordered_summary.dense_work == estimate_dense_work(permuted_trace));
+        }
+    }
+
+    SECTION("all four instrument modes") {
+        const struct {
+            const char* circuit;
+            bool neglect_damping;
+        } cases[] = {
+            {"LEVEL_TRANSITION[jump] 0", false},
+            {"H 0\nT 0\nH 1\nLEVEL_TRANSITION[jump] 1\nM 1", false},
+            {"H 0\nT 0\nLEVEL_TRANSITION[jump] 0", false},
+            {"H 0\nLEVEL_TRANSITION[jump] 0", true},
+        };
+        for (const auto& test_case : cases) {
+            const InstrumentTraceOptions options =
+                clifft::test::source_dependent_jump_options(test_case.neglect_damping);
+            const HirModule hir = trace(parse(test_case.circuit), &options);
+            require_summary_matches(hir);
+        }
+    }
+}

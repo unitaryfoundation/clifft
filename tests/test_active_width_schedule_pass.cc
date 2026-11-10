@@ -958,3 +958,62 @@ TEST_CASE("Schedule pass reaches the brute-force optimum on a beam dedup Pareto 
     REQUIRE(pass.result_peak() == optimum.peak);
     REQUIRE(pass.result_dense_work() == optimum.dense_work);
 }
+
+TEST_CASE("Schedule pass collapses interleaved noisy blocks across a multi-word register",
+          "[schedule_pass]") {
+    constexpr uint32_t kBlocks = 4;
+    constexpr uint32_t kQubitsPerBlock = 68;  // 272 qubits across 5 mask words.
+    constexpr uint32_t kMeasPerRound = kBlocks * (kQubitsPerBlock / 2);
+
+    std::string source;
+    for (uint32_t block = 0; block < kBlocks; ++block) {
+        const uint32_t base = block * kQubitsPerBlock;
+        source += "H " + std::to_string(base) + " " + std::to_string(base + 2) + "\n";
+        source += "T " + std::to_string(base) + " " + std::to_string(base + 2) + "\n";
+        source += "CX " + std::to_string(base) + " " + std::to_string(base + 2) + "\n";
+        source += "T " + std::to_string(base + 2) + "\n";
+        for (uint32_t data = 4; data < kQubitsPerBlock; data += 2) {
+            source += "CX " + std::to_string(base) + " " + std::to_string(base + data) + "\n";
+        }
+    }
+    for (uint32_t round = 0; round < 2; ++round) {
+        for (uint32_t block = 0; block < kBlocks; ++block) {
+            const uint32_t base = block * kQubitsPerBlock;
+            for (uint32_t q = base; q < base + kQubitsPerBlock; ++q) {
+                source += "DEPOLARIZE1(0.01) " + std::to_string(q) + "\n";
+            }
+            for (uint32_t anc_offset = 1; anc_offset < kQubitsPerBlock; anc_offset += 2) {
+                const uint32_t anc = base + anc_offset;
+                const uint32_t left = base + anc_offset - 1;
+                const uint32_t right = base + ((anc_offset + 1) % kQubitsPerBlock);
+                source += "R " + std::to_string(anc) + "\nCX " + std::to_string(left) + " " +
+                          std::to_string(anc) + "\nCX " + std::to_string(right) + " " +
+                          std::to_string(anc) + "\nM " + std::to_string(anc) + "\n";
+                if (round > 0) {
+                    source += "DETECTOR rec[-1] rec[-" + std::to_string(1 + kMeasPerRound) + "]\n";
+                }
+            }
+        }
+    }
+    for (uint32_t block = 0; block < kBlocks; ++block) {
+        const uint32_t base = block * kQubitsPerBlock;
+        for (uint32_t data = 0; data < kQubitsPerBlock; data += 2) {
+            source += "MX " + std::to_string(base + data) + "\n";
+        }
+    }
+
+    const HirModule raw = clifft::trace(clifft::parse(source));
+    HirModule baseline = raw;
+    PeepholeFusionPass{}.run(baseline);
+    StatevectorSqueezePass{}.run(baseline);
+
+    ActiveWidthSchedulePass pass;
+    const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
+
+    REQUIRE(pass.applied());
+    REQUIRE(pass.incumbent_peak() == 5);
+    REQUIRE(pass.result_peak() == 1);
+    REQUIRE(pass.result_dense_work() < pass.incumbent_dense_work());
+    REQUIRE(summarize_active_width(scheduled).peak_width == 1);
+    clifft::test::check_sampling_equivalent(baseline, scheduled, 4096, 0xCA17, 0xB10C);
+}
