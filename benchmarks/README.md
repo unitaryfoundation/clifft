@@ -40,6 +40,12 @@ on one worker, including worker setup and output allocation; preparation is
 excluded. An untimed check verifies online execution and zero continuations.
 This is a regression canary, not a comparison with another simulator.
 
+`compile_reconstruction_msc_d5` times parsing, original-plan preparation, and
+both reconstructed output variants on the noisy MSC d5 fixture. An untimed
+check requires both variants to select active width six. This tracks the cost
+of optimizing the auxiliary noise wires introduced by reconstruction; it does
+not measure sampling.
+
 ### Shared survivor sampling
 
 Shared execution can reduce repeated coefficient evolution, but its preparation

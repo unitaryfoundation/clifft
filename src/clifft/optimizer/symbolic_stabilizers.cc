@@ -1,6 +1,7 @@
 #include "clifft/optimizer/symbolic_stabilizers.h"
 
 #include "clifft/optimizer/pauli_axis.h"
+#include "clifft/util/symplectic.h"
 
 #include <algorithm>
 #include <cassert>
@@ -274,9 +275,10 @@ bool SymbolicStabilizers::insert_row(Row row) {
 }
 
 bool SymbolicStabilizers::intersect_rows(PauliStringView axis) {
+    const PauliCommutation commutation(axis.x(), axis.z());
     auto pivot = rows_.end();
     for (auto it = rows_.begin(); it != rows_.end(); ++it) {
-        if (!axis.commutes(it->second.axis.view())) {
+        if (commutation.anti_commutes(it->second.axis.x(), it->second.axis.z())) {
             pivot = it;
         }
     }
@@ -287,7 +289,7 @@ bool SymbolicStabilizers::intersect_rows(PauliStringView axis) {
     // The largest pivot preserves the earlier rows' leading bits.
     size_t products = 0;
     for (auto it = rows_.begin(); it != pivot; ++it) {
-        if (!axis.commutes(it->second.axis.view()) &&
+        if (commutation.anti_commutes(it->second.axis.x(), it->second.axis.z()) &&
             !multiply(it->second, pivot->second, products)) {
             return false;
         }
@@ -306,8 +308,9 @@ void SymbolicStabilizers::apply_pauli(PauliStringView axis, const AffineBool& co
     if (condition.terms().empty() && !condition.constant()) {
         return;
     }
+    const PauliCommutation commutation(axis.x(), axis.z());
     for (auto& [pivot, row] : rows_) {
-        if (!axis.commutes(row.axis.view())) {
+        if (commutation.anti_commutes(row.axis.x(), row.axis.z())) {
             fixed_valid_ = false;
             row.sign ^= condition;
             if (row.sign.terms().size() > options_.max_expression_terms) {

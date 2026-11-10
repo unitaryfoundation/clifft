@@ -25,4 +25,39 @@ inline bool anti_commute(MaskView x1, MaskView z1, MaskView x2, MaskView z2) {
     return (parity & 1) != 0;
 }
 
+// Reuses the nonzero word range of one Pauli across many commutation checks.
+// The borrowed masks must remain unchanged for the lifetime of the checker.
+// Local axes on wide registers then inspect only the words they can affect.
+class PauliCommutation {
+  public:
+    PauliCommutation(MaskView x, MaskView z) : x_(x), z_(z), end_(x.num_words()) {
+        assert(x.num_words() == z.num_words());
+        while (end_ > 0 && (x.words[end_ - 1] | z.words[end_ - 1]) == 0) {
+            --end_;
+        }
+        while (begin_ < end_ && (x.words[begin_] | z.words[begin_]) == 0) {
+            ++begin_;
+        }
+    }
+
+    [[nodiscard]] bool references(MaskView x, MaskView z) const {
+        return x.words.data() == x_.words.data() && z.words.data() == z_.words.data() &&
+               x.num_words() == x_.num_words() && z.num_words() == z_.num_words();
+    }
+
+    [[nodiscard]] bool anti_commutes(MaskView x, MaskView z) const {
+        assert(x.num_words() == x_.num_words() && z.num_words() == z_.num_words());
+        return anti_commute(MaskView{x_.words.subspan(begin_, end_ - begin_)},
+                            MaskView{z_.words.subspan(begin_, end_ - begin_)},
+                            MaskView{x.words.subspan(begin_, end_ - begin_)},
+                            MaskView{z.words.subspan(begin_, end_ - begin_)});
+    }
+
+  private:
+    MaskView x_;
+    MaskView z_;
+    uint32_t begin_ = 0;
+    uint32_t end_;
+};
+
 }  // namespace clifft
