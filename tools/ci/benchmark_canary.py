@@ -37,6 +37,7 @@ BENCHMARK_SOURCE = Path(__file__).resolve().parents[2] / "benchmarks" / "clifft_
 # Optional labels; benchmark registration determines which workloads run.
 DISPLAY_NAMES = {
     "squeeze_parallel_t_8192": "Squeeze 8192 T gates",
+    "squeeze_measure_wide_noise_2048": "Squeeze 2,048 measurements across wide noise",
     "phase_measurement_barriers_4096": "Phase pass, 4,096 measurement barriers",
     "phase_clifford_regions_4096": "Phase pass, 4,096 Clifford regions",
     "phase_rank_limited_region_32000": "Phase pass, 32,000 rank-limited rotations",

@@ -133,6 +133,33 @@ void squeeze_parallel_t(benchmark::State& state) {
     }
 }
 
+// Each measurement moves left across the noise site of every other qubit and
+// stops at its own, so the cost is the number of measurement-noise checks on a
+// register that spans many mask words.
+void squeeze_measure_wide_noise(benchmark::State& state) {
+    constexpr uint32_t kQubits = 2048;
+    std::ostringstream source;
+    for (uint32_t qubit = 0; qubit < kQubits; ++qubit) {
+        source << "DEPOLARIZE1(0.001) " << qubit << "\n";
+    }
+    for (uint32_t qubit = 0; qubit < kQubits; ++qubit) {
+        source << "M " << qubit << "\n";
+    }
+    const HirModule original = trace(parse(source.str()));
+    HirModule validation = original;
+    StatevectorSqueezePass{}.run(validation);
+    if (validation.ops.size() != 2 * kQubits || validation.ops[0].op_type() != OpType::NOISE ||
+        validation.ops[1].op_type() != OpType::MEASURE) {
+        state.SkipWithError("unexpected wide-noise squeeze order");
+        return;
+    }
+    for ([[maybe_unused]] auto _ : state) {
+        auto hir = original;
+        StatevectorSqueezePass{}.run(hir);
+        benchmark::DoNotOptimize(hir.ops.size());
+    }
+}
+
 #ifdef CLIFFT_BENCHMARK_HAS_PHASE_POLYNOMIAL
 // Unsupported observers must end collection immediately, rather than making
 // each new region inspect the same long suffix again.
@@ -802,6 +829,7 @@ BENCHMARK(sample_online_loss_surface)->Name("sample_online_loss_surface_d7_64_sh
 #endif
 
 BENCHMARK(squeeze_parallel_t)->Name("squeeze_parallel_t_8192");
+BENCHMARK(squeeze_measure_wide_noise)->Name("squeeze_measure_wide_noise_2048");
 #ifdef CLIFFT_BENCHMARK_HAS_PHASE_POLYNOMIAL
 BENCHMARK_CAPTURE(phase_measurement_barriers, 4096, 4096)->Name("phase_measurement_barriers_4096");
 BENCHMARK_CAPTURE(phase_clifford_regions, 4096, 4096)->Name("phase_clifford_regions_4096");

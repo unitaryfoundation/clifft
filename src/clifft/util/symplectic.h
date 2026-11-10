@@ -45,6 +45,10 @@ class PauliCommutation {
                x.num_words() == x_.num_words() && z.num_words() == z_.num_words();
     }
 
+    // Half-open range of words where the borrowed Pauli is nonzero.
+    [[nodiscard]] uint32_t begin_word() const { return begin_; }
+    [[nodiscard]] uint32_t end_word() const { return end_; }
+
     [[nodiscard]] bool anti_commutes(MaskView x, MaskView z) const {
         assert(x.num_words() == x_.num_words() && z.num_words() == z_.num_words());
         return anti_commute(MaskView{x_.words.subspan(begin_, end_ - begin_)},

@@ -1031,6 +1031,155 @@ TEST_CASE("Squeeze: commuting expansions do not convoy across a measurement", "[
     CHECK(clifft::sampling::plan_sampling(hir).peak_active_width == 1);
 }
 
+TEST_CASE("Squeeze: measurement crosses noise on other mask words", "[optimizer]") {
+    // Qubits 0 and 1 share a mask word; 70 and 129 lie in the next two words.
+    auto hir = hir_from(
+        "X_ERROR(0.1) 0\nX_ERROR(0.1) 1\nX_ERROR(0.1) 70\n"
+        "DEPOLARIZE1(0.1) 129\nM 0");
+    REQUIRE(hir.ops.size() == 5);
+
+    StatevectorSqueezePass{}.run(hir);
+
+    // Only the X error on the measured qubit blocks the measurement.
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(static_cast<uint32_t>(hir.ops[0].noise_site_idx()) == 0);
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    for (uint32_t i = 2; i < 5; ++i) {
+        REQUIRE(hir.ops[i].op_type() == OpType::NOISE);
+        REQUIRE(static_cast<uint32_t>(hir.ops[i].noise_site_idx()) == i - 1);
+    }
+}
+
+TEST_CASE("Squeeze: noise support covers registers wider than 4096 qubits", "[optimizer]") {
+    // Qubit 4200 lies in mask word 65, beyond one 64-bit word of noise support.
+    auto hir = hir_from("X_ERROR(0.1) 4200\nX_ERROR(0.1) 0\nM 4200\nM 0");
+    REQUIRE(hir.ops.size() == 4);
+
+    StatevectorSqueezePass{}.run(hir);
+
+    // Each measurement crosses the error on the other qubit and stops at its own.
+    REQUIRE(hir.ops[0].op_type() == OpType::NOISE);
+    REQUIRE(static_cast<uint32_t>(hir.ops[0].noise_site_idx()) == 0);
+    REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);
+    REQUIRE(static_cast<uint32_t>(hir.ops[1].meas_record_idx()) == 0);
+    REQUIRE(hir.ops[2].op_type() == OpType::NOISE);
+    REQUIRE(static_cast<uint32_t>(hir.ops[2].noise_site_idx()) == 1);
+    REQUIRE(hir.ops[3].op_type() == OpType::MEASURE);
+    REQUIRE(static_cast<uint32_t>(hir.ops[3].meas_record_idx()) == 1);
+}
+
+namespace {
+
+constexpr uint32_t kRelabelQubits = 6;
+
+// Random noisy Clifford+T circuit on six logical qubits, with logical qubit q
+// written as physical qubit stride * q + offset. The seed fixes the logical
+// circuit, so two renderings differ only in their qubit labels.
+std::string relabeled_circuit(uint32_t seed, uint32_t stride, uint32_t offset) {
+    std::mt19937 rng(seed);
+    std::string source;
+    for (int i = 0; i < 40; ++i) {
+        const uint32_t kind = rng() % 10;
+        const uint32_t first = rng() % kRelabelQubits;
+        const uint32_t second = (first + 1 + rng() % (kRelabelQubits - 1)) % kRelabelQubits;
+        const std::string a = std::to_string(stride * first + offset);
+        const std::string b = std::to_string(stride * second + offset);
+        switch (kind) {
+            case 0:
+                source += "H " + a + "\n";
+                break;
+            case 1:
+                source += "S " + a + "\n";
+                break;
+            case 2:
+                source += "CX " + a + " " + b + "\n";
+                break;
+            case 3:
+                source += "T " + a + "\n";
+                break;
+            case 4:
+                source += "X_ERROR(0.1) " + a + "\n";
+                break;
+            case 5:
+                source += "Z_ERROR(0.1) " + a + "\n";
+                break;
+            case 6:
+                source += "DEPOLARIZE1(0.1) " + a + "\n";
+                break;
+            case 7:
+                source += "DEPOLARIZE2(0.1) " + a + " " + b + "\n";
+                break;
+            case 8:
+                source += "M " + a + "\n";
+                break;
+            default:
+                source += "MX " + a + "\n";
+                break;
+        }
+    }
+    return source;
+}
+
+// True when both modules hold the same operations in the same order, with the
+// wide module's Pauli masks equal to the narrow ones under the relabeling.
+bool same_ops_up_to_labels(const HirModule& narrow, const HirModule& wide, uint32_t stride,
+                           uint32_t offset) {
+    if (narrow.ops.size() != wide.ops.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < narrow.ops.size(); ++i) {
+        const auto& a = narrow.ops[i];
+        const auto& b = wide.ops[i];
+        if (a.op_type() != b.op_type()) {
+            return false;
+        }
+        if (a.op_type() == OpType::NOISE) {
+            if (a.noise_site_idx() != b.noise_site_idx()) {
+                return false;
+            }
+            continue;
+        }
+        if (a.op_type() == OpType::MEASURE && a.meas_record_idx() != b.meas_record_idx()) {
+            return false;
+        }
+        if (narrow.sign(a) != wide.sign(b)) {
+            return false;
+        }
+        for (uint32_t q = 0; q < kRelabelQubits; ++q) {
+            const uint32_t mapped = stride * q + offset;
+            if (narrow.destab_mask(a).bit_get(q) != wide.destab_mask(b).bit_get(mapped) ||
+                narrow.stab_mask(a).bit_get(q) != wide.stab_mask(b).bit_get(mapped)) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+TEST_CASE("Squeeze: order does not depend on which mask words hold the qubits", "[optimizer]") {
+    // A single-word register answers every noise check from the channel masks.
+    // Spreading the same circuit over six mask words lets noise support answer
+    // them instead; both must produce the same order.
+    constexpr uint32_t kStride = 67;
+    constexpr uint32_t kOffset = 5;
+    bool reordered = false;
+    for (uint32_t seed = 0; seed < 20; ++seed) {
+        CAPTURE(seed);
+        auto narrow = hir_from(relabeled_circuit(seed, 1, 0).c_str());
+        auto wide = hir_from(relabeled_circuit(seed, kStride, kOffset).c_str());
+        REQUIRE(same_ops_up_to_labels(narrow, wide, kStride, kOffset));
+
+        const auto traced = narrow;
+        StatevectorSqueezePass{}.run(narrow);
+        StatevectorSqueezePass{}.run(wide);
+        REQUIRE(same_ops_up_to_labels(narrow, wide, kStride, kOffset));
+        reordered = reordered || !same_ops_up_to_labels(traced, narrow, 1, 0);
+    }
+    REQUIRE(reordered);
+}
+
 TEST_CASE("Peephole: virtual S conjugation updates EXP_VAL masks", "[optimizer][exp_val]") {
     // Circuit: T 0, T 0, EXP_VAL X0
     // T+T fuses to virtual S on Z0. The S conjugation must update the
