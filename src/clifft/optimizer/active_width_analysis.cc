@@ -68,6 +68,23 @@ bool can_increase_active_width(const HirModule& hir) {
     return false;
 }
 
+template <typename VisitOps>
+ActiveWidthCost summarize_active_width_impl(const HirModule& hir, VisitOps&& visit_ops) {
+    if (!can_increase_active_width(hir)) {
+        return {};
+    }
+    DormantSubspace subspace(hir.num_qubits);
+    ActiveWidthCost cost;
+    cost.peak_width = subspace.active_width();
+    visit_ops([&](const HeisenbergOp& op) {
+        const WidthTransition transition = classify_and_apply(hir, op, subspace);
+        cost.peak_width = std::max(cost.peak_width, transition.after);
+        cost.dense_work +=
+            detail::dense_work_contribution(transition.effect, transition.before, transition.after);
+    });
+    return cost;
+}
+
 }  // namespace
 
 DormantSubspace::DormantSubspace(uint32_t num_qubits)
@@ -116,22 +133,18 @@ void DormantSubspace::compute_anticommuting_rows(MaskView x, MaskView z,
 
     std::ranges::fill(anti_out, uint64_t{0});
     const size_t active_rw = anti_out.size();
-    for (uint32_t w = 0; w < words_per_row_; ++w) {
-        for (uint64_t wx = x.words[w]; wx != 0; wx &= wx - 1) {
-            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(wx));
-            const uint64_t* cz = col_z_.data() + static_cast<size_t>(q) * words_per_row_;
-            for (size_t rw = 0; rw < active_rw; ++rw) {
-                anti_out[rw] ^= cz[rw];
-            }
+    for_each_set_bit(x, [&](uint32_t q) {
+        const uint64_t* cz = col_z_.data() + static_cast<size_t>(q) * words_per_row_;
+        for (size_t rw = 0; rw < active_rw; ++rw) {
+            anti_out[rw] ^= cz[rw];
         }
-        for (uint64_t wz = z.words[w]; wz != 0; wz &= wz - 1) {
-            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(wz));
-            const uint64_t* cx = col_x_.data() + static_cast<size_t>(q) * words_per_row_;
-            for (size_t rw = 0; rw < active_rw; ++rw) {
-                anti_out[rw] ^= cx[rw];
-            }
+    });
+    for_each_set_bit(z, [&](uint32_t q) {
+        const uint64_t* cx = col_x_.data() + static_cast<size_t>(q) * words_per_row_;
+        for (size_t rw = 0; rw < active_rw; ++rw) {
+            anti_out[rw] ^= cx[rw];
         }
-    }
+    });
 }
 
 bool DormantSubspace::commutes_with_all(MaskView x, MaskView z, uint32_t* anticommuting_row) const {
@@ -139,29 +152,6 @@ bool DormantSubspace::commutes_with_all(MaskView x, MaskView z, uint32_t* antico
            "Pauli body must share the subspace's word width");
     if (dimension_ == 0) {
         return true;
-    }
-
-    if (words_per_row_ == 1) {
-        if (anticommuting_row && *anticommuting_row < dimension_ &&
-            (std::popcount((rows_x_[*anticommuting_row] & z.words[0]) ^
-                           (rows_z_[*anticommuting_row] & x.words[0])) &
-             1) != 0) {
-            return false;
-        }
-        uint64_t anti = 0;
-        for (uint64_t wx = x.words[0]; wx != 0; wx &= wx - 1) {
-            anti ^= col_z_[std::countr_zero(wx)];
-        }
-        for (uint64_t wz = z.words[0]; wz != 0; wz &= wz - 1) {
-            anti ^= col_x_[std::countr_zero(wz)];
-        }
-        if (anti == 0) {
-            return true;
-        }
-        if (anticommuting_row) {
-            *anticommuting_row = static_cast<uint32_t>(std::countr_zero(anti));
-        }
-        return false;
     }
 
     if (anticommuting_row && *anticommuting_row < dimension_) {
@@ -194,16 +184,12 @@ void DormantSubspace::toggle_row_in_cols(uint32_t row_idx, const uint64_t* vx, c
                                          uint32_t begin_w, uint32_t end_w) {
     const uint32_t rw = row_idx / 64;
     const uint64_t rbit = uint64_t{1} << (row_idx % 64);
-    for (uint32_t w = begin_w; w < end_w; ++w) {
-        for (uint64_t xw = vx[w]; xw != 0; xw &= xw - 1) {
-            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(xw));
-            col_x_[static_cast<size_t>(q) * words_per_row_ + rw] ^= rbit;
-        }
-        for (uint64_t zw = vz[w]; zw != 0; zw &= zw - 1) {
-            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(zw));
-            col_z_[static_cast<size_t>(q) * words_per_row_ + rw] ^= rbit;
-        }
-    }
+    for_each_set_bit(
+        MaskView{std::span<const uint64_t>(vx, end_w)}, begin_w, end_w,
+        [&](uint32_t q) { col_x_[static_cast<size_t>(q) * words_per_row_ + rw] ^= rbit; });
+    for_each_set_bit(
+        MaskView{std::span<const uint64_t>(vz, end_w)}, begin_w, end_w,
+        [&](uint32_t q) { col_z_[static_cast<size_t>(q) * words_per_row_ + rw] ^= rbit; });
 }
 
 void DormantSubspace::xor_rows(const uint64_t* vx, const uint64_t* vz, uint32_t v_begin,
@@ -212,56 +198,45 @@ void DormantSubspace::xor_rows(const uint64_t* vx, const uint64_t* vz, uint32_t 
         return;
     }
     bool any_target = false;
-    for (size_t rw = 0; rw < target_rows.size(); ++rw) {
-        uint64_t mask = target_rows[rw];
-        if (mask == 0) {
-            continue;
-        }
+    for_each_set_bit(MaskView{target_rows}, [&](uint32_t i) {
         any_target = true;
-        while (mask != 0) {
-            const auto i =
-                static_cast<uint32_t>(rw * 64 + static_cast<size_t>(std::countr_zero(mask)));
-            mask &= mask - 1;
-            uint64_t* rx = rows_x_.data() + static_cast<size_t>(i) * words_per_row_;
-            uint64_t* rz = rows_z_.data() + static_cast<size_t>(i) * words_per_row_;
-            for (uint32_t w = v_begin; w < v_end; ++w) {
-                rx[w] ^= vx[w];
-                rz[w] ^= vz[w];
-            }
-            uint32_t rb = std::min(row_begin_[i], v_begin);
-            uint32_t re = std::max(row_end_[i], v_end);
-            while (re > rb && (rx[re - 1] | rz[re - 1]) == 0) {
-                --re;
-            }
-            while (rb < re && (rx[rb] | rz[rb]) == 0) {
-                ++rb;
-            }
-            assert(rb < re && "basis row became zero during elimination");
-            row_begin_[i] = rb;
-            row_end_[i] = re;
+        uint64_t* rx = rows_x_.data() + static_cast<size_t>(i) * words_per_row_;
+        uint64_t* rz = rows_z_.data() + static_cast<size_t>(i) * words_per_row_;
+        for (uint32_t w = v_begin; w < v_end; ++w) {
+            rx[w] ^= vx[w];
+            rz[w] ^= vz[w];
         }
-    }
+        uint32_t rb = std::min(row_begin_[i], v_begin);
+        uint32_t re = std::max(row_end_[i], v_end);
+        while (re > rb && (rx[re - 1] | rz[re - 1]) == 0) {
+            --re;
+        }
+        while (rb < re && (rx[rb] | rz[rb]) == 0) {
+            ++rb;
+        }
+        assert(rb < re && "basis row became zero during elimination");
+        row_begin_[i] = rb;
+        row_end_[i] = re;
+    });
     if (!any_target) {
         return;
     }
 
     const size_t active_rw = target_rows.size();
-    for (uint32_t w = v_begin; w < v_end; ++w) {
-        for (uint64_t xw = vx[w]; xw != 0; xw &= xw - 1) {
-            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(xw));
-            uint64_t* col = col_x_.data() + static_cast<size_t>(q) * words_per_row_;
-            for (size_t rw = 0; rw < active_rw; ++rw) {
-                col[rw] ^= target_rows[rw];
-            }
-        }
-        for (uint64_t zw = vz[w]; zw != 0; zw &= zw - 1) {
-            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(zw));
-            uint64_t* col = col_z_.data() + static_cast<size_t>(q) * words_per_row_;
-            for (size_t rw = 0; rw < active_rw; ++rw) {
-                col[rw] ^= target_rows[rw];
-            }
-        }
-    }
+    for_each_set_bit(MaskView{std::span<const uint64_t>(vx, v_end)}, v_begin, v_end,
+                     [&](uint32_t q) {
+                         uint64_t* col = col_x_.data() + static_cast<size_t>(q) * words_per_row_;
+                         for (size_t rw = 0; rw < active_rw; ++rw) {
+                             col[rw] ^= target_rows[rw];
+                         }
+                     });
+    for_each_set_bit(MaskView{std::span<const uint64_t>(vz, v_end)}, v_begin, v_end,
+                     [&](uint32_t q) {
+                         uint64_t* col = col_z_.data() + static_cast<size_t>(q) * words_per_row_;
+                         for (size_t rw = 0; rw < active_rw; ++rw) {
+                             col[rw] ^= target_rows[rw];
+                         }
+                     });
 }
 
 void DormantSubspace::erase_row(uint32_t k) {
@@ -411,22 +386,18 @@ void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
         se = std::max(se, re);
     };
 
-    for (uint32_t w = in_begin; w < in_end; ++w) {
-        for (uint64_t m = x.words[w]; m != 0; m &= m - 1) {
-            const uint32_t owner =
-                pivot_owner_[w * 64 + static_cast<uint32_t>(std::countr_zero(m))];
-            if (owner != kNoOwner) {
-                xor_owner(owner);
-            }
+    for_each_set_bit(x, in_begin, in_end, [&](uint32_t q) {
+        const uint32_t owner = pivot_owner_[q];
+        if (owner != kNoOwner) {
+            xor_owner(owner);
         }
-        for (uint64_t m = z.words[w]; m != 0; m &= m - 1) {
-            const uint32_t owner =
-                pivot_owner_[domain + w * 64 + static_cast<uint32_t>(std::countr_zero(m))];
-            if (owner != kNoOwner) {
-                xor_owner(owner);
-            }
+    });
+    for_each_set_bit(z, in_begin, in_end, [&](uint32_t q) {
+        const uint32_t owner = pivot_owner_[domain + q];
+        if (owner != kNoOwner) {
+            xor_owner(owner);
         }
-    }
+    });
 
     while (se > sb && (scratch_x_[se - 1] | scratch_z_[se - 1]) == 0) {
         --se;
@@ -448,17 +419,15 @@ bool DormantSubspace::intersect(MaskView x, MaskView z, UndoLog* undo) {
     }
 
     const uint32_t active_rw = (dimension_ + 63) / 64;
-    compute_anticommuting_rows(x, z, std::span<uint64_t>(anti_scratch_.data(), active_rw));
+    const std::span<uint64_t> anti(anti_scratch_.data(), active_rw);
+    compute_anticommuting_rows(x, z, anti);
 
     std::optional<uint32_t> pivot_row;
-    for (uint32_t rw = 0; rw < active_rw; ++rw) {
-        for (uint64_t m = anti_scratch_[rw]; m != 0; m &= m - 1) {
-            const uint32_t i = rw * 64 + static_cast<uint32_t>(std::countr_zero(m));
-            if (!pivot_row.has_value() || pivot_[i] > pivot_[*pivot_row]) {
-                pivot_row = i;
-            }
+    for_each_set_bit(MaskView{anti}, [&](uint32_t i) {
+        if (!pivot_row.has_value() || pivot_[i] > pivot_[*pivot_row]) {
+            pivot_row = i;
         }
-    }
+    });
     if (!pivot_row.has_value()) {
         return false;
     }
@@ -744,36 +713,20 @@ WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
 }
 
 ActiveWidthCost summarize_active_width(const HirModule& hir) {
-    if (!can_increase_active_width(hir)) {
-        return {};
-    }
-    DormantSubspace subspace(hir.num_qubits);
-    ActiveWidthCost cost;
-    cost.peak_width = subspace.active_width();
-    for (const HeisenbergOp& op : hir.ops) {
-        const WidthTransition transition = classify_and_apply(hir, op, subspace);
-        cost.peak_width = std::max(cost.peak_width, transition.after);
-        cost.dense_work +=
-            detail::dense_work_contribution(transition.effect, transition.before, transition.after);
-    }
-    return cost;
+    return summarize_active_width_impl(hir, [&](auto&& step) {
+        for (const HeisenbergOp& op : hir.ops) {
+            step(op);
+        }
+    });
 }
 
 ActiveWidthCost summarize_active_width(const HirModule& hir, std::span<const uint32_t> order) {
     assert(order.size() == hir.ops.size());
-    if (!can_increase_active_width(hir)) {
-        return {};
-    }
-    DormantSubspace subspace(hir.num_qubits);
-    ActiveWidthCost cost;
-    cost.peak_width = subspace.active_width();
-    for (uint32_t idx : order) {
-        const WidthTransition transition = classify_and_apply(hir, hir.ops[idx], subspace);
-        cost.peak_width = std::max(cost.peak_width, transition.after);
-        cost.dense_work +=
-            detail::dense_work_contribution(transition.effect, transition.before, transition.after);
-    }
-    return cost;
+    return summarize_active_width_impl(hir, [&](auto&& step) {
+        for (uint32_t idx : order) {
+            step(hir.ops[idx]);
+        }
+    });
 }
 
 ActiveWidthTrace analyze_active_width(const HirModule& hir) {

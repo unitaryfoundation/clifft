@@ -3,6 +3,7 @@
 #include "clifft/optimizer/commutation.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
 #include <optional>
@@ -13,6 +14,9 @@
 namespace clifft::detail {
 
 namespace {
+
+constexpr size_t kDenseScanCandidatesPerWord = 8;
+constexpr size_t kMaxIndexedSupport = 256;
 
 bool is_movable_op(OpType type) {
     return type == OpType::T_GATE || type == OpType::PHASE_ROTATION || type == OpType::MEASURE;
@@ -31,10 +35,7 @@ bool allowed(const HirModule& hir, const HeisenbergOp& left, const HeisenbergOp&
             return true;
         }
     }
-    if (right_axis) {
-        return can_swap(right, left, hir, right_axis);
-    }
-    return can_swap(left, right, hir);
+    return can_swap(right, left, hir, right_axis);
 }
 
 void append_unique_back(std::vector<uint32_t>& vec, uint32_t val) {
@@ -43,53 +44,15 @@ void append_unique_back(std::vector<uint32_t>& vec, uint32_t val) {
     }
 }
 
-template <typename Fn>
-void for_each_set_bit(MaskView mask, uint32_t begin_word, uint32_t end_word, Fn&& fn) {
-    for (uint32_t w = begin_word; w < end_word; ++w) {
-        uint64_t word = mask.words[w];
-        while (word != 0) {
-            const auto bit = static_cast<uint32_t>(std::countr_zero(word));
-            word &= word - 1;
-            fn(w * 64 + bit);
-        }
-    }
-}
-
-size_t classical_slot_bound(const HirModule& hir) {
-    size_t bound = 0;
-    auto note = [&](uint32_t idx) { bound = std::max(bound, static_cast<size_t>(idx) + 1); };
-    for (const HeisenbergOp& op : hir.ops) {
-        switch (op.op_type()) {
-            case OpType::MEASURE:
-                note(static_cast<uint32_t>(op.meas_record_idx()));
-                break;
-            case OpType::CONDITIONAL_PAULI:
-                note(static_cast<uint32_t>(op.controlling_meas()));
-                break;
-            case OpType::READOUT_NOISE:
-                note(hir.readout_noise[static_cast<uint32_t>(op.readout_noise_idx())].meas_idx);
-                break;
-            case OpType::DETECTOR:
-                for (uint32_t m : hir.detector_targets[static_cast<uint32_t>(op.detector_idx())]) {
-                    note(m);
-                }
-                break;
-            case OpType::OBSERVABLE:
-                for (uint32_t m : hir.observable_targets[op.observable_target_list_idx()]) {
-                    note(m);
-                }
-                break;
-            case OpType::T_GATE:
-            case OpType::PHASE_ROTATION:
-            case OpType::NOISE:
-            case OpType::EXP_VAL:
-            case OpType::INSTRUMENT:
-            case OpType::NUM_OP_TYPES:
-                break;
-        }
-    }
-    return bound;
-}
+// Per-qubit and per-record lists of earlier ops for one movability class.
+// High-weight ops and barriers go in wide_ops so each op adds a bounded
+// number of index entries even on dense multi-thousand-qubit Paulis.
+struct ConflictIndex {
+    std::vector<std::vector<uint32_t>> with_x;
+    std::vector<std::vector<uint32_t>> with_z;
+    std::vector<std::vector<uint32_t>> with_slot;
+    std::vector<uint32_t> wide_ops;
+};
 
 // Sort by key and value so each CSR adjacency list is ordered.
 void group_into_csr(size_t num_keys, std::vector<std::pair<uint32_t, uint32_t>> pairs,
@@ -137,25 +100,25 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
             }
         }
 
-        // Index earlier ops by the qubits and classical slots they touch so a
-        // sparse op on a wide register inspects only potential conflicts.
-        const size_t num_meas_slots = classical_slot_bound(hir);
+        // Index earlier ops by movability (0 = fixed, 1 = movable) and by the
+        // qubits and classical slots they touch so a sparse op on a wide
+        // register inspects only potential conflicts.
+        const size_t num_record_slots =
+            static_cast<size_t>(hir.num_measurements) + hir.num_hidden_measurements;
         const uint32_t noise_words =
             dep.noise_transparent_ ? 0u : hir.noise_channel_masks.num_words();
         const uint32_t mask_words = std::max(hir.pauli_masks.num_words(), noise_words);
         const size_t num_bit_slots = static_cast<size_t>(mask_words) * 64;
 
-        std::vector<uint32_t> barriers;
-        std::vector<std::vector<uint32_t>> movable_meas(num_meas_slots);
-        std::vector<std::vector<uint32_t>> fixed_accessors(num_meas_slots);
-        std::vector<std::vector<uint32_t>> movable_with_x(num_bit_slots);
-        std::vector<std::vector<uint32_t>> movable_with_z(num_bit_slots);
-        std::vector<std::vector<uint32_t>> fixed_with_x(num_bit_slots);
-        std::vector<std::vector<uint32_t>> fixed_with_z(num_bit_slots);
+        std::array<ConflictIndex, 2> index;
+        for (ConflictIndex& idx : index) {
+            idx.with_x.resize(num_bit_slots);
+            idx.with_z.resize(num_bit_slots);
+            idx.with_slot.resize(num_record_slots);
+        }
 
         std::vector<uint64_t> noise_ux(noise_words, 0);
         std::vector<uint64_t> noise_uz(noise_words, 0);
-        std::vector<std::span<const uint32_t>> candidate_spans;
         std::vector<uint32_t> candidates;
 
         std::vector<uint64_t> ancestor_rows(ring_rows * words, 0);
@@ -208,6 +171,10 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
                 }
             }
 
+            if (type_j == OpType::NOISE && dep.noise_transparent_) {
+                continue;
+            }
+
             std::optional<PauliCommutation> j_axis;
             if (type_j == OpType::T_GATE || type_j == OpType::PHASE_ROTATION ||
                 type_j == OpType::MEASURE || type_j == OpType::CONDITIONAL_PAULI) {
@@ -217,7 +184,7 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
 
             uint32_t noise_begin = 0;
             uint32_t noise_end = 0;
-            if (type_j == OpType::NOISE && !dep.noise_transparent_) {
+            if (type_j == OpType::NOISE) {
                 std::ranges::fill(noise_ux, uint64_t{0});
                 std::ranges::fill(noise_uz, uint64_t{0});
                 const NoiseSite& site =
@@ -238,6 +205,56 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
                     ++noise_begin;
                 }
             }
+
+            auto for_each_support = [&](auto&& on_x, auto&& on_z, auto&& on_slot) {
+                switch (type_j) {
+                    case OpType::T_GATE:
+                    case OpType::PHASE_ROTATION:
+                        for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
+                                         j_axis->end_word(), on_x);
+                        for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
+                                         j_axis->end_word(), on_z);
+                        break;
+                    case OpType::MEASURE:
+                        on_slot(static_cast<uint32_t>(op_j.meas_record_idx()));
+                        for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
+                                         j_axis->end_word(), on_x);
+                        for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
+                                         j_axis->end_word(), on_z);
+                        break;
+                    case OpType::CONDITIONAL_PAULI:
+                        on_slot(static_cast<uint32_t>(op_j.controlling_meas()));
+                        for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
+                                         j_axis->end_word(), on_x);
+                        for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
+                                         j_axis->end_word(), on_z);
+                        break;
+                    case OpType::NOISE:
+                        for_each_set_bit(MaskView{noise_ux}, noise_begin, noise_end, on_x);
+                        for_each_set_bit(MaskView{noise_uz}, noise_begin, noise_end, on_z);
+                        break;
+                    case OpType::READOUT_NOISE:
+                        on_slot(hir.readout_noise[static_cast<uint32_t>(op_j.readout_noise_idx())]
+                                    .meas_idx);
+                        break;
+                    case OpType::DETECTOR:
+                        for (uint32_t m :
+                             hir.detector_targets[static_cast<uint32_t>(op_j.detector_idx())]) {
+                            on_slot(m);
+                        }
+                        break;
+                    case OpType::OBSERVABLE:
+                        for (uint32_t m :
+                             hir.observable_targets[op_j.observable_target_list_idx()]) {
+                            on_slot(m);
+                        }
+                        break;
+                    case OpType::EXP_VAL:
+                    case OpType::INSTRUMENT:
+                    case OpType::NUM_OP_TYPES:
+                        break;
+                }
+            };
 
             // Try nearby predecessors first: their ancestor sets can rule out
             // many earlier candidates at once.
@@ -267,108 +284,77 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
                 }
             };
 
+            const bool is_barrier = type_j == OpType::EXP_VAL || type_j == OpType::INSTRUMENT;
+            size_t support_count = 0;
+            size_t total_candidates =
+                index[1].wide_ops.size() + (j_movable ? index[0].wide_ops.size() : 0);
+            if (!is_barrier) {
+                for_each_support(
+                    [&](uint32_t q) {
+                        ++support_count;
+                        total_candidates += index[1].with_z[q].size();
+                        if (j_movable) {
+                            total_candidates += index[0].with_z[q].size();
+                        }
+                    },
+                    [&](uint32_t q) {
+                        ++support_count;
+                        total_candidates += index[1].with_x[q].size();
+                        if (j_movable) {
+                            total_candidates += index[0].with_x[q].size();
+                        }
+                    },
+                    [&](uint32_t m) {
+                        assert(m < num_record_slots);
+                        ++support_count;
+                        total_candidates += index[1].with_slot[m].size();
+                        if (j_movable) {
+                            total_candidates += index[0].with_slot[m].size();
+                        }
+                    });
+            }
+
             if (j > 0) {
-                if (type_j == OpType::EXP_VAL || type_j == OpType::INSTRUMENT) {
+                if (is_barrier) {
                     scan_dense();
-                } else if (type_j != OpType::NOISE || !dep.noise_transparent_) {
-                    candidate_spans.clear();
-                    size_t total_candidates = 0;
-                    auto add_span = [&](std::span<const uint32_t> s) {
-                        if (!s.empty()) {
-                            candidate_spans.push_back(s);
-                            total_candidates += s.size();
-                        }
-                    };
-
-                    if (j_movable) {
-                        add_span(barriers);
-                    }
-                    switch (type_j) {
-                        case OpType::T_GATE:
-                        case OpType::PHASE_ROTATION:
-                            for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
-                                             j_axis->end_word(), [&](uint32_t q) {
-                                                 add_span(movable_with_z[q]);
-                                                 add_span(fixed_with_z[q]);
-                                             });
-                            for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
-                                             j_axis->end_word(), [&](uint32_t q) {
-                                                 add_span(movable_with_x[q]);
-                                                 add_span(fixed_with_x[q]);
-                                             });
-                            break;
-                        case OpType::MEASURE: {
-                            const auto m = static_cast<uint32_t>(op_j.meas_record_idx());
-                            add_span(movable_meas[m]);
-                            add_span(fixed_accessors[m]);
-                            for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
-                                             j_axis->end_word(), [&](uint32_t q) {
-                                                 add_span(movable_with_z[q]);
-                                                 add_span(fixed_with_z[q]);
-                                             });
-                            for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
-                                             j_axis->end_word(), [&](uint32_t q) {
-                                                 add_span(movable_with_x[q]);
-                                                 add_span(fixed_with_x[q]);
-                                             });
-                            break;
-                        }
-                        case OpType::CONDITIONAL_PAULI: {
-                            const auto m = static_cast<uint32_t>(op_j.controlling_meas());
-                            add_span(movable_meas[m]);
-                            for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
-                                             j_axis->end_word(),
-                                             [&](uint32_t q) { add_span(movable_with_z[q]); });
-                            for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
-                                             j_axis->end_word(),
-                                             [&](uint32_t q) { add_span(movable_with_x[q]); });
-                            break;
-                        }
-                        case OpType::NOISE:
-                            for_each_set_bit(MaskView{noise_ux}, noise_begin, noise_end,
-                                             [&](uint32_t q) { add_span(movable_with_z[q]); });
-                            for_each_set_bit(MaskView{noise_uz}, noise_begin, noise_end,
-                                             [&](uint32_t q) { add_span(movable_with_x[q]); });
-                            break;
-                        case OpType::READOUT_NOISE: {
-                            const uint32_t m =
-                                hir.readout_noise[static_cast<uint32_t>(op_j.readout_noise_idx())]
-                                    .meas_idx;
-                            add_span(movable_meas[m]);
-                            break;
-                        }
-                        case OpType::DETECTOR:
-                            for (uint32_t m :
-                                 hir.detector_targets[static_cast<uint32_t>(op_j.detector_idx())]) {
-                                add_span(movable_meas[m]);
-                            }
-                            break;
-                        case OpType::OBSERVABLE:
-                            for (uint32_t m :
-                                 hir.observable_targets[op_j.observable_target_list_idx()]) {
-                                add_span(movable_meas[m]);
-                            }
-                            break;
-                        case OpType::EXP_VAL:
-                        case OpType::INSTRUMENT:
-                        case OpType::NUM_OP_TYPES:
-                            break;
-                    }
-
+                } else {
                     // Fall back to the ancestor bitset scan on narrow dense
                     // circuits where candidate lists grow longer than the row.
                     const size_t top_word = (j - 1) / 64;
-                    if (total_candidates > (top_word + 1) * 8) {
+                    if (total_candidates > (top_word + 1) * kDenseScanCandidatesPerWord) {
                         scan_dense();
                     } else if (total_candidates > 0) {
                         candidates.clear();
-                        for (std::span<const uint32_t> s : candidate_spans) {
-                            for (uint32_t i : s) {
+                        auto collect = [&](std::span<const uint32_t> ops) {
+                            for (uint32_t i : ops) {
                                 if ((rj[i / 64] & (uint64_t{1} << (i % 64))) == 0) {
                                     candidates.push_back(i);
                                 }
                             }
+                        };
+                        collect(index[1].wide_ops);
+                        if (j_movable) {
+                            collect(index[0].wide_ops);
                         }
+                        for_each_support(
+                            [&](uint32_t q) {
+                                collect(index[1].with_z[q]);
+                                if (j_movable) {
+                                    collect(index[0].with_z[q]);
+                                }
+                            },
+                            [&](uint32_t q) {
+                                collect(index[1].with_x[q]);
+                                if (j_movable) {
+                                    collect(index[0].with_x[q]);
+                                }
+                            },
+                            [&](uint32_t m) {
+                                collect(index[1].with_slot[m]);
+                                if (j_movable) {
+                                    collect(index[0].with_slot[m]);
+                                }
+                            });
                         if (candidates.size() > 1) {
                             std::ranges::sort(candidates, std::greater<uint32_t>{});
                         }
@@ -392,68 +378,14 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
 
             if (j + 1 < n) {
                 const auto j_idx = static_cast<uint32_t>(j);
-                switch (type_j) {
-                    case OpType::T_GATE:
-                    case OpType::PHASE_ROTATION:
-                        for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
-                                         j_axis->end_word(),
-                                         [&](uint32_t q) { movable_with_x[q].push_back(j_idx); });
-                        for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
-                                         j_axis->end_word(),
-                                         [&](uint32_t q) { movable_with_z[q].push_back(j_idx); });
-                        break;
-                    case OpType::MEASURE:
-                        movable_meas[static_cast<uint32_t>(op_j.meas_record_idx())].push_back(
-                            j_idx);
-                        for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
-                                         j_axis->end_word(),
-                                         [&](uint32_t q) { movable_with_x[q].push_back(j_idx); });
-                        for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
-                                         j_axis->end_word(),
-                                         [&](uint32_t q) { movable_with_z[q].push_back(j_idx); });
-                        break;
-                    case OpType::CONDITIONAL_PAULI:
-                        fixed_accessors[static_cast<uint32_t>(op_j.controlling_meas())].push_back(
-                            j_idx);
-                        for_each_set_bit(hir.destab_mask(op_j), j_axis->begin_word(),
-                                         j_axis->end_word(),
-                                         [&](uint32_t q) { fixed_with_x[q].push_back(j_idx); });
-                        for_each_set_bit(hir.stab_mask(op_j), j_axis->begin_word(),
-                                         j_axis->end_word(),
-                                         [&](uint32_t q) { fixed_with_z[q].push_back(j_idx); });
-                        break;
-                    case OpType::NOISE:
-                        if (!dep.noise_transparent_) {
-                            for_each_set_bit(MaskView{noise_ux}, noise_begin, noise_end,
-                                             [&](uint32_t q) { fixed_with_x[q].push_back(j_idx); });
-                            for_each_set_bit(MaskView{noise_uz}, noise_begin, noise_end,
-                                             [&](uint32_t q) { fixed_with_z[q].push_back(j_idx); });
-                        }
-                        break;
-                    case OpType::READOUT_NOISE:
-                        fixed_accessors[hir.readout_noise[static_cast<uint32_t>(
-                                                              op_j.readout_noise_idx())]
-                                            .meas_idx]
-                            .push_back(j_idx);
-                        break;
-                    case OpType::DETECTOR:
-                        for (uint32_t m :
-                             hir.detector_targets[static_cast<uint32_t>(op_j.detector_idx())]) {
-                            append_unique_back(fixed_accessors[m], j_idx);
-                        }
-                        break;
-                    case OpType::OBSERVABLE:
-                        for (uint32_t m :
-                             hir.observable_targets[op_j.observable_target_list_idx()]) {
-                            append_unique_back(fixed_accessors[m], j_idx);
-                        }
-                        break;
-                    case OpType::EXP_VAL:
-                    case OpType::INSTRUMENT:
-                        barriers.push_back(j_idx);
-                        break;
-                    case OpType::NUM_OP_TYPES:
-                        break;
+                ConflictIndex& idx = index[j_movable ? 1 : 0];
+                if (is_barrier || support_count > kMaxIndexedSupport) {
+                    idx.wide_ops.push_back(j_idx);
+                } else {
+                    for_each_support(
+                        [&](uint32_t q) { idx.with_x[q].push_back(j_idx); },
+                        [&](uint32_t q) { idx.with_z[q].push_back(j_idx); },
+                        [&](uint32_t m) { append_unique_back(idx.with_slot[m], j_idx); });
                 }
             }
         }

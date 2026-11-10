@@ -30,7 +30,8 @@ struct ScheduleDependenceOptions {
 
     // Target budget for cached ancestor bitsets; at least one row is retained.
     // Smaller caches can leave redundant edges and require more pairwise checks,
-    // but do not change the legal orders. This does not bound the DAG's size.
+    // but do not change the legal orders. This does not bound the temporary
+    // support index or the DAG's size.
     size_t ancestor_cache_bytes = 64u << 20;
 };
 

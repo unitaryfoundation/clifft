@@ -340,6 +340,31 @@ TEST_CASE("Schedule dependence closure matches can_swap across wide registers an
             }
         }
     }
+
+    SECTION("high-weight Pauli support routed through the wide-op overflow list") {
+        constexpr uint32_t kNumQubits = 320;
+        std::string source;
+        for (uint32_t q = 1; q <= 300; ++q) {
+            source += "CX " + std::to_string(q) + " 0\n";
+        }
+        // Movable and fixed ops on qubit 0 inherit weight-301 Z support; later
+        // narrow ops on qubits 150 and 310 test both conflicting and commuting pairs.
+        source += "T 0\nM 0\nCZ rec[-1] 0\nZ_ERROR(0.05) 0\n";
+        source += "H 150 310\nT 150 310\nM 150 310\n";
+        source += clifft::test::generate_noisy_source(rng, kNumQubits, 40);
+
+        const HirModule hir = clifft::trace(clifft::parse(source));
+        REQUIRE(hir.stab_mask(hir.ops[0]).popcount() == 301);
+        const size_t words = (hir.ops.size() + 63) / 64;
+        for (const bool noise_transparent : {false, true}) {
+            CAPTURE(noise_transparent);
+            check_closure_matches_can_swap(hir, noise_transparent);
+
+            ScheduleDependenceOptions evicted;
+            evicted.ancestor_cache_bytes = 2 * words * sizeof(uint64_t);
+            check_closure_matches_can_swap(hir, noise_transparent, evicted);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

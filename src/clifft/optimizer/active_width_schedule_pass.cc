@@ -10,7 +10,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
-#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -292,8 +291,7 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFro
 void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace& subspace,
                  std::vector<uint32_t>& order, std::vector<UndoStep>& log,
                  std::vector<uint32_t>& newly_ready_log, SearchWork& work, uint32_t& peak,
-                 double& dense_work, DormantSubspace::UndoLog* subspace_undo = nullptr,
-                 std::vector<WidthEffect>* order_effects = nullptr) {
+                 double& dense_work, DormantSubspace::UndoLog* subspace_undo = nullptr) {
     frontier.reset_expanding_memo();
     while (const std::optional<uint32_t> op =
                find_ready_non_expanding(hir, frontier, subspace, work)) {
@@ -305,9 +303,6 @@ void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace
             detail::apply_non_expanding(hir, hir.ops[*op], subspace, subspace_undo);
         assert(!is_expanding_effect(transition.effect) &&
                "find_ready_non_expanding chose an op classify_and_apply treats as expanding");
-        if (order_effects != nullptr) {
-            order_effects->push_back(transition.effect);
-        }
         if (transition.effect == WidthEffect::MeasureDormantRandom) {
             frontier.reset_expanding_memo();
         }
@@ -328,7 +323,6 @@ struct BeamState {
     uint32_t peak = 0;
     double dense_work = 0.0;
     std::vector<uint32_t> order;
-    std::vector<WidthEffect> order_effects;
 };
 
 BeamState make_initial_beam_state(const HirModule& hir,
@@ -337,8 +331,7 @@ BeamState make_initial_beam_state(const HirModule& hir,
     std::vector<UndoStep> discarded_log;
     std::vector<uint32_t> discarded_newly_ready;
     run_closure(hir, state.frontier, state.subspace, state.order, discarded_log,
-                discarded_newly_ready, work, state.peak, state.dense_work, nullptr,
-                &state.order_effects);
+                discarded_newly_ready, work, state.peak, state.dense_work);
     return state;
 }
 
@@ -413,7 +406,7 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
                                                                 first_transition.after);
 
         run_closure(hir, parent.frontier, parent.subspace, candidate.ops, log, newly_ready_log,
-                    work, candidate.peak, candidate.dense_work, &subspace_undo, nullptr);
+                    work, candidate.peak, candidate.dense_work, &subspace_undo);
 
         candidate.width_after_closure = parent.subspace.active_width();
         candidate.executed_bits = parent.frontier.executed_bits();
@@ -438,7 +431,6 @@ BeamState materialize_candidate(const HirModule& hir, std::vector<BeamState>& be
     BeamState state =
         steal_parent ? std::move(beam[candidate.parent_index]) : beam[candidate.parent_index];
     state.order.reserve(state.order.size() + candidate.ops.size());
-    state.order_effects.reserve(state.order_effects.size() + candidate.ops.size());
 
     // Reuse one log buffer even though replay never needs to undo its entries.
     std::vector<uint32_t> discarded_newly_ready;
@@ -449,7 +441,6 @@ BeamState materialize_candidate(const HirModule& hir, std::vector<BeamState>& be
         state.dense_work +=
             detail::dense_work_contribution(transition.effect, transition.before, transition.after);
         state.order.push_back(op);
-        state.order_effects.push_back(transition.effect);
         ++work.swept_ops;
     }
 
@@ -560,13 +551,12 @@ BeamState run_beam_search(const HirModule& hir, const detail::ScheduleDependence
             state.order.push_back(op);
             ++work.swept_ops;
             const WidthTransition transition = classify_and_apply(hir, hir.ops[op], state.subspace);
-            state.order_effects.push_back(transition.effect);
             state.peak = std::max(state.peak, transition.after);
             state.dense_work += detail::dense_work_contribution(
                 transition.effect, transition.before, transition.after);
             std::vector<UndoStep> log;
             run_closure(hir, state.frontier, state.subspace, state.order, log, newly_ready, work,
-                        state.peak, state.dense_work, nullptr, &state.order_effects);
+                        state.peak, state.dense_work);
             continue;
         }
 
@@ -669,38 +659,34 @@ BeamState run_beam_search(const HirModule& hir, const detail::ScheduleDependence
 // increase the width they run at. Stabilizer rotations need no action or sinking.
 // For adjacent ops in a legal order, any dependency has a direct edge in
 // ScheduleDependence, so marking the rotation's incident vertices once lets the
-// scan test adjacency in O(1) without repeated CSR lookups. Returns whether any
-// swap occurred.
-bool sink_neutral_rotations(const HirModule& hir, const detail::ScheduleDependence& dependence,
-                            std::vector<uint32_t>& order,
-                            std::span<const WidthEffect> order_effects) {
-    assert(order.size() == order_effects.size());
-    std::vector<uint32_t> to_sink;
-    for (size_t i = 0; i < order.size(); ++i) {
-        if (order_effects[i] == WidthEffect::RotationNeutral) {
-            to_sink.push_back(order[i]);
-        }
-    }
-    if (to_sink.empty()) {
-        return false;
-    }
-
+// scan test adjacency in O(1) without repeated CSR lookups.
+void sink_neutral_rotations(const HirModule& hir, const detail::ScheduleDependence& dependence,
+                            std::vector<uint32_t>& order) {
     // Sinking a neutral rotation does not change S, so expanding classifications
     // stay fixed across permutations. Mark expanding ops with kExpandingStamp so
     // any stamp <= to_sink.size() treats both expanding and adjacent ops as stops.
     constexpr uint32_t kExpandingStamp = ~uint32_t{0};
-    assert(to_sink.size() < kExpandingStamp);
+    std::vector<uint32_t> to_sink;
     std::vector<uint32_t> blocked_stamp(hir.ops.size(), 0);
     std::vector<uint32_t> position(hir.ops.size());
-    for (size_t i = 0; i < order.size(); ++i) {
-        const uint32_t op = order[i];
-        position[op] = static_cast<uint32_t>(i);
-        if (is_expanding_effect(order_effects[i])) {
-            blocked_stamp[op] = kExpandingStamp;
+    {
+        DormantSubspace subspace(hir.num_qubits);
+        for (size_t i = 0; i < order.size(); ++i) {
+            const uint32_t op = order[i];
+            position[op] = static_cast<uint32_t>(i);
+            const WidthEffect effect = classify_and_apply(hir, hir.ops[op], subspace).effect;
+            if (effect == WidthEffect::RotationNeutral) {
+                to_sink.push_back(op);
+            } else if (is_expanding_effect(effect)) {
+                blocked_stamp[op] = kExpandingStamp;
+            }
         }
     }
+    if (to_sink.empty()) {
+        return;
+    }
+    assert(to_sink.size() < kExpandingStamp);
 
-    bool moved = false;
     for (size_t s = 0; s < to_sink.size(); ++s) {
         const uint32_t op = to_sink[s];
         const auto stamp = static_cast<uint32_t>(s + 1);
@@ -730,10 +716,8 @@ bool sink_neutral_rotations(const HirModule& hir, const detail::ScheduleDependen
                     position[order[pos]] = static_cast<uint32_t>(pos);
                 }
             }
-            moved = true;
         }
     }
-    return moved;
 }
 
 // Only rotations offer a choice of expansion: an expanding instrument is a
@@ -789,13 +773,15 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
     swept_ops_ = work.swept_ops;
     classification_probes_ = work.probes;
 
-    bool sunk = false;
     if (options_.sink_neutral_rotations) {
-        sunk = sink_neutral_rotations(hir, dependence, best.order, best.order_effects);
+        sink_neutral_rotations(hir, dependence, best.order);
     }
 
-    const ActiveWidthCost candidate = sunk ? summarize_active_width(hir, best.order)
-                                           : ActiveWidthCost{best.peak, best.dense_work};
+    const ActiveWidthCost candidate = summarize_active_width(hir, best.order);
+    assert(candidate.peak_width <= best.peak && candidate.dense_work <= best.dense_work &&
+           "neutral-rotation sinking worsened the beam's schedule cost");
+    assert(options_.sink_neutral_rotations ||
+           (candidate.peak_width == best.peak && candidate.dense_work == best.dense_work));
 
     const bool better =
         (candidate.peak_width < incumbent_peak_) ||
