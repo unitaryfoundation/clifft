@@ -5,10 +5,13 @@
 namespace clifft {
 
 SamplingPreparation::SamplingPreparation(const sampling::ExecutablePlan& compiled,
-                                         bool keep_records, bool early_postselection)
+                                         sampling::SamplingOutputs outputs,
+                                         bool early_postselection, bool survivor_counts)
     : early_postselection_(early_postselection),
-      compact_(keep_records ? std::nullopt
-                            : std::optional(compiled.compact_outputs(early_postselection))),
+      compact_(outputs.records == sampling::RecordOutputs::All
+                   ? std::nullopt
+                   : std::optional(
+                         compiled.compact_outputs(outputs, early_postselection, survivor_counts))),
       plan_(compact_ ? &*compact_ : &compiled) {}
 
 const sampling::EarlyPostselection& SamplingPreparation::checks() const {

@@ -22,8 +22,10 @@ struct Program::Data {
     sampling::ExecutablePlan original;
     // Prepared once during compilation, then immutable for concurrent sampling.
     std::array<SamplingVariant, 2> variants;
-    // Indexed by keep_records, then by whether early checks apply.
-    std::array<std::array<detail::LazyPrepared<SamplingPreparation>, 2>, 2> preparations;
+    // Output choice, fixed-fault plan choice, survivor summaries, and early checks.
+    std::array<
+        std::array<std::array<std::array<detail::LazyPrepared<SamplingPreparation>, 2>, 2>, 2>, 4>
+        preparations;
 };
 
 Program::Program(sampling::ExecutablePlan original)
@@ -121,11 +123,18 @@ const std::string& Program::reconstruction_fallback_reason(bool keep_records) co
     return data_->variants[keep_records].fallback_reason;
 }
 
-const SamplingPreparation& Program::sampling_preparation(bool keep_records,
-                                                         bool early_postselection) const {
-    const auto& plan = sampling_plan(keep_records);
+const SamplingPreparation& Program::sampling_preparation(sampling::SamplingOutputs outputs,
+                                                         bool early_postselection,
+                                                         bool fixed_faults,
+                                                         bool survivor_counts) const {
+    fixed_faults &= uses_reconstruction(outputs.measurements());
+    const auto& plan = fixed_faults ? original() : sampling_plan(outputs.measurements());
     const bool early = early_postselection && plan.has_postselection();
-    return data_->preparations[keep_records][early].get(plan, keep_records, early);
+    survivor_counts = !outputs.rows() ||
+                      (outputs.records == sampling::RecordOutputs::Measurements && survivor_counts);
+    return data_
+        ->preparations[static_cast<size_t>(outputs.records)][fixed_faults][survivor_counts][early]
+        .get(plan, outputs, early, survivor_counts);
 }
 
 }  // namespace clifft

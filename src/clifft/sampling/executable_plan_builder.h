@@ -26,7 +26,8 @@ class ExecutablePlanBuilder {
         bool has_postselection = false;
     };
 
-    static ExecutablePlan compact_outputs(const ExecutablePlan& input, bool early_postselection);
+    static ExecutablePlan compact_outputs(const ExecutablePlan& input, SamplingOutputs outputs,
+                                          bool early_postselection, bool survivor_counts);
     static void build(ExecutablePlan& output, const SamplingPlan& source);
     ExecutablePlanBuilder(ExecutablePlan& output, const SamplingPlan& source);
 

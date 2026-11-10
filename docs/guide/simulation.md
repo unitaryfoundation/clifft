@@ -60,6 +60,51 @@ assert detectors.shape == (100, 0)
 assert observables.shape == (100, 0)
 ```
 
+### Select and pack outputs
+
+Decoder workloads usually need detector and observable rows without the full
+measurement history. Select the outputs you use to reduce both execution work
+and result memory; these options also apply to `sample_k()` and the survivor APIs.
+
+| `keep_records` | Retained rows |
+|---|---|
+| `True` or `"all"` | Measurements, detectors, observables, and `EXP_VAL` probes |
+| `"syndromes"` | Detectors and observables |
+| `"measurements"` | Measurements |
+| `False` | Aggregate counts only; accepted by survivor APIs |
+
+Ordinary sampling defaults to `True`; survivor sampling defaults to `False`.
+Survivor counts, including `logical_errors` and `observable_ones`, remain
+available with every output choice. Feedback and postselection still consume
+the internal records they need.
+
+Set `bit_packed=True` to store eight binary columns per byte in Stim's `b8`
+format: column `j` occupies bit `j % 8` of byte `j // 8`. Unused high bits in the
+last byte are zero. The shape is `(rows, (columns + 7) // 8)` and the dtype is
+`uint8`. This option changes result storage independently of `batch_size`,
+which controls how many trajectories execute together.
+
+```python
+import clifft
+import numpy as np
+
+program = clifft.compile("H 0\nM 0\nDETECTOR rec[-1]")
+result = clifft.sample(program, 100, keep_records="syndromes", bit_packed=True)
+assert result.measurements.shape == (0, 1)
+assert result.detectors.shape == (100, 1)
+assert result.retained_shots == 100
+assert result.bit_packed
+bits = np.unpackbits(result.detectors, axis=1, count=program.num_detectors,
+                     bitorder="little")
+assert bits.shape == (100, 1)
+```
+
+For a decoder-facing array, `clifft.sample_detectors()` returns just detectors,
+or `(detectors, observables)` with `separate_observables=True`. It uses
+`keep_records="syndromes"` and shares the result storage. Unpacked arrays have
+dtype `bool`; packed arrays have dtype `uint8`. The detector values follow the
+program's [syndrome normalization](#detectors-and-observables) settings.
+
 ### Post-selected survivor sampling
 
 The `postselection_mask` has one flag per detector. A `1` discards a shot when
@@ -119,9 +164,13 @@ A `SampleResult` exposes four NumPy arrays:
 | `observables` | Logical parities declared by `OBSERVABLE_INCLUDE`. |
 | `exp_vals` | Values produced by non-destructive `EXP_VAL` probes. |
 
-For ordinary sampling, every array has one row per shot. An array has zero
-columns when the circuit does not declare that result type. Survivor sampling
-retains rows only when `keep_records=True`.
+`result.retained_shots` gives the number of retained rows: the requested shot
+count for ordinary sampling, the accepted shot count for survivor sampling with
+records, or zero for count-only sampling. A selected array has that many rows.
+An omitted array has zero rows and keeps the circuit's declared width, adjusted
+for bit packing. A result type with no declared columns has shape
+`(result.retained_shots, 0)`. `result.bit_packed` identifies packed binary arrays;
+`exp_vals` always uses unpacked `float64` values.
 
 ### Detectors and observables
 

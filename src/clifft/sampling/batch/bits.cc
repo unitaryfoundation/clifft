@@ -160,7 +160,7 @@ void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept {
 
 void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
                                    std::span<const uint32_t> rows, std::span<uint8_t> output,
-                                   size_t stride) noexcept {
+                                   size_t stride, bool bit_packed) noexcept {
     assert(num_columns <= columns.num_columns() &&
            "transposed column count must not exceed the packed columns");
     const size_t lanes = rows.size();
@@ -171,7 +171,8 @@ void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_c
            "transposed lanes must fit the packed lane capacity");
 #ifndef NDEBUG
     for (const uint32_t row : rows) {
-        assert(static_cast<size_t>(row) * stride + num_columns <= output.size() &&
+        const size_t bytes = bit_packed ? (num_columns + 7) / 8 : num_columns;
+        assert(static_cast<size_t>(row) * stride + bytes <= output.size() &&
                "transposed rows must lie within the output");
     }
 #endif
@@ -184,7 +185,7 @@ void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_c
             for (size_t j = 0; j < ncols; ++j) {
                 tile[j] = columns.column(c0 + j)[word];
             }
-            if (ncols <= kDirectCopyColumns) {
+            if (!bit_packed && ncols <= kDirectCopyColumns) {
                 for (size_t i = 0; i < count; ++i) {
                     uint8_t* destination =
                         output.data() + static_cast<size_t>(rows[first + i]) * stride + c0;
@@ -197,9 +198,17 @@ void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_c
             std::fill(tile + ncols, tile + 64, uint64_t{0});
             transpose_tile_64x64(tile);
             for (size_t i = 0; i < count; ++i) {
-                uint8_t* destination =
-                    output.data() + static_cast<size_t>(rows[first + i]) * stride + c0;
-                expand_bits_to_bytes(tile[i], ncols, destination);
+                uint8_t* destination = output.data() +
+                                       static_cast<size_t>(rows[first + i]) * stride +
+                                       (bit_packed ? c0 / 8 : c0);
+                if (bit_packed) {
+                    // Explicit byte shifts keep the b8 layout independent of host endian.
+                    for (size_t byte = 0; byte < (ncols + 7) / 8; ++byte) {
+                        destination[byte] = static_cast<uint8_t>(tile[i] >> (8 * byte));
+                    }
+                } else {
+                    expand_bits_to_bytes(tile[i], ncols, destination);
+                }
             }
         }
     }

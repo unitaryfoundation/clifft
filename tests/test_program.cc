@@ -4,6 +4,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/batch/executor.h"
 
 #include <algorithm>
 #include <array>
@@ -159,6 +160,37 @@ TEST_CASE("Program shares reconstruction preparation across asymmetric output va
         REQUIRE_FALSE(program.reconstruction_fallback_reason(true).empty());
         REQUIRE(&program.sampling_plan(true) == &program.original());
     }
+}
+
+TEST_CASE("Selective preparation removes unrequested storage and work") {
+    using sampling::RecordOutputs;
+    const auto program = compile_preparation_program({});
+    const auto& original = program.original();
+    const auto& syndromes = program.sampling_preparation(RecordOutputs::Syndromes).plan();
+    REQUIRE(syndromes.num_visible_records() == 0);
+    REQUIRE(syndromes.num_hidden_records() == 1);
+    const sampling::BatchExecutor compact_worker(syndromes, 65);
+    const sampling::BatchExecutor full_worker(original, 65);
+    REQUIRE(compact_worker.record_columns().num_columns() <
+            full_worker.record_columns().num_columns());
+    REQUIRE(&program.sampling_preparation({RecordOutputs::Syndromes, true}).plan() == &syndromes);
+    REQUIRE(syndromes.num_detectors() == original.num_detectors());
+    REQUIRE(syndromes.num_observables() == original.num_observables());
+    REQUIRE(syndromes.num_exp_vals() == 0);
+    REQUIRE(syndromes.estimated_batch_lane_work(BatchOutputMode::Rows) <
+            original.estimated_batch_lane_work(BatchOutputMode::Rows));
+    const auto& measurements = program.sampling_preparation(RecordOutputs::Measurements).plan();
+    REQUIRE(measurements.num_visible_records() == original.num_visible_records());
+    REQUIRE(measurements.num_detectors() == 0);
+    REQUIRE(measurements.num_observables() == 0);
+    REQUIRE(measurements.num_exp_vals() == 0);
+    REQUIRE(measurements.num_actions() < original.num_actions());
+    const auto& summaries =
+        program.sampling_preparation(RecordOutputs::Measurements, false, false, true).plan();
+    REQUIRE(summaries.num_observables() == original.num_observables());
+    REQUIRE(summaries.num_detectors() == 0);
+    REQUIRE(&program.sampling_preparation(RecordOutputs::Syndromes) ==
+            &Program(program).sampling_preparation(RecordOutputs::Syndromes));
 }
 
 TEST_CASE("Program prepares each sampling output once and shares it across copies") {

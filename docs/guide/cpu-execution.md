@@ -337,9 +337,11 @@ To preserve rows and survivor order while changing the number of cross-shot
 workers, pin a numeric `batch_size`.
 
 Scalar and packed execution use separate random streams, and different packed
-capacities can produce different rows. Every supported strategy remains
-statistically equivalent. Keep the complete execution configuration fixed when
-exact seeded replay is required.
+capacities can produce different rows. Changing `keep_records` can also change
+when packed survivor lanes are compacted and therefore which random draws reach
+later measurements. These choices preserve the requested output distribution.
+Keep the complete execution configuration fixed when exact seeded replay is
+required. `bit_packed` only changes row storage and preserves the sampled bits.
 
 Timing-based calibration can select a different capacity on repeated calls,
 even with the same seed. For debugging, pin the reported numeric batch size

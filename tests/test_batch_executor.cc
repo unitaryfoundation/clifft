@@ -341,6 +341,9 @@ TEST_CASE("Final survivor compaction preserves rows and shot identities across r
 }
 
 TEST_CASE("Intermediate compaction retains pending expressions and forced readout faults") {
+    using clifft::sampling::RecordOutputs;
+    const clifft::sampling::SamplingOutputs outputs =
+        GENERATE(RecordOutputs::All, RecordOutputs::Syndromes, RecordOutputs::Measurements);
     std::string circuit = "X_ERROR(0.8) 0\nM 0\nDETECTOR rec[-1]\nH 1\n";
     for (uint32_t probe = 0; probe < 96; ++probe) {
         circuit += "T 1\nEXP_VAL X1\nH 1\n";
@@ -349,8 +352,11 @@ TEST_CASE("Intermediate compaction retains pending expressions and forced readou
     const clifft::HirModule hir = clifft::trace(clifft::parse(circuit));
     const ExecutablePlan unselected(clifft::sampling::plan_sampling(hir));
     const std::array<uint8_t, 1> mask{1};
-    const ExecutablePlan selected(clifft::sampling::plan_sampling(
+    const ExecutablePlan compiled(clifft::sampling::plan_sampling(
         hir, {.postselection_mask = mask, .expected_detectors = {}, .expected_observables = {}}));
+    const auto selected = outputs.records == RecordOutputs::All
+                              ? compiled
+                              : compiled.compact_outputs(outputs, false, true);
     REQUIRE(selected.peak_active_width() > 0);
     REQUIRE(selected.num_readout_noise_sites() == 1);
     constexpr uint32_t shots = 129;
@@ -373,7 +379,10 @@ TEST_CASE("Intermediate compaction retains pending expressions and forced readou
             REQUIRE(batch.shot_index(destination) == source);
             // With one fault, surviving shots must flip the final readout by
             // either its presampled X error or its forced measurement error.
-            REQUIRE(batch.measurement(destination, 1));
+            if (outputs.measurements()) {
+                REQUIRE(batch.measurement(destination, 1));
+            }
+            REQUIRE(batch.observable(destination, 0));
             // Different lane spans can select different SIMD arithmetic paths.
             compare_lane_outputs(batch, reference, destination, source, selected, 1e-12);
             ++destination;

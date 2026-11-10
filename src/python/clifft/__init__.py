@@ -87,6 +87,54 @@ BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.N
 MeasurementRecords: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 
 
+def sample_detectors(
+    program: Program,
+    shots: int,
+    seed: int | None = None,
+    threads: int | Literal["auto"] = 1,
+    thread_layout: tuple[int, int] | None = None,
+    intra_shot_min_active_width: int | None = None,
+    batch_size: int | Literal["auto", "tune"] = "auto",
+    *,
+    separate_observables: bool = False,
+    bit_packed: bool = False,
+    tuning_budget_seconds: float | None = None,
+) -> (
+    npt.NDArray[np.bool_]
+    | npt.NDArray[np.uint8]
+    | tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]
+    | tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
+):
+    """Sample detector events for decoding without retaining measurement rows.
+
+    Return a boolean detector array, or ``(detectors, observables)`` when
+    ``separate_observables=True``. With ``bit_packed=True``, return uint8 arrays
+    with eight columns per byte, least-significant bit first, and zero padding.
+    Arrays share the sampling result's storage. Other options follow ``sample``;
+    postselected programs require ``sample_survivors`` instead.
+    """
+    result: SampleResult = sample(
+        program,
+        shots,
+        seed=seed,
+        threads=threads,
+        thread_layout=thread_layout,
+        intra_shot_min_active_width=intra_shot_min_active_width,
+        batch_size=batch_size,
+        tuning_budget_seconds=tuning_budget_seconds,
+        keep_records="syndromes",
+        bit_packed=bit_packed,
+    )
+    if bit_packed:
+        if separate_observables:
+            return result.detectors, result.observables
+        return result.detectors
+    detectors = result.detectors.view(np.bool_)
+    if separate_observables:
+        return detectors, result.observables.view(np.bool_)
+    return detectors
+
+
 class _MeasurementProgram(Protocol):
     @property
     def num_measurements(self) -> int: ...
@@ -416,6 +464,7 @@ __all__ = [
     "sample_k",
     "sample_k_survivors",
     "sample_survivors",
+    "sample_detectors",
     "trace",
     "version",
 ]
