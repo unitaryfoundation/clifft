@@ -2,6 +2,7 @@
 
 #include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/sampling/plan.h"
+#include "clifft/util/symplectic.h"
 
 #include <cstddef>
 #include <map>
@@ -47,6 +48,17 @@ class SymbolicStabilizers {
     struct Row {
         PauliString axis;
         AffineBool sign;
+        // Half-open mask word range that contains every nonzero word of the
+        // axis. Products widen it without rescanning, so it can be wider than
+        // the exact nonzero range.
+        uint32_t begin = 0;
+        uint32_t end = 0;
+
+        // True when no word of the range is in the query's nonzero word range,
+        // so the axis commutes with the query.
+        [[nodiscard]] bool misses(const PauliCommutation& query) const {
+            return end <= query.begin_word() || query.end_word() <= begin;
+        }
     };
     struct Record {
         AffineBool value;
