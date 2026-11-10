@@ -2,6 +2,7 @@
 
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/tableau/tableau.h"
+#include "clifft/util/symplectic.h"
 
 #include <algorithm>
 #include <bit>
@@ -455,10 +456,19 @@ Tableau stabilizer_frame(const std::vector<PauliString>& generators, uint32_t n)
                 p.mut_z().bit_set(q - n, true);
         });
         p.set_sign(false);
-        for (uint32_t j = 0; j < i; ++j) {
-            if (!p.view().commutes(duals[j].view()))
-                p.right_multiply(generators[j].view());
+        // Generator j anticommutes only with dual j, so multiplying p by it leaves
+        // the other commutation bits of p unchanged and all corrections can be
+        // collected before p changes.
+        std::vector<uint32_t> corrections;
+        {
+            const PauliCommutation commutation(p.x(), p.z());
+            for (uint32_t j = 0; j < i; ++j) {
+                if (commutation.anti_commutes(duals[j].x(), duals[j].z()))
+                    corrections.push_back(j);
+            }
         }
+        for (uint32_t j : corrections)
+            p.right_multiply(generators[j].view());
         frame.set_x_output(i, p.view());
         frame.set_z_output(i, generators[i].view());
         duals.push_back(std::move(p));

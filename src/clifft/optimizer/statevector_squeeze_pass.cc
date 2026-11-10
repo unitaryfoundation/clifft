@@ -14,15 +14,78 @@ bool is_expansion(const HeisenbergOp& op) {
     return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
 }
 
-bool can_bypass_to(const HirModule& hir, size_t moving, size_t target,
+// Mask words touched by the channels of each noise site, kept as one bitmap per
+// site and filled on first use. A Pauli whose nonzero word range avoids every
+// touched word commutes with the whole site, so its channel masks need not be
+// read. Single-word registers gain nothing, so the table stays empty for them.
+class NoiseSupport {
+  public:
+    explicit NoiseSupport(const HirModule& hir)
+        : hir_(hir),
+          mask_words_(std::max(hir.pauli_masks.num_words(), hir.noise_channel_masks.num_words())),
+          stride_((mask_words_ + 63) / 64) {
+        if (mask_words_ > 1) {
+            known_.assign(hir.noise_sites.size(), 0);
+            touched_.assign(hir.noise_sites.size() * stride_, 0);
+        }
+    }
+
+    [[nodiscard]] bool misses(uint32_t site, const PauliCommutation& axis) {
+        if (mask_words_ <= 1) {
+            return false;
+        }
+        uint64_t* touched = touched_.data() + size_t{site} * stride_;
+        if (!known_[site]) {
+            // First query for this site: record every word its channels touch.
+            for (const auto& ch : hir_.noise_sites[site].channels) {
+                const auto view = hir_.noise_channel_masks.at(ch.mask);
+                for (uint32_t w = 0; w < view.x().num_words(); ++w) {
+                    if ((view.x().words[w] | view.z().words[w]) != 0) {
+                        touched[w / 64] |= uint64_t{1} << (w % 64);
+                    }
+                }
+            }
+            known_[site] = 1;
+        }
+        for (uint32_t w = axis.begin_word(); w < axis.end_word(); ++w) {
+            if ((touched[w / 64] >> (w % 64)) & 1U) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+  private:
+    const HirModule& hir_;
+    uint32_t mask_words_;
+    uint32_t stride_;
+    std::vector<uint8_t> known_;
+    std::vector<uint64_t> touched_;
+};
+
+// can_swap(moving, other) for a measurement or expansion with the given axis.
+// Neither has a classical or positional barrier against a noise site, so
+// commutation alone decides that swap and NoiseSupport can answer it when the
+// axis avoids the words the site touches.
+bool can_cross(const HirModule& hir, NoiseSupport& noise, const HeisenbergOp& moving,
+               const HeisenbergOp& other, const PauliCommutation& axis) {
+    assert(moving.op_type() == OpType::MEASURE || is_expansion(moving));
+    if (other.op_type() == OpType::NOISE &&
+        noise.misses(static_cast<uint32_t>(other.noise_site_idx()), axis)) {
+        return true;
+    }
+    return can_swap(moving, other, hir, &axis);
+}
+
+bool can_bypass_to(const HirModule& hir, NoiseSupport& noise, size_t moving, size_t target,
                    const PauliCommutation& axis) {
     assert(moving < target && target < hir.ops.size());
     assert(!is_expansion(hir.ops[target]));
-    if (!can_swap(hir.ops[moving], hir.ops[target], hir, &axis)) {
+    if (!can_cross(hir, noise, hir.ops[moving], hir.ops[target], axis)) {
         return false;
     }
     for (size_t next = target; next > moving + 1; --next) {
-        if (!can_swap(hir.ops[moving], hir.ops[next - 1], hir, &axis)) {
+        if (!can_cross(hir, noise, hir.ops[moving], hir.ops[next - 1], axis)) {
             return false;
         }
     }
@@ -34,6 +97,7 @@ bool can_bypass_to(const HirModule& hir, size_t moving, size_t target,
 void StatevectorSqueezePass::run(HirModule& hir) {
     bool has_sm = hir.source_map.size() == hir.ops.size();
     bool has_lnp = hir.has_logical_noise_prefix();
+    NoiseSupport noise(hir);
 
     // EXP_VAL acts as a hard barrier via can_swap(), so neither sweep
     // will move operations across an expectation value probe.
@@ -45,7 +109,7 @@ void StatevectorSqueezePass::run(HirModule& hir) {
         }
         const PauliCommutation axis(hir.destab_mask(hir.ops[i]), hir.stab_mask(hir.ops[i]));
         size_t curr = i;
-        while (curr > 0 && can_swap(hir.ops[curr], hir.ops[curr - 1], hir, &axis)) {
+        while (curr > 0 && can_cross(hir, noise, hir.ops[curr], hir.ops[curr - 1], axis)) {
             std::swap(hir.ops[curr - 1], hir.ops[curr]);
             if (has_sm) {
                 std::swap(hir.source_map[curr - 1], hir.source_map[curr]);
@@ -85,7 +149,7 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                             break;
                         }
                         const size_t target = *target_it;
-                        if (!can_bypass_to(hir, curr, target, axis)) {
+                        if (!can_bypass_to(hir, noise, curr, target, axis)) {
                             break;
                         }
                         std::rotate(hir.ops.begin() + static_cast<std::ptrdiff_t>(curr),
@@ -110,7 +174,7 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                         continue;
                     }
 
-                    if (!can_swap(hir.ops[curr], hir.ops[curr + 1], hir, &axis)) {
+                    if (!can_cross(hir, noise, hir.ops[curr], hir.ops[curr + 1], axis)) {
                         break;
                     }
                     std::swap(hir.ops[curr], hir.ops[curr + 1]);

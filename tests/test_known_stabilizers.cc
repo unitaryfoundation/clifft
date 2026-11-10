@@ -216,6 +216,25 @@ TEST_CASE("Measured feedback constraints span multiple mask words", "[optimizer]
     REQUIRE_FALSE(final_eigenvalue(source + "X_ERROR(0.2) 129", axis));
 }
 
+TEST_CASE("Fault checks follow constraint products into other mask words", "[optimizer]") {
+    // A fault on qubits 0 and 70 leaves the product Z0*Z70, which spans two
+    // mask words. A later fault confined to the second word must remove it.
+    std::string zz(71, 'I');
+    zz[0] = zz[70] = 'Z';
+    const std::string upward = "E(0.2) X0 X70\n";
+    REQUIRE(final_eigenvalue(upward, zz) == false);
+    REQUIRE_FALSE(final_eigenvalue(upward + "X_ERROR(0.2) 70\n", zz));
+
+    // A measured X70*X71 constraint in the second word picks up Z0 from the
+    // first. A later fault confined to the first word must remove it.
+    std::string zxx(72, 'I');
+    zxx[0] = 'Z';
+    zxx[70] = zxx[71] = 'X';
+    const std::string downward = "MPP X70*X71\nCZ rec[-1] 70\nE(0.2) X0 Z70\n";
+    REQUIRE(final_eigenvalue(downward, zxx) == false);
+    REQUIRE_FALSE(final_eigenvalue(downward + "X_ERROR(0.2) 0\n", zxx));
+}
+
 TEST_CASE("Rewrite proof obligations retain the complete fixed group", "[optimizer]") {
     KnownStabilizers obligations;
     obligations.insert(PauliString::from_text("+XX"));
