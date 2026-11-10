@@ -65,10 +65,13 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
         return std::nullopt;
     }
 
+#ifndef NDEBUG
+    // The vector only feeds the carrier-origin assertion.
     std::vector<uint8_t> presampled(executable.num_symbols_);
     for (uint32_t symbol : executable.presampled_symbols_) {
         presampled[symbol] = 1;
     }
+#endif
     std::vector<uint8_t> bound_presampled_symbols(executable.num_symbols_);
     for (const auto& outcome : executable.noise_outcomes_) {
         bound_presampled_symbols[outcome.symbol] = 1;

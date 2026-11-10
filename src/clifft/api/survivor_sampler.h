@@ -46,12 +46,11 @@ class SurvivorSampler {
     bool sharing_;
     std::optional<double> tuning_budget_seconds_;
     std::optional<sampling::BatchTuningReport> tuning_report_;
-    const SamplingPreparation& preparation_;
-    const sampling::ExecutablePlan& plan_;
-    const sampling::PreparedBatchNoise& noise_;
+    const sampling::ExecutablePlan* plan_ = nullptr;
+    const sampling::PreparedBatchNoise* noise_ = nullptr;
     // Width-zero plans run packed classical execution without early checks or grouping.
-    const sampling::EarlyPostselection* checks_;
-    const sampling::SharingKey* key_;
+    const sampling::EarlyPostselection* checks_ = nullptr;
+    const sampling::SharingKey* key_ = nullptr;
     std::vector<std::unique_ptr<Worker>> workers_;
     std::mutex mutex_;
 };

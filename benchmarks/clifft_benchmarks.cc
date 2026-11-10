@@ -508,6 +508,12 @@ void prepare_shared_cultivation_d5(benchmark::State& state) {
     if (!validate_shared_cultivation(state, program, mode, true, true)) {
         return;
     }
+    // Prepare the Program before timing, so the loop measures repeated
+    // construction whichever benchmarks ran earlier in the process.
+    {
+        auto warm = make_shared_sampler(program, mode, true);
+        benchmark::DoNotOptimize(warm);
+    }
     for ([[maybe_unused]] auto _ : state) {
         auto sampler = make_shared_sampler(program, mode, true);
         benchmark::DoNotOptimize(sampler);

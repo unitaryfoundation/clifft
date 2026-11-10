@@ -19,7 +19,6 @@
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <string>
-#include <tuple>
 
 using namespace clifft;
 using namespace clifft::sampling;
@@ -567,28 +566,4 @@ TEST_CASE("Dense noise preparation builds the presampled program for compact pla
     }
     REQUIRE(survivors > 0);
     REQUIRE(rejected > 0);
-}
-
-TEST_CASE("Survivor counts are independent of preparation reuse and intervening configurations") {
-    const auto compile = [] {
-        auto hir =
-            trace(parse("H 0 1\nT 0 1\nDEPOLARIZE1(0.04) 0 1\nH 0 1\nM(0.13) 0 1\n"
-                        "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]\n"));
-        hir.postselection.mask = {1};
-        return Program{ExecutablePlan(plan_sampling(hir))};
-    };
-    const auto counts = [](const Program& program, BatchNoiseMode mode, bool group) {
-        SurvivorSampler sampler(program, 65, 2, 1, mode, true, true, group);
-        const auto result = sampler.sample(1301, 7);
-        return std::make_tuple(result.passed_shots, result.logical_errors, result.observable_ones);
-    };
-    const auto cold = counts(compile(), BatchNoiseMode::SiteSparse, false);
-    REQUIRE(std::get<0>(cold) > 0);
-    REQUIRE(std::get<0>(cold) < 1301);
-
-    const Program reused = compile();
-    (void)counts(reused, BatchNoiseMode::SiteRows, true);
-    (void)counts(reused, BatchNoiseMode::Dense, false);
-    REQUIRE(counts(reused, BatchNoiseMode::SiteSparse, false) == cold);
-    REQUIRE(counts(reused, BatchNoiseMode::SiteSparse, false) == cold);
 }

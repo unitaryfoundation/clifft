@@ -7,6 +7,7 @@
 #include "clifft/util/shot_parallel.h"
 
 #include <algorithm>
+#include <cassert>
 #include <chrono>
 #include <limits>
 #include <stdexcept>
@@ -61,21 +62,17 @@ SurvivorSampler::SurvivorSampler(const Program& program, std::optional<uint32_t>
       initial_states_(initial_states),
       worker_state_bytes_(max_state_bytes / worker_count_),
       sharing_(sharing),
-      tuning_budget_seconds_(tuning_budget_seconds),
-      preparation_(program_.sampling_preparation(false, early_postselection)),
-      plan_(preparation_.plan()),
-      noise_(preparation_.noise(noise_mode)),
-      checks_(plan_.peak_active_width() != 0 ? &preparation_.checks() : nullptr),
-      key_(sharing && group_by_noise && plan_.peak_active_width() != 0 ? &preparation_.sharing_key()
-                                                                       : nullptr) {
+      tuning_budget_seconds_(tuning_budget_seconds) {
     sampling::batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
     if (batch_size == 0 || initial_states == 0 || max_state_bytes == 0) {
         throw std::invalid_argument(
             "batch_size, initial_states, and max_state_bytes must be positive");
     }
-    if (plan_.peak_active_width() != 0) {
-        const uint64_t states =
-            worker_state_bytes_ / sampling::State::storage_bytes(plan_.peak_active_width());
+    // The count-only plan keeps the compiled plan's peak width, so the state
+    // budget is checked before the Program builds any preparation.
+    const uint32_t width = program_.sampling_plan(false).peak_active_width();
+    if (width != 0) {
+        const uint64_t states = worker_state_bytes_ / sampling::State::storage_bytes(width);
         if (states == 0) {
             throw std::invalid_argument("max_state_bytes cannot hold one shared state per worker");
         }
@@ -83,6 +80,17 @@ SurvivorSampler::SurvivorSampler(const Program& program, std::optional<uint32_t>
         // Explicit capacities can exploit sharing beyond this conservative bound.
         if (!batch_size) {
             batch_size_ = static_cast<uint32_t>(std::min<uint64_t>(batch_size_, states));
+        }
+    }
+    const auto& preparation = program_.sampling_preparation(false, early_postselection);
+    plan_ = &preparation.plan();
+    assert(plan_->peak_active_width() == width &&
+           "count-only preparation must keep the compiled peak active width");
+    noise_ = &preparation.noise(noise_mode);
+    if (width != 0) {
+        checks_ = &preparation.checks();
+        if (sharing && group_by_noise) {
+            key_ = &preparation.sharing_key();
         }
     }
     prepare_workers(batch_size_);
@@ -93,7 +101,7 @@ void SurvivorSampler::prepare_workers(uint32_t capacity) {
     batch_size_ = capacity;
     workers_.reserve(worker_count_);
     for (uint32_t worker = 0; worker < worker_count_; ++worker) {
-        workers_.push_back(std::make_unique<Worker>(plan_, noise_, checks_, capacity,
+        workers_.push_back(std::make_unique<Worker>(*plan_, *noise_, checks_, capacity,
                                                     initial_states_, sharing_, key_,
                                                     worker_state_bytes_));
     }
