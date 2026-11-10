@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/sampling/batch/classical.h"
+#include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/state.h"
 
 #include <cstdint>
@@ -16,6 +17,44 @@ namespace clifft::sampling {
 // on future rotation signs. SharingExecutor applies prepared actions to each
 // group and splits it when needed; SurvivorSampler retains the workers and
 // their storage across sampling calls.
+
+// Default bound on the coefficients, collapse scratch, and page alignment of
+// the states one shared worker holds. States are allocated as trajectories
+// split, so a call can reach this bound once per active worker.
+inline constexpr uint64_t kDefaultSharedWorkerStateBudget = 64 * 1024 * 1024;
+
+// Largest lane capacity considered by automatic shared selection.
+inline constexpr uint32_t kMaxAutoSharedBatchShots = 8192;
+
+// Bound on the classical buffers of one automatically sized shared worker.
+inline constexpr uint64_t kMaxAutoSharedWorkerClassicalBytes = 64 * 1024 * 1024;
+
+// Automatic selection spreads a call across the requested workers only while
+// each worker keeps at least this many lanes to share states among.
+inline constexpr uint32_t kMinAutoSharedLanesPerWorker = 1024;
+
+class SharingKey;
+
+// Largest lane capacity, up to kMaxAutoSharedBatchShots, that one worker can
+// run within max_worker_state_bytes when every lane keeps its own state and
+// within the classical buffer bound. Zero when the budget cannot hold a state.
+[[nodiscard]] uint32_t max_safe_shared_capacity(const ExecutablePlan& plan,
+                                                const PreparedBatchNoise& noise,
+                                                const SharingKey* key,
+                                                uint64_t max_worker_state_bytes);
+
+// Automatic capacity and worker count for one call. Depends only on the safe
+// capacity and the call, so a seeded call replays independently of earlier
+// calls. Short calls shrink the capacity to the call and to each worker's share.
+[[nodiscard]] BatchExecutionPolicy resolve_shared_execution_policy(uint32_t safe_capacity,
+                                                                   uint32_t shots,
+                                                                   uint32_t workers) noexcept;
+
+// Capacities calibration compares for one call: the automatic baseline first,
+// then a fixed ladder up to the safe capacity. Each candidate uses as many of
+// the requested workers as it has batches for.
+[[nodiscard]] std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
+    uint32_t safe_capacity, uint32_t shots, uint32_t workers);
 
 // Immutable noise-sign basis shared by workers. Branches affecting this basis
 // split groups as they are sampled, keeping every later rotation sign uniform.
@@ -40,7 +79,13 @@ class SharingExecutor : public BatchClassicalState {
     SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                     const EarlyPostselection& checks, uint32_t lane_capacity,
                     uint32_t initial_states, bool share = true, const SharingKey* key = nullptr,
-                    uint64_t max_state_bytes = kDefaultBatchTotalWorkerBudget);
+                    uint64_t max_worker_state_bytes = kDefaultSharedWorkerStateBudget);
+
+    // Classical buffers retained by one worker, excluding its state pool.
+    [[nodiscard]] static uint64_t classical_storage_bytes(const ExecutablePlan& plan,
+                                                          const PreparedBatchNoise& noise,
+                                                          const SharingKey* key,
+                                                          uint32_t lane_capacity);
 
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] uint32_t state_capacity() const noexcept {

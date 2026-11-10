@@ -184,23 +184,34 @@ Because equivalent shots share quantum states, `SurvivorSampler` can often run
 much larger classical batches than ordinary packed execution:
 
 - **`batch_size`** (default `8192`): Sets the classical batch capacity per
-  worker. Larger batches amortize classical noise preparation, while smaller
-  calls may prefer a smaller batch size so work distributes across all threads.
-  `"auto"` conservatively sizes batches so every lane could split into its own
-  quantum state within `max_state_bytes`. `"tune"` calibrates candidates up to
-  that conservative `"auto"` limit on the first nonzero `.sample()` call and
-  reuses the winner on subsequent calls.
+  worker. Larger batches share each quantum state among more shots and amortize
+  classical noise preparation. `"auto"` selects a capacity up to 8192 for each
+  `.sample()` call, sized so every lane could split into its own quantum state
+  within `max_worker_state_bytes`. Short calls get smaller batches so each
+  requested thread receives one, down to 1024 lanes per thread; below that,
+  fewer threads run fuller batches. `"tune"` times a few capacities up to the
+  `"auto"` limit on the first nonzero `.sample()` call, using separate trial
+  shots, and reuses the winner on subsequent calls. An explicit capacity can
+  exceed the `"auto"` limit when you know trajectories share states.
 - **`initial_states`** (default `128`): Number of quantum states preallocated
-  per worker (capped by `max_state_bytes`). If trajectory splitting needs more
-  states mid-batch, the worker pauses before the next action to grow its state
-  pool without discarding in-progress shots.
-- **`max_state_bytes`** (default `64 MiB`): Total memory limit across all
-  workers for quantum coefficient storage, measurement-collapse scratch, and
-  page alignment (classical buffers and compiled plans are separate). Before
-  an action, Clifft checks a conservative bound on the states its possible
-  splits could require. If that bound exceeds the budget, `.sample()` raises
-  `RuntimeError`, even if the sampled outcomes would have needed fewer states.
-  Reduce `batch_size` or `threads`, or raise `max_state_bytes`, before retrying.
+  per worker (capped by `max_worker_state_bytes`). If trajectory splitting
+  needs more states mid-batch, the worker pauses before the next action to grow
+  its state pool without discarding in-progress shots.
+- **`max_worker_state_bytes`** (default `64 MiB`): Memory limit per worker for
+  quantum coefficient storage, measurement-collapse scratch, and page alignment
+  (classical buffers and compiled plans are separate). The limit does not
+  shrink as threads are added, so state storage can reach
+  `max_worker_state_bytes * threads` when every lane diverges; states are
+  allocated only as trajectories split. Before an action, Clifft checks a
+  conservative bound on the states its possible splits could require. If that
+  bound exceeds the budget, `.sample()` raises `RuntimeError`, even if the
+  sampled outcomes would have needed fewer states. Reduce `batch_size` or
+  raise `max_worker_state_bytes` before retrying.
+
+The default budget holds 8192 states through active width 8, 2730 at width 10,
+and 341 at width 13. For wider circuits, raise `max_worker_state_bytes` first
+if the additional memory is acceptable; `"auto"` and `"tune"` then consider
+larger batches.
 
 ### Noise preparation and sharing controls
 

@@ -95,9 +95,17 @@ BatchWorkerStorageLayout batch_worker_storage_layout(const ExecutablePlan& plan,
 uint64_t batch_worker_storage_bytes(const ExecutablePlan& plan, uint32_t lane_capacity,
                                     BatchOutputMode output_mode, BatchSamplingMode sampling_mode,
                                     const PreparedBatchNoise* noise) {
+    return saturating_add_u64(
+        interleaved_batch_state_bytes(plan.peak_active_width(), lane_capacity),
+        batch_worker_classical_bytes(plan, lane_capacity, output_mode, sampling_mode, noise));
+}
+
+uint64_t batch_worker_classical_bytes(const ExecutablePlan& plan, uint32_t lane_capacity,
+                                      BatchOutputMode output_mode, BatchSamplingMode sampling_mode,
+                                      const PreparedBatchNoise* noise) {
     const BatchWorkerStorageLayout layout =
         batch_worker_storage_layout(plan, lane_capacity, output_mode, sampling_mode, noise);
-    uint64_t bytes = interleaved_batch_state_bytes(layout.peak_active_width, layout.lane_capacity);
+    uint64_t bytes = 0;
     const auto add_entries = [&](uint64_t entries, size_t entry_bytes) {
         bytes = saturating_add_u64(bytes, saturating_multiply_u64(entries, entry_bytes));
     };

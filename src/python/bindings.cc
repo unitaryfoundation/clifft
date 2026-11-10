@@ -1776,15 +1776,18 @@ NB_MODULE(_clifft_core, m) {
         "and retains worker buffers across calls. Noise-only necessary conditions reject "
         "shots before quantum evolution; selected detectors determine final acceptance.\n\n"
         "batch_size defaults to 8192 and accepts a positive integer, 'auto', or 'tune'. "
-        "Numeric capacities can exceed the conservative 'auto' limit when trajectories share "
-        "states. max_state_bytes (default 64 MiB across workers) bounds coefficient storage, "
-        "collapse scratch, and page alignment; classical buffers and plans are separate. "
-        "'tune' calibrates candidates up to the 'auto' limit on the first nonzero "
+        "max_worker_state_bytes (default 64 MiB) bounds each worker's coefficient storage, "
+        "collapse scratch, and page alignment, so state storage can reach that bound times "
+        "the active workers; classical buffers and plans are separate. 'auto' selects a "
+        "capacity up to 8192 for each sample() call that fits the bound even if every shot "
+        "needs its own state, reduced for short calls so the requested workers each "
+        "receive a batch. Numeric capacities can exceed that limit when trajectories share "
+        "states. 'tune' calibrates capacities up to the 'auto' limit on the first nonzero "
         "sample() call and records timings in result.batch_tuning.\n\n"
         "initial_states preallocates up to that many quantum states per worker within the "
         "budget. Before an action, the pool grows to cover a conservative bound on possible "
-        "splits or raises RuntimeError if that bound exceeds max_state_bytes, even if sampled "
-        "outcomes would need fewer states. "
+        "splits or raises RuntimeError if that bound exceeds max_worker_state_bytes, even if "
+        "sampled outcomes would need fewer states. "
         "Counts run a count-only plan with inlined record snapshots and only the required "
         "outputs. The Program prepares it on first use and shares it with later samplers. "
         "group_by_noise=True partitions surviving shots upfront by their "
@@ -1796,27 +1799,27 @@ NB_MODULE(_clifft_core, m) {
             [](clifft::SurvivorSampler* self, const clifft::Program& program,
                const BatchOption& batch_option, const ThreadOption& thread_option,
                int64_t initial_states, clifft::sampling::BatchNoiseMode noise, bool sharing,
-               bool early_postselection, bool group_by_noise, int64_t max_state_bytes,
+               bool early_postselection, bool group_by_noise, int64_t max_worker_state_bytes,
                std::optional<double> tuning_budget_seconds) {
                 const auto batch = parse_batch_option(batch_option, tuning_budget_seconds);
                 const auto states = parse_positive_uint32_option(
                     ThreadOption{initial_states}, "initial_states", "a positive integer");
-                if (max_state_bytes <= 0) {
-                    throw std::invalid_argument("max_state_bytes must be positive");
+                if (max_worker_state_bytes <= 0) {
+                    throw std::invalid_argument("max_worker_state_bytes must be positive");
                 }
                 const uint32_t threads = parse_thread_option(thread_option);
                 nb::gil_scoped_release release;
                 new (self) clifft::SurvivorSampler(
                     program, batch.batch_size, threads, *states, noise, sharing,
-                    early_postselection, group_by_noise, static_cast<uint64_t>(max_state_bytes),
-                    batch.tuning_budget_seconds);
+                    early_postselection, group_by_noise,
+                    static_cast<uint64_t>(max_worker_state_bytes), batch.tuning_budget_seconds);
             },
             nb::arg("program"), nb::kw_only(), nb::arg("batch_size") = BatchOption{int64_t{8192}},
             nb::arg("threads") = ThreadOption{int64_t{1}}, nb::arg("initial_states") = 128,
             nb::arg("noise_preparation") = clifft::sampling::BatchNoiseMode::SiteSparse,
             nb::arg("sharing") = true, nb::arg("early_postselection") = true,
             nb::arg("group_by_noise") = false,
-            nb::arg("max_state_bytes") = clifft::sampling::kDefaultBatchTotalWorkerBudget,
+            nb::arg("max_worker_state_bytes") = clifft::sampling::kDefaultSharedWorkerStateBudget,
             nb::arg("tuning_budget_seconds") = nb::none(),
             nb::sig("def __init__(self, program: Program, *, "
                     "batch_size: int | typing.Literal['auto', 'tune'] = 8192, "
@@ -1825,7 +1828,7 @@ NB_MODULE(_clifft_core, m) {
                     "noise_preparation: NoisePreparation = NoisePreparation.SITE_SPARSE, "
                     "sharing: bool = True, early_postselection: bool = True, "
                     "group_by_noise: bool = False, "
-                    "max_state_bytes: int = 67108864, "
+                    "max_worker_state_bytes: int = 67108864, "
                     "tuning_budget_seconds: float | None = None) -> None"))
         .def(
             "sample",
@@ -1843,8 +1846,8 @@ NB_MODULE(_clifft_core, m) {
             "Sample attempted shots and return survivor and observable counts. "
             "Per-shot output arrays are empty. A seed replays at fixed preparation and numeric "
             "batch size, independently of worker scheduling and retained state-pool growth. "
-            "'auto' can choose a different capacity with a different worker budget; 'tune' "
-            "depends on measured timings.");
+            "'auto' selects its capacity from shots, threads, and max_worker_state_bytes; "
+            "'tune' depends on measured timings.");
 
     m.def(
         "sample_k_survivors",
