@@ -805,4 +805,15 @@ TEST_CASE("Logical noise prefix validation rejects an entry above the noise site
     REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(hir), std::invalid_argument);
 }
 
+TEST_CASE("Logical noise prefix validation rejects out-of-order noise sites before sign queries",
+          "[logical_noise_prefix]") {
+    HirModule hir = clifft::trace(clifft::parse("X_ERROR(0.2) 0\nX_ERROR(0.3) 0\nM 0\n"));
+    REQUIRE(hir.ops.size() == 3);
+    // Place M 0 before both noise ops with logical_noise_prefix = 2, then swap the two noise ops.
+    hir.ops = {hir.ops[2], hir.ops[1], hir.ops[0]};
+    hir.logical_noise_prefix = {2, 0, 1};
+
+    REQUIRE_THROWS_AS(clifft::sampling::plan_sampling(hir), std::invalid_argument);
+}
+
 }  // namespace

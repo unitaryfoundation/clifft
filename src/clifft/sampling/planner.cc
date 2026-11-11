@@ -6,6 +6,7 @@
 #include "clifft/util/symplectic.h"
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -25,81 +26,88 @@ using Tableau = internal::PlannerTableau;
 using internal::CoordinateFrame;
 using internal::SymbolicPauliFrame;
 
-Pauli pauli_from_hir(const HirModule& hir, const HeisenbergOp& op) {
-    Pauli result(hir.num_qubits);
-    result.mut_x().xor_with(hir.destab_mask(op));
-    result.mut_z().xor_with(hir.stab_mask(op));
-    result.set_sign(false);
-    return result;
-}
-
-Pauli noise_pauli_from_hir(const HirModule& hir, PauliMaskHandle handle) {
-    Pauli result(hir.num_qubits);
-    const PauliMaskView mask = hir.noise_channel_masks.at(handle);
-    result.mut_x().xor_with(mask.x());
-    result.mut_z().xor_with(mask.z());
-    result.set_sign(false);
-    return result;
-}
-
-Pauli pauli_from_mask(const HirModule& hir, PauliMaskHandle handle) {
-    Pauli result(hir.num_qubits);
-    const PauliMaskView mask = hir.pauli_masks.at(handle);
-    result.mut_x().xor_with(mask.x());
-    result.mut_z().xor_with(mask.z());
-    result.set_sign(false);
-    return result;
-}
-
 struct ResolvedPauli {
     Pauli body;
     AffineBool sign;
 };
 
-ResolvedPauli resolve_pauli(const Pauli& initial_body, const AffineBool& initial_sign,
+ResolvedPauli resolve_pauli(MaskView initial_x, MaskView initial_z, const AffineBool& initial_sign,
                             CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame) {
     AffineBool sign = initial_sign;
-    sign ^= symbolic_frame.sign_for(initial_body);
-    Pauli body = coordinates.to_current(initial_body);
+    sign ^= symbolic_frame.sign_for(initial_x, initial_z);
+    Pauli body = coordinates.to_current(initial_x, initial_z);
     sign ^= body.sign();
     body.set_sign(false);
     return ResolvedPauli{std::move(body), std::move(sign)};
 }
 
 std::optional<uint32_t> first_x_at_or_above(const Pauli& pauli, uint32_t begin) {
-    for (uint32_t q = begin; q < pauli.num_qubits(); ++q) {
-        if (pauli.x().bit_get(q)) {
-            return q;
+    const uint32_t n = pauli.num_qubits();
+    if (begin >= n) {
+        return std::nullopt;
+    }
+    const MaskView x = pauli.x();
+    const uint32_t num_words = x.num_words();
+    const uint32_t last_bits = n % 64;
+    const uint64_t last_mask = last_bits == 0 ? ~uint64_t{0} : (uint64_t{1} << last_bits) - 1;
+    for (uint32_t w = begin / 64; w < num_words; ++w) {
+        uint64_t word = x.words[w];
+        if (w == begin / 64) {
+            word &= ~uint64_t{0} << (begin % 64);
+        }
+        if (w + 1 == num_words) {
+            word &= last_mask;
+        }
+        if (word != 0) {
+            return 64 * w + std::countr_zero(word);
         }
     }
     return std::nullopt;
 }
 
 std::optional<uint32_t> last_x_below(const Pauli& pauli, uint32_t end) {
-    for (uint32_t q = end; q > 0; --q) {
-        if (pauli.x().bit_get(q - 1)) {
-            return q - 1;
+    assert(end <= pauli.num_qubits());
+    if (end == 0) {
+        return std::nullopt;
+    }
+    const MaskView x = pauli.x();
+    for (uint32_t w = (end - 1) / 64 + 1; w-- > 0;) {
+        uint64_t word = x.words[w];
+        if (64 * (w + 1) > end && end % 64 != 0) {
+            word &= (uint64_t{1} << (end % 64)) - 1;
+        }
+        if (word != 0) {
+            return 64 * w + 63 - std::countl_zero(word);
         }
     }
     return std::nullopt;
 }
 
 std::optional<uint32_t> first_z_below(const Pauli& pauli, uint32_t end) {
-    for (uint32_t q = 0; q < end; ++q) {
-        if (pauli.z().bit_get(q)) {
-            return q;
+    assert(end <= pauli.num_qubits());
+    if (end == 0) {
+        return std::nullopt;
+    }
+    const MaskView z = pauli.z();
+    for (uint32_t w = 0; 64 * w < end; ++w) {
+        uint64_t word = z.words[w];
+        if (64 * (w + 1) > end && end % 64 != 0) {
+            word &= (uint64_t{1} << (end % 64)) - 1;
+        }
+        if (word != 0) {
+            return 64 * w + std::countr_zero(word);
         }
     }
     return std::nullopt;
 }
 
 ActivePauli active_projection(const Pauli& pauli, uint32_t active_width) {
-    ActivePauli result;
-    for (uint32_t q = 0; q < active_width; ++q) {
-        result.x |= static_cast<uint64_t>(pauli.x().bit_get(q)) << q;
-        result.z |= static_cast<uint64_t>(pauli.z().bit_get(q)) << q;
+    assert(active_width < kDenseActiveWidthLimit);
+    if (active_width == 0) {
+        return {};
     }
-    return result;
+    const uint64_t mask = (uint64_t{1} << active_width) - 1;
+    return ActivePauli{pauli.x().words[0] & mask, pauli.z().words[0] & mask};
 }
 
 SymbolId reserve_symbol(SamplingPlan& plan) {
@@ -234,7 +242,7 @@ class NoiseSigns {
 
     // Moving a Z rotation across an X error reverses its angle if the error
     // fires. XOR the crossed anticommuting channels to correct either direction.
-    [[nodiscard]] AffineBool sign_for(size_t operation_index, uint32_t noise_count) const {
+    [[nodiscard]] AffineBool sign_for(size_t operation_index, uint32_t noise_count) {
         const HeisenbergOp& op = hir_.ops[operation_index];
         AffineBool sign(hir_.sign(op));
         if (symbol_bases_.empty()) {
@@ -244,31 +252,107 @@ class NoiseSigns {
         if (noise_count == original_count) {
             return sign;
         }
+        ensure_site_index();
         const MaskView x = hir_.destab_mask(op);
         const MaskView z = hir_.stab_mask(op);
         const uint32_t begin = std::min(noise_count, original_count);
         const uint32_t end = std::max(noise_count, original_count);
-        for (uint32_t site = begin; site < end; ++site) {
+        candidate_sites_.clear();
+        collect_sites_in_range(x, sites_with_z_, begin, end);
+        collect_sites_in_range(z, sites_with_x_, begin, end);
+        if (candidate_sites_.empty()) {
+            return sign;
+        }
+        std::ranges::sort(candidate_sites_);
+        const auto unique_end = std::ranges::unique(candidate_sites_).begin();
+        candidate_sites_.erase(unique_end, candidate_sites_.end());
+
+        const PauliCommutation commutation(x, z);
+        std::vector<SymbolId> crossed_symbols;
+        for (uint32_t site : candidate_sites_) {
             uint32_t local_index = 0;
             for (const NoiseChannel& channel : hir_.noise_sites[site].channels) {
                 if (channel.prob == 0.0) {
                     continue;
                 }
                 const PauliMaskView channel_view = hir_.noise_channel_masks.at(channel.mask);
-                if (anti_commute(x, z, channel_view.x(), channel_view.z())) {
-                    sign ^= AffineBool::symbol(SymbolId{symbol_bases_[site] + local_index});
+                if (commutation.anti_commutes(channel_view.x(), channel_view.z())) {
+                    crossed_symbols.push_back(SymbolId{symbol_bases_[site] + local_index});
                 }
                 ++local_index;
             }
+        }
+        if (!crossed_symbols.empty()) {
+            sign ^= AffineBool::from_canonical_terms(false, std::move(crossed_symbols));
         }
         return sign;
     }
 
   private:
+    void ensure_site_index() {
+        if (site_index_built_) {
+            return;
+        }
+        site_index_built_ = true;
+        sites_with_x_.resize(hir_.num_qubits);
+        sites_with_z_.resize(hir_.num_qubits);
+        const uint32_t num_words = (hir_.num_qubits + 63) / 64;
+        const uint32_t tail_bits = hir_.num_qubits % 64;
+        const uint64_t last_mask = tail_bits == 0 ? ~uint64_t{0} : (uint64_t{1} << tail_bits) - 1;
+        auto record_mask = [&](MaskView mask, uint32_t site,
+                               std::vector<std::vector<uint32_t>>& lists) {
+            for (uint32_t w = 0; w < num_words; ++w) {
+                uint64_t pending = mask.words[w] & (w + 1 == num_words ? last_mask : ~uint64_t{0});
+                while (pending != 0) {
+                    const uint32_t q = 64 * w + std::countr_zero(pending);
+                    auto& list = lists[q];
+                    if (list.empty() || list.back() != site) {
+                        list.push_back(site);
+                    }
+                    pending &= pending - 1;
+                }
+            }
+        };
+        for (uint32_t site = 0; site < hir_.noise_sites.size(); ++site) {
+            for (const NoiseChannel& channel : hir_.noise_sites[site].channels) {
+                if (channel.prob == 0.0) {
+                    continue;
+                }
+                const PauliMaskView view = hir_.noise_channel_masks.at(channel.mask);
+                record_mask(view.x(), site, sites_with_x_);
+                record_mask(view.z(), site, sites_with_z_);
+            }
+        }
+    }
+
+    void collect_sites_in_range(MaskView mask, const std::vector<std::vector<uint32_t>>& lists,
+                                uint32_t begin, uint32_t end) {
+        const uint32_t num_words = (hir_.num_qubits + 63) / 64;
+        const uint32_t tail_bits = hir_.num_qubits % 64;
+        const uint64_t last_mask = tail_bits == 0 ? ~uint64_t{0} : (uint64_t{1} << tail_bits) - 1;
+        for (uint32_t w = 0; w < num_words; ++w) {
+            uint64_t pending = mask.words[w] & (w + 1 == num_words ? last_mask : ~uint64_t{0});
+            while (pending != 0) {
+                const uint32_t q = 64 * w + std::countr_zero(pending);
+                const auto& list = lists[q];
+                auto it = std::ranges::lower_bound(list, begin);
+                while (it != list.end() && *it < end) {
+                    candidate_sites_.push_back(*it);
+                    ++it;
+                }
+                pending &= pending - 1;
+            }
+        }
+    }
+
     const HirModule& hir_;
     // First symbol for each noise site's nonzero channels. Unneeded without
     // recorded positions, so ordinary planning does not allocate this table.
     std::vector<uint32_t> symbol_bases_;
+    bool site_index_built_ = false;
+    std::vector<std::vector<uint32_t>> sites_with_x_;
+    std::vector<std::vector<uint32_t>> sites_with_z_;
+    std::vector<uint32_t> candidate_sites_;
 };
 
 struct PlanningRequirements {
@@ -304,6 +388,7 @@ PlanningRequirements inspect_planning_requirements(const HirModule& hir, NoiseSi
         result.symbol_count += static_cast<uint32_t>(amount);
     };
 
+    uint32_t expected_noise_site = 0;
     for (size_t i = 0; i < hir.ops.size(); ++i) {
         const HeisenbergOp& op = hir.ops[i];
         result.supports_final_state_queries &= operation_supports_final_state_queries(op.op_type());
@@ -318,6 +403,11 @@ PlanningRequirements inspect_planning_requirements(const HirModule& hir, NoiseSi
                 if (site_index >= hir.noise_sites.size()) {
                     throw std::invalid_argument("sampling planner noise site is out of range");
                 }
+                if (site_index != expected_noise_site) {
+                    throw std::invalid_argument(
+                        "sampling planner noise sites are not in circuit order");
+                }
+                ++expected_noise_site;
                 noise_signs.record_symbols(site_index, result.symbol_count);
                 const NoiseSite& site = hir.noise_sites[site_index];
                 add(std::ranges::count_if(site.channels, [](const NoiseChannel& channel) {
@@ -364,10 +454,10 @@ void initialize_site_metadata(const HirModule& hir, SamplingPlan& plan) {
     }
 }
 
-bool process_rotation(const Pauli& body, double half_turns, const AffineBool& sign,
+bool process_rotation(MaskView body_x, MaskView body_z, double half_turns, const AffineBool& sign,
                       SamplingPlan& plan, uint32_t& active_width, CoordinateFrame& coordinates,
                       SymbolicPauliFrame& symbolic_frame, std::span<const uint32_t> source_lines) {
-    ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
+    ResolvedPauli resolved = resolve_pauli(body_x, body_z, sign, coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (!dormant_pivot.has_value()) {
         const ActivePauli active = active_projection(resolved.body, active_width);
@@ -398,19 +488,20 @@ bool process_rotation(const Pauli& body, double half_turns, const AffineBool& si
     return true;
 }
 
-AffineBool process_measurement(const Pauli& body, const AffineBool& sign, RecordSlot record,
-                               SymbolId branch, SamplingPlan& plan, uint32_t& active_width,
-                               CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame,
+AffineBool process_measurement(MaskView body_x, MaskView body_z, const AffineBool& sign,
+                               RecordSlot record, SymbolId branch, SamplingPlan& plan,
+                               uint32_t& active_width, CoordinateFrame& coordinates,
+                               SymbolicPauliFrame& symbolic_frame,
                                std::span<const uint32_t> source_lines) {
-    ResolvedPauli resolved = resolve_pauli(body, sign, coordinates, symbolic_frame);
+    ResolvedPauli resolved = resolve_pauli(body_x, body_z, sign, coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
     if (dormant_pivot.has_value()) {
         coordinates.measure_dormant(resolved.body, *dormant_pivot);
 
         define_symbol(plan, branch, SymbolKind::Branch);
-        Pauli correction(coordinates.current_to_initial().x_output(*dormant_pivot));
-        correction.set_sign(false);
-        symbolic_frame.apply(correction, AffineBool::symbol(branch));
+        const PauliStringView correction =
+            coordinates.current_to_initial().x_output(*dormant_pivot);
+        symbolic_frame.apply(correction.x(), correction.z(), AffineBool::symbol(branch));
         const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
         append_action(plan,
                       PlannedAction{active_width, active_width,
@@ -436,16 +527,14 @@ AffineBool process_measurement(const Pauli& body, const AffineBool& sign, Record
     }
 
     Pauli active_body(resolved.body.num_qubits());
-    for (uint32_t q = 0; q < active_width; ++q) {
-        active_body.set_pauli(q, resolved.body.x().bit_get(q), resolved.body.z().bit_get(q));
-    }
+    active_body.mut_x().words[0] = active.x;
+    active_body.mut_z().words[0] = active.z;
     active_body.set_sign(false);
     coordinates.measure_active(active_body, active_width, *pivot);
 
     define_symbol(plan, branch, SymbolKind::Branch);
-    Pauli correction(coordinates.current_to_initial().x_output(active_width - 1));
-    correction.set_sign(false);
-    symbolic_frame.apply(correction, AffineBool::symbol(branch));
+    const PauliStringView correction = coordinates.current_to_initial().x_output(active_width - 1);
+    symbolic_frame.apply(correction.x(), correction.z(), AffineBool::symbol(branch));
     const AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
     append_action(plan,
                   PlannedAction{active_width, active_width - 1,
@@ -463,11 +552,10 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
     const InstrumentSite& hir_site = hir.instrument_sites.at(index(site));
     const SymbolId destination_flip_symbol = reserve_symbol(plan);
     const uint32_t symbol_prefix_size = static_cast<uint32_t>(plan.symbols.size());
-    const Pauli body = pauli_from_hir(hir, op);
-    const Pauli destination_flip = pauli_from_mask(hir, hir_site.destination_flip_mask);
+    const PauliMaskView destination_flip = hir.pauli_masks.at(hir_site.destination_flip_mask);
     const InstrumentDistribution& distribution = plan.instrument_distributions.at(index(site));
-    ResolvedPauli resolved =
-        resolve_pauli(body, AffineBool(hir.sign(op)), coordinates, symbolic_frame);
+    ResolvedPauli resolved = resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
+                                           AffineBool(hir.sign(op)), coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
 
     InstrumentMode mode = InstrumentMode::Classical;
@@ -515,7 +603,8 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
                   source_lines);
 
     if (destination_symbol.has_value()) {
-        symbolic_frame.apply(destination_flip, AffineBool::symbol(*destination_symbol));
+        symbolic_frame.apply(destination_flip.x(), destination_flip.z(),
+                             AffineBool::symbol(*destination_symbol));
     }
     active_width = active_after;
     plan.peak_active_width = std::max(plan.peak_active_width, active_width);
@@ -637,44 +726,38 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         switch (op.op_type()) {
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
-                const Pauli body = pauli_from_hir(hir, op);
                 final_coordinates_changed |=
-                    process_rotation(body, half_turns, noise_signs.sign_for(i, next_noise_site),
-                                     plan, active_width, coordinates, symbolic_frame, source_lines);
+                    process_rotation(hir.destab_mask(op), hir.stab_mask(op), half_turns,
+                                     noise_signs.sign_for(i, next_noise_site), plan, active_width,
+                                     coordinates, symbolic_frame, source_lines);
                 break;
             }
             case OpType::PHASE_ROTATION: {
-                const Pauli body = pauli_from_hir(hir, op);
                 final_coordinates_changed |=
-                    process_rotation(body, op.alpha(), noise_signs.sign_for(i, next_noise_site),
-                                     plan, active_width, coordinates, symbolic_frame, source_lines);
+                    process_rotation(hir.destab_mask(op), hir.stab_mask(op), op.alpha(),
+                                     noise_signs.sign_for(i, next_noise_site), plan, active_width,
+                                     coordinates, symbolic_frame, source_lines);
                 break;
             }
             case OpType::MEASURE: {
                 const RecordSlot record{static_cast<uint32_t>(op.meas_record_idx())};
                 const SymbolId branch = reserve_symbol(plan);
-                const Pauli body = pauli_from_hir(hir, op);
                 const AffineBool outcome = process_measurement(
-                    body, noise_signs.sign_for(i, next_noise_site), record, branch, plan,
-                    active_width, coordinates, symbolic_frame, source_lines);
+                    hir.destab_mask(op), hir.stab_mask(op),
+                    noise_signs.sign_for(i, next_noise_site), record, branch, plan, active_width,
+                    coordinates, symbolic_frame, source_lines);
                 assign_record(record, outcome, i);
                 break;
             }
             case OpType::CONDITIONAL_PAULI: {
                 const RecordSlot controller{static_cast<uint32_t>(op.controlling_meas())};
-                const Pauli body = pauli_from_hir(hir, op);
-                symbolic_frame.apply(body, require_record(controller, i));
+                symbolic_frame.apply(hir.destab_mask(op), hir.stab_mask(op),
+                                     require_record(controller, i));
                 break;
             }
             case OpType::NOISE: {
                 const uint32_t site_index = static_cast<uint32_t>(op.noise_site_idx());
-                if (site_index >= hir.noise_sites.size()) {
-                    throw std::invalid_argument("sampling planner noise site is out of range");
-                }
-                if (site_index != next_noise_site) {
-                    throw std::invalid_argument(
-                        "sampling planner noise sites are not in circuit order");
-                }
+                assert(site_index == next_noise_site && site_index < hir.noise_sites.size());
                 ++next_noise_site;
                 const NoiseSite& hir_site = hir.noise_sites[site_index];
                 noise_signs.check_symbols(site_index, plan.symbols.size());
@@ -687,8 +770,8 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     const SymbolId symbol{static_cast<uint32_t>(plan.symbols.size())};
                     plan.symbols.push_back(SymbolKind::Presampled);
                     plan_site.outcomes.push_back(PresampledNoiseOutcome{symbol, channel.prob});
-                    const Pauli body = noise_pauli_from_hir(hir, channel.mask);
-                    symbolic_frame.apply(body, AffineBool::symbol(symbol));
+                    const PauliMaskView mask = hir.noise_channel_masks.at(channel.mask);
+                    symbolic_frame.apply(mask.x(), mask.z(), AffineBool::symbol(symbol));
                 }
                 break;
             }
@@ -778,9 +861,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     throw std::invalid_argument(
                         "sampling planner expectation slot is out of range");
                 }
-                const Pauli body = pauli_from_hir(hir, op);
                 ResolvedPauli resolved =
-                    resolve_pauli(body, AffineBool(hir.sign(op)), coordinates, symbolic_frame);
+                    resolve_pauli(hir.destab_mask(op), hir.stab_mask(op), AffineBool(hir.sign(op)),
+                                  coordinates, symbolic_frame);
                 const bool is_zero = first_x_at_or_above(resolved.body, active_width).has_value();
                 append_action(
                     plan,

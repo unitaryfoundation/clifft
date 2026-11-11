@@ -17,7 +17,8 @@ class Tableau {
   public:
     explicit Tableau(uint32_t num_qubits = 0);
 
-    [[nodiscard]] static Tableau from_named_gate(GateType gate);
+    [[nodiscard]] static const Tableau& from_named_gate(GateType gate);
+    [[nodiscard]] static GateType inverse_named_gate(GateType gate);
     [[nodiscard]] static Tableau from_pauli_rotation(PauliStringView axis, bool dagger);
 
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
@@ -51,7 +52,6 @@ class Tableau {
 
   private:
     [[nodiscard]] static Tableau from_rows(std::initializer_list<std::string_view> rows);
-    [[nodiscard]] static const Tableau& named_gate_tableau(GateType gate);
     [[nodiscard]] PauliStringView row(uint32_t index) const;
     void set_row(uint32_t index, PauliStringView value);
     void right_multiply_row_by_pauli(uint32_t destination, PauliStringView value,

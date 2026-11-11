@@ -16,91 +16,14 @@ namespace clifft {
 
 namespace {
 
-GateType inverse_clifford_gate(GateType gate) {
-    switch (gate) {
-        case GateType::S:
-            return GateType::S_DAG;
-        case GateType::S_DAG:
-            return GateType::S;
-        case GateType::SQRT_X:
-            return GateType::SQRT_X_DAG;
-        case GateType::SQRT_X_DAG:
-            return GateType::SQRT_X;
-        case GateType::SQRT_Y:
-            return GateType::SQRT_Y_DAG;
-        case GateType::SQRT_Y_DAG:
-            return GateType::SQRT_Y;
-        case GateType::C_XYZ:
-            return GateType::C_ZYX;
-        case GateType::C_ZYX:
-            return GateType::C_XYZ;
-        case GateType::C_NXYZ:
-            return GateType::C_ZYNX;
-        case GateType::C_NZYX:
-            return GateType::C_XYNZ;
-        case GateType::C_XNYZ:
-            return GateType::C_ZNYX;
-        case GateType::C_XYNZ:
-            return GateType::C_NZYX;
-        case GateType::C_ZNYX:
-            return GateType::C_XNYZ;
-        case GateType::C_ZYNX:
-            return GateType::C_NXYZ;
-        case GateType::ISWAP:
-            return GateType::ISWAP_DAG;
-        case GateType::ISWAP_DAG:
-            return GateType::ISWAP;
-        case GateType::SQRT_XX:
-            return GateType::SQRT_XX_DAG;
-        case GateType::SQRT_XX_DAG:
-            return GateType::SQRT_XX;
-        case GateType::SQRT_YY:
-            return GateType::SQRT_YY_DAG;
-        case GateType::SQRT_YY_DAG:
-            return GateType::SQRT_YY;
-        case GateType::SQRT_ZZ:
-            return GateType::SQRT_ZZ_DAG;
-        case GateType::SQRT_ZZ_DAG:
-            return GateType::SQRT_ZZ;
-        case GateType::CXSWAP:
-            return GateType::SWAPCX;
-        case GateType::SWAPCX:
-            return GateType::CXSWAP;
-        case GateType::H:
-        case GateType::X:
-        case GateType::Y:
-        case GateType::Z:
-        case GateType::H_XY:
-        case GateType::H_YZ:
-        case GateType::H_NXY:
-        case GateType::H_NXZ:
-        case GateType::H_NYZ:
-        case GateType::CX:
-        case GateType::CY:
-        case GateType::CZ:
-        case GateType::SWAP:
-        case GateType::CZSWAP:
-        case GateType::XCX:
-        case GateType::XCY:
-        case GateType::XCZ:
-        case GateType::YCX:
-        case GateType::YCY:
-        case GateType::YCZ:
-            return gate;
-        default:
-            throw std::invalid_argument("Gate does not have an explicit Clifford inverse: " +
-                                        std::string(gate_name(gate)));
-    }
-}
-
 void apply_single_qubit_clifford(Tableau& inverse, GateType gate, uint32_t qubit) {
     const std::array targets{qubit};
-    inverse.prepend_named_gate(inverse_clifford_gate(gate), targets);
+    inverse.prepend_named_gate(Tableau::inverse_named_gate(gate), targets);
 }
 
 void apply_two_qubit_clifford(Tableau& inverse, GateType gate, uint32_t q1, uint32_t q2) {
     const std::array targets{q1, q2};
-    inverse.prepend_named_gate(inverse_clifford_gate(gate), targets);
+    inverse.prepend_named_gate(Tableau::inverse_named_gate(gate), targets);
 }
 
 void copy_mask_into(MaskView source, MutableMaskView destination) {

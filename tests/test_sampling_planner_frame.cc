@@ -314,40 +314,64 @@ TEST_CASE("Planner coordinate frame matches inverse across packed words") {
     require_matches_inverse();
 }
 
-TEST_CASE("Planner coordinate frame caches repeated reverse lookups") {
-    constexpr uint32_t kNumQubits = 3;
+TEST_CASE("Planner coordinate frame maintains reverse map across interleaved wide updates") {
+    constexpr uint32_t kNumQubits = 195;
     CoordinateFrame coordinates(kNumQubits);
-    PlannerPauli initial(kNumQubits);
-    initial.set_pauli(0, true, false);
-    initial.set_pauli(2, false, true);
+    PlannerTableau cumulative(kNumQubits);
 
-    for (uint32_t lookup = 0; lookup < 2 * kNumQubits; ++lookup) {
-        REQUIRE(coordinates.to_current(initial) == initial);
-        REQUIRE_FALSE(coordinates.has_cached_inverse_for_testing());
-    }
-    REQUIRE(coordinates.to_current(initial) == initial);
-    REQUIRE(coordinates.has_cached_inverse_for_testing());
+    auto check_probe_paulis = [&] {
+        const PlannerTableau inverse = cumulative.inverse();
+        for (uint32_t probe : {0U, 63U, 64U, 127U, 128U, 194U}) {
+            for (uint32_t kind = 1; kind <= 3; ++kind) {
+                for (bool sign : {false, true}) {
+                    PlannerPauli initial(kNumQubits);
+                    initial.set_pauli(probe, (kind & 1U) != 0, (kind & 2U) != 0);
+                    initial.set_pauli((probe + 65) % kNumQubits, (kind & 2U) != 0,
+                                      (kind & 1U) != 0);
+                    initial.set_sign(sign);
+                    const PlannerPauli expected = inverse.apply(initial.view());
+                    const PlannerPauli actual = coordinates.to_current(initial);
+                    REQUIRE(actual == expected);
+                    REQUIRE(coordinates.to_initial(actual) == initial);
+                }
+            }
+        }
+    };
 
-    PlannerTableau change(kNumQubits);
-    change.append_named_gate(clifft::GateType::H, {0});
-    coordinates.change_basis(change);
-    REQUIRE_FALSE(coordinates.has_cached_inverse_for_testing());
-    REQUIRE(coordinates.to_current(initial) == change.inverse().apply(initial.view()));
+    check_probe_paulis();
 
-    for (uint32_t lookup = 0; lookup < 2 * kNumQubits; ++lookup) {
-        static_cast<void>(coordinates.to_current(initial));
-    }
-    REQUIRE(coordinates.has_cached_inverse_for_testing());
+    PlannerPauli dormant_first(kNumQubits);
+    dormant_first.set_pauli(0, false, true);
+    dormant_first.set_pauli(64, true, true);
+    dormant_first.set_pauli(194, true, false);
+    dormant_first.set_sign(true);
+    coordinates.measure_dormant(dormant_first, 194);
+    cumulative = dormant_measurement_frame(dormant_first, 194).then(cumulative);
+    check_probe_paulis();
 
     PlannerPauli promoted(kNumQubits);
-    promoted.set_pauli(0, false, true);
-    promoted.set_pauli(2, true, false);
+    promoted.set_pauli(63, false, true);
+    promoted.set_pauli(128, true, false);
     promoted.set_sign(true);
-    const PlannerTableau promotion = dormant_promotion_frame(promoted, 1, 2);
-    coordinates.promote_dormant(promoted, 1, 2);
-    REQUIRE_FALSE(coordinates.has_cached_inverse_for_testing());
-    REQUIRE(coordinates.to_current(initial) ==
-            promotion.then(change).inverse().apply(initial.view()));
+    coordinates.promote_dormant(promoted, 0, 128);
+    cumulative = dormant_promotion_frame(promoted, 0, 128).then(cumulative);
+    check_probe_paulis();
+
+    PlannerPauli promoted_second(kNumQubits);
+    promoted_second.set_pauli(0, true, true);
+    promoted_second.set_pauli(65, true, false);
+    promoted_second.set_sign(false);
+    coordinates.promote_dormant(promoted_second, 1, 65);
+    cumulative = dormant_promotion_frame(promoted_second, 1, 65).then(cumulative);
+    check_probe_paulis();
+
+    PlannerPauli active_measured(kNumQubits);
+    active_measured.set_pauli(0, true, false);
+    active_measured.set_pauli(1, true, true);
+    active_measured.set_sign(true);
+    coordinates.measure_active(active_measured, 2, 1);
+    cumulative = active_measurement_frame(active_measured, 2, 1).then(cumulative);
+    check_probe_paulis();
 }
 
 TEST_CASE("Planner symbolic frame composes affine Pauli corrections") {
@@ -372,7 +396,54 @@ TEST_CASE("Planner symbolic frame composes affine Pauli corrections") {
 
     frame.apply(x_correction, wide_condition);
     REQUIRE(frame.sign_for(z_observable) == AffineBool(false));
-    REQUIRE(SymbolicPauliFrame::estimated_workspace_bytes(2, 130) == 124);
+}
+
+TEST_CASE("Planner symbolic frame merges out-of-order and multi-row cancellations") {
+    constexpr uint32_t kNumQubits = 128;
+    constexpr uint32_t kNumSymbols = 20480;
+    const uint32_t last_q = kNumQubits - 1;
+    const uint32_t far_symbol = kNumSymbols - 1160;
+
+    SymbolicPauliFrame frame(kNumQubits, kNumSymbols);
+    PlannerPauli q0_x(kNumQubits), q1_x(kNumQubits), qlast_x(kNumQubits);
+    q0_x.set_pauli(0, true, false);
+    q1_x.set_pauli(1, true, false);
+    qlast_x.set_pauli(last_q, true, false);
+
+    // Populate 6 256-symbol blocks on q0, then cancel earlier blocks out of order.
+    AffineBool expected_q0;
+    for (uint32_t w = 0; w < 24; ++w) {
+        const AffineBool term = AffineBool::symbol(SymbolId{64 * w + 3});
+        frame.apply(q0_x, term);
+        expected_q0 ^= term;
+    }
+    for (uint32_t w = 0; w < 18; ++w) {
+        const AffineBool term = AffineBool::symbol(SymbolId{64 * (17 - w) + 3});
+        frame.apply(q0_x, term);
+        expected_q0 ^= term;
+    }
+
+    // Exercise 3-row cancellation and re-introduction of the same symbol word in sign_for.
+    const AffineBool shared(true, {SymbolId{5}, SymbolId{far_symbol}});
+    const AffineBool extra = AffineBool::symbol(SymbolId{far_symbol + 1});
+    frame.apply(q1_x, shared);
+    frame.apply(qlast_x, shared ^ extra);
+
+    PlannerPauli obs_q0(kNumQubits);
+    obs_q0.set_pauli(0, false, true);
+    REQUIRE(frame.sign_for(obs_q0) == expected_q0);
+
+    PlannerPauli obs_last(kNumQubits);
+    obs_last.set_pauli(last_q, false, true);
+    REQUIRE(frame.sign_for(obs_last) == (shared ^ extra));
+
+    // Combine q0, q1, and qlast so word 0 and far_symbol's word cancel then reappear.
+    frame.apply(q0_x, shared);
+    PlannerPauli obs_all(kNumQubits);
+    obs_all.set_pauli(0, false, true);
+    obs_all.set_pauli(1, false, true);
+    obs_all.set_pauli(last_q, false, true);
+    REQUIRE(frame.sign_for(obs_all) == (expected_q0 ^ shared ^ extra));
 }
 
 TEST_CASE("Planner symbolic frame applies sparse corrections across packed words") {
