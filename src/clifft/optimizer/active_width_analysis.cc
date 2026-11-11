@@ -105,15 +105,11 @@ DormantSubspace::DormantSubspace(uint32_t num_qubits)
       scratch_z_(words_per_row_, 0) {
     // Z on each qubit gives the initial reduced basis for the all-zero state.
     const uint32_t domain = combined_domain(words_per_row_);
+    const uint64_t zero = 0;
     for (uint32_t q = 0; q < num_qubits; ++q) {
         const uint32_t w = q / 64;
         const uint64_t bit = uint64_t{1} << (q % 64);
-        rows_z_[static_cast<size_t>(q) * words_per_row_ + w] = bit;
-        col_z_[static_cast<size_t>(q) * words_per_row_ + w] = bit;
-        row_begin_[q] = w;
-        row_end_[q] = w + 1;
-        pivot_[q] = domain + q;
-        pivot_owner_[domain + q] = q;
+        write_row(q, domain + q, w, w + 1, &zero, &bit);
     }
 }
 
@@ -133,18 +129,27 @@ void DormantSubspace::compute_anticommuting_rows(MaskView x, MaskView z,
 
     std::ranges::fill(anti_out, uint64_t{0});
     const size_t active_rw = anti_out.size();
-    for_each_set_bit(x, [&](uint32_t q) {
-        const uint64_t* cz = col_z_.data() + static_cast<size_t>(q) * words_per_row_;
-        for (size_t rw = 0; rw < active_rw; ++rw) {
-            anti_out[rw] ^= cz[rw];
+    for (uint32_t w = 0; w < words_per_row_; ++w) {
+        const uint64_t wx = x.words[w];
+        const uint64_t wz = z.words[w];
+        if ((wx | wz) == 0) {
+            continue;
         }
-    });
-    for_each_set_bit(z, [&](uint32_t q) {
-        const uint64_t* cx = col_x_.data() + static_cast<size_t>(q) * words_per_row_;
-        for (size_t rw = 0; rw < active_rw; ++rw) {
-            anti_out[rw] ^= cx[rw];
+        for (uint64_t m = wx; m != 0; m &= m - 1) {
+            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(m));
+            const uint64_t* cz = col_z_.data() + static_cast<size_t>(q) * words_per_row_;
+            for (size_t rw = 0; rw < active_rw; ++rw) {
+                anti_out[rw] ^= cz[rw];
+            }
         }
-    });
+        for (uint64_t m = wz; m != 0; m &= m - 1) {
+            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(m));
+            const uint64_t* cx = col_x_.data() + static_cast<size_t>(q) * words_per_row_;
+            for (size_t rw = 0; rw < active_rw; ++rw) {
+                anti_out[rw] ^= cx[rw];
+            }
+        }
+    }
 }
 
 bool DormantSubspace::commutes_with_all(MaskView x, MaskView z, uint32_t* anticommuting_row) const {
@@ -239,75 +244,55 @@ void DormantSubspace::xor_rows(const uint64_t* vx, const uint64_t* vz, uint32_t 
                      });
 }
 
-void DormantSubspace::erase_row(uint32_t k) {
-    assert(k < dimension_);
-    uint64_t* kx = rows_x_.data() + static_cast<size_t>(k) * words_per_row_;
-    uint64_t* kz = rows_z_.data() + static_cast<size_t>(k) * words_per_row_;
-    const uint32_t kb = row_begin_[k];
-    const uint32_t ke = row_end_[k];
-
-    pivot_owner_[pivot_[k]] = kNoOwner;
-    toggle_row_in_cols(k, kx, kz, kb, ke);
-    std::fill(kx + kb, kx + ke, uint64_t{0});
-    std::fill(kz + kb, kz + ke, uint64_t{0});
-    row_begin_[k] = 0;
-    row_end_[k] = 0;
-
-    const uint32_t last = dimension_ - 1;
-    if (k != last) {
-        uint64_t* lx = rows_x_.data() + static_cast<size_t>(last) * words_per_row_;
-        uint64_t* lz = rows_z_.data() + static_cast<size_t>(last) * words_per_row_;
-        const uint32_t lb = row_begin_[last];
-        const uint32_t le = row_end_[last];
-        toggle_row_in_cols(last, lx, lz, lb, le);
-        std::copy(lx + lb, lx + le, kx + lb);
-        std::copy(lz + lb, lz + le, kz + lb);
-        std::fill(lx + lb, lx + le, uint64_t{0});
-        std::fill(lz + lb, lz + le, uint64_t{0});
-        toggle_row_in_cols(k, kx, kz, lb, le);
-        row_begin_[k] = lb;
-        row_end_[k] = le;
-        row_begin_[last] = 0;
-        row_end_[last] = 0;
-        pivot_[k] = pivot_[last];
-        pivot_owner_[pivot_[k]] = k;
-    }
-    --dimension_;
+void DormantSubspace::write_row(uint32_t slot, uint32_t pivot, uint32_t begin_w, uint32_t end_w,
+                                const uint64_t* src_x, const uint64_t* src_z) {
+    assert(begin_w < end_w);
+    uint64_t* rx = rows_x_.data() + static_cast<size_t>(slot) * words_per_row_;
+    uint64_t* rz = rows_z_.data() + static_cast<size_t>(slot) * words_per_row_;
+    const uint32_t len = end_w - begin_w;
+    std::copy_n(src_x, len, rx + begin_w);
+    std::copy_n(src_z, len, rz + begin_w);
+    toggle_row_in_cols(slot, rx, rz, begin_w, end_w);
+    row_begin_[slot] = begin_w;
+    row_end_[slot] = end_w;
+    pivot_[slot] = pivot;
+    pivot_owner_[pivot] = slot;
 }
 
-void DormantSubspace::restore_erased_row(uint32_t k, uint32_t saved_pivot, uint32_t saved_begin,
-                                         uint32_t saved_end, const uint64_t* saved_x,
-                                         const uint64_t* saved_z) {
-    const uint32_t last = dimension_;
-    ++dimension_;
-    uint64_t* kx = rows_x_.data() + static_cast<size_t>(k) * words_per_row_;
-    uint64_t* kz = rows_z_.data() + static_cast<size_t>(k) * words_per_row_;
+void DormantSubspace::clear_row(uint32_t slot) {
+    uint64_t* rx = rows_x_.data() + static_cast<size_t>(slot) * words_per_row_;
+    uint64_t* rz = rows_z_.data() + static_cast<size_t>(slot) * words_per_row_;
+    const uint32_t rb = row_begin_[slot];
+    const uint32_t re = row_end_[slot];
+    pivot_owner_[pivot_[slot]] = kNoOwner;
+    toggle_row_in_cols(slot, rx, rz, rb, re);
+    std::fill(rx + rb, rx + re, uint64_t{0});
+    std::fill(rz + rb, rz + re, uint64_t{0});
+    row_begin_[slot] = 0;
+    row_end_[slot] = 0;
+}
 
+void DormantSubspace::move_row(uint32_t from, uint32_t to) {
+    assert(from != to);
+    uint64_t* fx = rows_x_.data() + static_cast<size_t>(from) * words_per_row_;
+    uint64_t* fz = rows_z_.data() + static_cast<size_t>(from) * words_per_row_;
+    const uint32_t fb = row_begin_[from];
+    const uint32_t fe = row_end_[from];
+    toggle_row_in_cols(from, fx, fz, fb, fe);
+    write_row(to, pivot_[from], fb, fe, fx + fb, fz + fb);
+    std::fill(fx + fb, fx + fe, uint64_t{0});
+    std::fill(fz + fb, fz + fe, uint64_t{0});
+    row_begin_[from] = 0;
+    row_end_[from] = 0;
+}
+
+void DormantSubspace::erase_row(uint32_t k) {
+    assert(k < dimension_);
+    clear_row(k);
+    const uint32_t last = --dimension_;
     if (k != last) {
-        uint64_t* lx = rows_x_.data() + static_cast<size_t>(last) * words_per_row_;
-        uint64_t* lz = rows_z_.data() + static_cast<size_t>(last) * words_per_row_;
-        const uint32_t kb = row_begin_[k];
-        const uint32_t ke = row_end_[k];
-        toggle_row_in_cols(k, kx, kz, kb, ke);
-        std::copy(kx + kb, kx + ke, lx + kb);
-        std::copy(kz + kb, kz + ke, lz + kb);
-        std::fill(kx + kb, kx + ke, uint64_t{0});
-        std::fill(kz + kb, kz + ke, uint64_t{0});
-        toggle_row_in_cols(last, lx, lz, kb, ke);
-        row_begin_[last] = kb;
-        row_end_[last] = ke;
-        pivot_[last] = pivot_[k];
-        pivot_owner_[pivot_[last]] = last;
+        move_row(last, k);
     }
-
-    const uint32_t len = saved_end - saved_begin;
-    std::copy_n(saved_x, len, kx + saved_begin);
-    std::copy_n(saved_z, len, kz + saved_begin);
-    toggle_row_in_cols(k, kx, kz, saved_begin, saved_end);
-    row_begin_[k] = saved_begin;
-    row_end_[k] = saved_end;
-    pivot_[k] = saved_pivot;
-    pivot_owner_[saved_pivot] = k;
 }
 
 void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
@@ -355,22 +340,8 @@ void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
         return;
     }
 
-    uint32_t in_end = words_per_row_;
-    while (in_end > 0 && (x.words[in_end - 1] | z.words[in_end - 1]) == 0) {
-        --in_end;
-    }
-    uint32_t in_begin = 0;
-    while (in_begin < in_end && (x.words[in_begin] | z.words[in_begin]) == 0) {
-        ++in_begin;
-    }
-    if (in_begin == in_end) {
-        return;
-    }
-
-    std::copy(x.words.begin() + in_begin, x.words.begin() + in_end, scratch_x_.begin() + in_begin);
-    std::copy(z.words.begin() + in_begin, z.words.begin() + in_end, scratch_z_.begin() + in_begin);
-    uint32_t sb = in_begin;
-    uint32_t se = in_end;
+    uint32_t sb = words_per_row_;
+    uint32_t se = 0;
     const uint32_t domain = combined_domain(words_per_row_);
 
     auto xor_owner = [&](uint32_t owner) {
@@ -386,18 +357,31 @@ void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
         se = std::max(se, re);
     };
 
-    for_each_set_bit(x, in_begin, in_end, [&](uint32_t q) {
-        const uint32_t owner = pivot_owner_[q];
-        if (owner != kNoOwner) {
-            xor_owner(owner);
+    for (uint32_t w = 0; w < words_per_row_; ++w) {
+        const uint64_t xw = x.words[w];
+        const uint64_t zw = z.words[w];
+        if ((xw | zw) == 0) {
+            continue;
         }
-    });
-    for_each_set_bit(z, in_begin, in_end, [&](uint32_t q) {
-        const uint32_t owner = pivot_owner_[domain + q];
-        if (owner != kNoOwner) {
-            xor_owner(owner);
+        scratch_x_[w] ^= xw;
+        scratch_z_[w] ^= zw;
+        sb = std::min(sb, w);
+        se = std::max(se, w + 1);
+        for (uint64_t m = xw; m != 0; m &= m - 1) {
+            const uint32_t owner =
+                pivot_owner_[w * 64 + static_cast<uint32_t>(std::countr_zero(m))];
+            if (owner != kNoOwner) {
+                xor_owner(owner);
+            }
         }
-    });
+        for (uint64_t m = zw; m != 0; m &= m - 1) {
+            const uint32_t owner =
+                pivot_owner_[domain + w * 64 + static_cast<uint32_t>(std::countr_zero(m))];
+            if (owner != kNoOwner) {
+                xor_owner(owner);
+            }
+        }
+    }
 
     while (se > sb && (scratch_x_[se - 1] | scratch_z_[se - 1]) == 0) {
         --se;
@@ -493,20 +477,8 @@ void DormantSubspace::insert_reduced(UndoLog* undo) {
     }
 
     xor_rows(scratch_x_.data(), scratch_z_.data(), scratch_begin_, scratch_end_, target_rows);
-
-    const uint32_t idx = dimension_;
-    uint64_t* dst_x = rows_x_.data() + static_cast<size_t>(idx) * words_per_row_;
-    uint64_t* dst_z = rows_z_.data() + static_cast<size_t>(idx) * words_per_row_;
-    std::copy(scratch_x_.begin() + scratch_begin_, scratch_x_.begin() + scratch_end_,
-              dst_x + scratch_begin_);
-    std::copy(scratch_z_.begin() + scratch_begin_, scratch_z_.begin() + scratch_end_,
-              dst_z + scratch_begin_);
-    toggle_row_in_cols(idx, dst_x, dst_z, scratch_begin_, scratch_end_);
-    row_begin_[idx] = scratch_begin_;
-    row_end_[idx] = scratch_end_;
-    pivot_[idx] = b;
-    pivot_owner_[b] = idx;
-    ++dimension_;
+    write_row(dimension_++, b, scratch_begin_, scratch_end_, scratch_x_.data() + scratch_begin_,
+              scratch_z_.data() + scratch_begin_);
 }
 
 void DormantSubspace::rollback(UndoLog& undo) {
@@ -517,26 +489,22 @@ void DormantSubspace::rollback(UndoLog& undo) {
             const uint64_t* saved_x = undo.words_.data() + e.word_offset;
             const uint64_t* saved_z = saved_x + span_len;
             const std::span<const uint64_t> anti_without_k(saved_z + span_len, e.active_row_words);
-            restore_erased_row(e.row, e.saved_pivot, e.saved_begin, e.saved_end, saved_x, saved_z);
+            const uint32_t last = dimension_++;
+            if (e.row != last) {
+                move_row(e.row, last);
+            }
+            write_row(e.row, e.saved_pivot, e.saved_begin, e.saved_end, saved_x, saved_z);
             const uint64_t* kx = rows_x_.data() + static_cast<size_t>(e.row) * words_per_row_;
             const uint64_t* kz = rows_z_.data() + static_cast<size_t>(e.row) * words_per_row_;
             xor_rows(kx, kz, e.saved_begin, e.saved_end, anti_without_k);
         } else {
             const uint32_t idx = dimension_ - 1;
-            uint64_t* rx = rows_x_.data() + static_cast<size_t>(idx) * words_per_row_;
-            uint64_t* rz = rows_z_.data() + static_cast<size_t>(idx) * words_per_row_;
-            const uint32_t rb = row_begin_[idx];
-            const uint32_t re = row_end_[idx];
             const std::span<const uint64_t> target_rows(undo.words_.data() + e.word_offset,
                                                         e.active_row_words);
-            xor_rows(rx, rz, rb, re, target_rows);
-            pivot_owner_[pivot_[idx]] = kNoOwner;
-            toggle_row_in_cols(idx, rx, rz, rb, re);
-            std::fill(rx + rb, rx + re, uint64_t{0});
-            std::fill(rz + rb, rz + re, uint64_t{0});
-            row_begin_[idx] = 0;
-            row_end_[idx] = 0;
-            --dimension_;
+            xor_rows(rows_x_.data() + static_cast<size_t>(idx) * words_per_row_,
+                     rows_z_.data() + static_cast<size_t>(idx) * words_per_row_, row_begin_[idx],
+                     row_end_[idx], target_rows);
+            erase_row(idx);
         }
     }
     undo.clear();

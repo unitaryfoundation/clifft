@@ -126,9 +126,11 @@ class DormantSubspace {
     void xor_rows(const uint64_t* vx, const uint64_t* vz, uint32_t v_begin, uint32_t v_end,
                   std::span<const uint64_t> target_rows);
 
+    void write_row(uint32_t slot, uint32_t pivot, uint32_t begin_w, uint32_t end_w,
+                   const uint64_t* src_x, const uint64_t* src_z);
+    void clear_row(uint32_t slot);
+    void move_row(uint32_t from, uint32_t to);
     void erase_row(uint32_t k);
-    void restore_erased_row(uint32_t k, uint32_t saved_pivot, uint32_t saved_begin,
-                            uint32_t saved_end, const uint64_t* saved_x, const uint64_t* saved_z);
 
     // Reduces (x, z) modulo S into scratch_[scratch_begin_ .. scratch_end_).
     // An empty range means membership in S; otherwise insert_reduced consumes it.

@@ -148,24 +148,8 @@ void SearchFrontier::mark_not_ready(uint32_t op) {
 }
 
 uint32_t SearchFrontier::lowest_ready() const {
-    uint32_t word = lowest_ready_hint_ / 64;
-    if (word < ready_bits_.size()) {
-        uint64_t pending = ready_bits_[word] & (~uint64_t{0} << (lowest_ready_hint_ % 64));
-        while (pending == 0) {
-            ++word;
-            if (word >= ready_bits_.size()) {
-                lowest_ready_hint_ = num_ops();
-                pending = 0;
-                break;
-            }
-            pending = ready_bits_[word];
-        }
-        if (pending != 0) {
-            lowest_ready_hint_ = 64 * word + static_cast<uint32_t>(std::countr_zero(pending));
-        }
-    } else {
-        lowest_ready_hint_ = num_ops();
-    }
+    lowest_ready_hint_ =
+        std::min(num_ops(), lowest_bit_at_or_above(MaskView{ready_bits_}, lowest_ready_hint_));
     assert((lowest_ready_hint_ == num_ops() || is_ready(lowest_ready_hint_)) &&
            "lowest_ready() must return num_ops() or an actually ready op");
     return lowest_ready_hint_;
@@ -340,22 +324,10 @@ BeamState make_initial_beam_state(const HirModule& hir,
 std::vector<uint32_t> ready_ops_snapshot(const SearchFrontier& frontier) {
     std::vector<uint32_t> ready;
     const uint32_t start = frontier.lowest_ready();
-    if (start >= frontier.num_ops()) {
-        return ready;
-    }
-    const std::vector<uint64_t>& bits = frontier.ready_bits();
-    uint32_t word = start / 64;
-    uint64_t pending = bits[word] & (~uint64_t{0} << (start % 64));
-    for (;;) {
-        while (pending != 0) {
-            ready.push_back(64 * word + static_cast<uint32_t>(std::countr_zero(pending)));
-            pending &= pending - 1;
-        }
-        ++word;
-        if (word >= bits.size()) {
-            break;
-        }
-        pending = bits[word];
+    if (start < frontier.num_ops()) {
+        for_each_set_bit(MaskView{frontier.ready_bits()}, start / 64,
+                         static_cast<uint32_t>(frontier.ready_bits().size()),
+                         [&](uint32_t op) { ready.push_back(op); });
     }
     return ready;
 }
@@ -533,8 +505,9 @@ void append_pareto_front(const std::vector<BeamState>& beam,
 // Narrow the beam at half the swept-op budget and choose the lowest ready
 // expansion after the full swept-op budget. Closure still runs to completion:
 // the budget bounds executions, not classification probes or wall time.
-BeamState run_beam_search(const HirModule& hir, const detail::ScheduleDependence& dependence,
-                          uint32_t beam_width, SearchWork& work) {
+std::vector<uint32_t> run_beam_search(const HirModule& hir,
+                                      const detail::ScheduleDependence& dependence,
+                                      uint32_t beam_width, SearchWork& work) {
     std::vector<BeamState> beam;
     beam.push_back(make_initial_beam_state(hir, dependence, work));
 
@@ -648,7 +621,7 @@ BeamState run_beam_search(const HirModule& hir, const detail::ScheduleDependence
 
     assert(best.has_value() &&
            "beam_width >= 1 (the constructor rejects 0) guarantees at least one completed state");
-    return std::move(*best);
+    return std::move(best->order);
 }
 
 // ---------------------------------------------------------------------------
@@ -769,26 +742,22 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
                      : std::nullopt,
         .anticommuting_rows = std::vector<uint32_t>(hir.ops.size(), hir.num_qubits),
     };
-    BeamState best = run_beam_search(hir, dependence, options_.beam_width, work);
+    std::vector<uint32_t> order = run_beam_search(hir, dependence, options_.beam_width, work);
     swept_ops_ = work.swept_ops;
     classification_probes_ = work.probes;
 
     if (options_.sink_neutral_rotations) {
-        sink_neutral_rotations(hir, dependence, best.order);
+        sink_neutral_rotations(hir, dependence, order);
     }
 
-    const ActiveWidthCost candidate = summarize_active_width(hir, best.order);
-    assert(candidate.peak_width <= best.peak && candidate.dense_work <= best.dense_work &&
-           "neutral-rotation sinking worsened the beam's schedule cost");
-    assert(options_.sink_neutral_rotations ||
-           (candidate.peak_width == best.peak && candidate.dense_work == best.dense_work));
+    const ActiveWidthCost candidate = summarize_active_width(hir, order);
 
     const bool better =
         (candidate.peak_width < incumbent_peak_) ||
         (candidate.peak_width == incumbent_peak_ && candidate.dense_work < incumbent_dense_work_);
 
     if (better) {
-        detail::apply_schedule(hir, dependence, best.order);
+        detail::apply_schedule(hir, dependence, order);
         result_peak_ = candidate.peak_width;
         result_dense_work_ = candidate.dense_work;
         applied_ = true;

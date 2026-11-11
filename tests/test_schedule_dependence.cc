@@ -341,7 +341,7 @@ TEST_CASE("Schedule dependence closure matches can_swap across wide registers an
         }
     }
 
-    SECTION("high-weight Pauli support routed through the wide-op overflow list") {
+    SECTION("high-weight Pauli support and multi-channel noise across words") {
         constexpr uint32_t kNumQubits = 320;
         std::string source;
         for (uint32_t q = 1; q <= 300; ++q) {
@@ -349,7 +349,7 @@ TEST_CASE("Schedule dependence closure matches can_swap across wide registers an
         }
         // Movable and fixed ops on qubit 0 inherit weight-301 Z support; later
         // narrow ops on qubits 150 and 310 test both conflicting and commuting pairs.
-        source += "T 0\nM 0\nCZ rec[-1] 0\nZ_ERROR(0.05) 0\n";
+        source += "T 0\nM 0\nCZ rec[-1] 0\nDEPOLARIZE2(0.05) 0 150\n";
         source += "H 150 310\nT 150 310\nM 150 310\n";
         source += clifft::test::generate_noisy_source(rng, kNumQubits, 40);
 
