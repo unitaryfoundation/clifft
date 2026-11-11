@@ -1486,12 +1486,13 @@ NB_MODULE(_clifft_core, m) {
                                   p.reconstruction_fallback_reason(keep_records)};
             },
             nb::kw_only(), nb::arg("keep_records"), nb::keep_alive<0, 1>(),
-            "Return a read-only view of the executable selected for ordinary CPU sampling.\n\n"
+            "Return a read-only view of the compiled plan selected for ordinary CPU sampling.\n\n"
             "Selection is prepared during compilation. When reconstruction is disabled or "
-            "falls back, the view describes the original executable.\n\n"
+            "falls back, the view describes the original executable. Output preparation can "
+            "remove actions before execution; the view retains the compiled action count.\n\n"
             "Args:\n"
-            "    keep_records: Required output choice. Use True for sample(). For "
-            "sample_survivors(), match its keep_records argument (False by default).\n\n"
+            "    keep_records: Required output choice. Match the sampling call's keep_records "
+            "argument (True by default for sample(), False for sample_survivors()).\n\n"
             "Returns:\n"
             "    A PlanView with metrics, inspection methods, and reconstruction diagnostics.")
         .def("__repr__", [](const clifft::Program& p) {
@@ -1674,8 +1675,9 @@ NB_MODULE(_clifft_core, m) {
                 "keep_records: bool | typing.Literal['all', 'syndromes', 'measurements'] = True, "
                 "bit_packed: bool = False) -> clifft.SampleResult"),
         "Run a compiled program and return a SampleResult.\n\n"
-        "Use program.sampling_plan(keep_records=True) to inspect this call's selected "
-        "executable width and action count.\n\n"
+        "Use program.sampling_plan(keep_records=keep_records) to inspect the selected "
+        "compiled plan and its active width. Output preparation can remove actions "
+        "from that plan before execution.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
@@ -1893,9 +1895,10 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
+                const auto& preparation = owner.sampling_preparation(outputs, false, true, true);
                 result = clifft::sampling::sample_k_survivors(
-                    owner.sampling_preparation(outputs, false, true, true).plan(), shots, k, seed,
-                    outputs, threads, thread_layout, batch_size, tuning_budget);
+                    preparation.plan(), shots, k, seed, outputs, threads, thread_layout, batch_size,
+                    tuning_budget, &preparation.noise(clifft::sampling::BatchNoiseMode::Dense));
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
             return sampling_result_to_python(std::move(result), program, rows, outputs);
@@ -1962,9 +1965,10 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
+                const auto& preparation = owner.sampling_preparation(outputs, false, false, true);
                 result = clifft::sampling::sample_survivors(
-                    owner.sampling_preparation(outputs, false, false, true).plan(), shots, seed,
-                    outputs, threads, thread_layout, batch_size, tuning_budget);
+                    preparation.plan(), shots, seed, outputs, threads, thread_layout, batch_size,
+                    tuning_budget, &preparation.noise(clifft::sampling::BatchNoiseMode::Dense));
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
             return sampling_result_to_python(std::move(result), program, rows, outputs);
@@ -1983,8 +1987,9 @@ NB_MODULE(_clifft_core, m) {
                 "tuning_budget_seconds: float | None = None, bit_packed: bool = False) -> "
                 "clifft.SampleResult"),
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
-        "Use program.sampling_plan(keep_records=keep_records) to inspect this call's selected "
-        "executable width and action count. Match keep_records to this call (False by default).\n\n"
+        "Use program.sampling_plan(keep_records=keep_records) to inspect the selected "
+        "compiled plan and its active width. Output preparation can remove actions "
+        "from that plan before execution. Match keep_records to this call (False by default).\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
         "total worker budget or 'auto' to use the implementation-reported hardware\n"
         "concurrency; it defaults to 1. thread_layout=(shot_workers,\n"

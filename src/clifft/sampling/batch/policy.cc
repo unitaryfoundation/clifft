@@ -150,7 +150,8 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
     BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
-    uint64_t additional_worker_bit_columns, uint64_t external_input_steps) {
+    uint64_t additional_worker_bit_columns, uint64_t external_input_steps,
+    const PreparedBatchNoise* noise) {
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
@@ -164,6 +165,7 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     (void)additional_worker_bytes;
     (void)additional_worker_bit_columns;
     (void)external_input_steps;
+    (void)noise;
     if (intra_shot_workers > 1 && requested_batch_size.value_or(1) > 1) {
         throw std::invalid_argument("packed batch_size is incompatible with intra-shot workers");
     }
@@ -236,7 +238,8 @@ BatchExecutionPolicy resolve_batch_execution_policy(
             continue;
         }
         const uint64_t worker_bytes = saturating_add_u64(
-            batch_detail::batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode),
+            batch_detail::batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode,
+                                                     noise),
             saturating_add_u64(
                 additional_worker_bytes,
                 packed_bit_columns_storage_bytes(additional_worker_bit_columns, capacity)));

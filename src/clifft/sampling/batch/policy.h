@@ -216,12 +216,13 @@ struct BatchWorkerStorageLayout {
 // BatchExternalInputs buffer already counted in external input mode. Bit columns
 // form one page-rounded allocation that scales with each candidate capacity.
 // External input steps estimate the scalar driver's per-shot classical work;
-// zero keeps the ordinary quantum-only automatic policy.
+// zero keeps the ordinary quantum-only automatic policy. Supplied noise
+// preparation determines carrier and symbol storage in the memory budget.
 [[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
     BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
     uint64_t additional_worker_bytes = 0, uint64_t additional_worker_bit_columns = 0,
-    uint64_t external_input_steps = 0);
+    uint64_t external_input_steps = 0, const PreparedBatchNoise* noise = nullptr);
 
 }  // namespace clifft::sampling

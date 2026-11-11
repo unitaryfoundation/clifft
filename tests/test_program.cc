@@ -5,6 +5,8 @@
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/batch/tuning.h"
+#include "clifft/sampling/sampler.h"
 
 #include <algorithm>
 #include <array>
@@ -262,6 +264,57 @@ TEST_CASE("Concurrent first use prepares one shared sampling preparation") {
         for (const void* address : addresses) {
             REQUIRE(address != nullptr);
         }
+    }
+}
+
+TEST_CASE("Count only sampling reuses dense noise with bounded packed storage") {
+    using namespace sampling;
+    const auto source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/msc_d3.stim");
+    auto hir = trace(source);
+    hir.postselection.mask.assign(hir.num_detectors, 1);
+    default_hir_pass_manager().run(hir);
+    const auto program = Program::compile(source, hir);
+    const auto& preparation = program.sampling_preparation(false, false);
+    const auto& plan = preparation.plan();
+    const auto& dense = preparation.noise(BatchNoiseMode::Dense);
+    REQUIRE(dense.num_carriers() > 0);
+    REQUIRE(preparation.noise(BatchNoiseMode::SiteSparse).num_carriers() == 0);
+    REQUIRE(&preparation.noise(BatchNoiseMode::Dense) == &dense);
+
+    constexpr uint32_t capacity = 256;
+    constexpr auto output = BatchOutputMode::AggregateSurvivors;
+    for (auto mode : {BatchSamplingMode::Ordinary, BatchSamplingMode::FixedFaults}) {
+        CAPTURE(mode);
+        const auto dense_bytes =
+            batch_detail::batch_worker_storage_bytes(plan, capacity, output, mode, &dense);
+        REQUIRE(dense_bytes <
+                batch_detail::batch_worker_storage_bytes(plan, capacity, output, mode));
+        const uint64_t extra = kDefaultBatchWorkerBudget - dense_bytes;
+        const auto policy = resolve_batch_execution_policy(plan, 4096, 1, 1, output, std::nullopt,
+                                                           mode, extra, 0, 0, &dense);
+        REQUIRE(policy.lane_capacity == capacity);
+        REQUIRE(resolve_batch_execution_policy(plan, 4096, 1, 1, output, std::nullopt, mode, extra)
+                    .lane_capacity < capacity);
+        const auto candidates = batch_detail::batch_tuning_candidates(
+            plan, 4096, 1, 1, output, mode, extra, {1, 1}, 0, 0, &dense);
+        REQUIRE(std::ranges::any_of(candidates, [](const auto& candidate) {
+            return candidate.policy.lane_capacity == capacity;
+        }));
+
+        const auto sample_counts = [&](const PreparedBatchNoise* noise) {
+            return mode == BatchSamplingMode::Ordinary
+                       ? sample_survivors(plan, 4096, 73, false, 1, std::nullopt, capacity,
+                                          std::nullopt, noise)
+                       : sample_k_survivors(plan, 4096, 3, 73, false, 1, std::nullopt, capacity,
+                                            std::nullopt, noise);
+        };
+        const auto expected = sample_counts(nullptr);
+        const auto actual = sample_counts(&dense);
+        REQUIRE(actual.passed_shots > 0);
+        REQUIRE(actual.passed_shots < actual.total_shots);
+        REQUIRE(actual.passed_shots == expected.passed_shots);
+        REQUIRE(actual.logical_errors == expected.logical_errors);
+        REQUIRE(actual.observable_ones == expected.observable_ones);
     }
 }
 

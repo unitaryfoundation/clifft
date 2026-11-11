@@ -96,8 +96,10 @@ struct ConditionedBatchSamplingWorker {
 };
 
 struct BatchSurvivorWorker {
-    BatchSurvivorWorker(const ExecutablePlan& plan, uint32_t capacity, BatchOutputMode output_mode)
-        : executor(plan, capacity, output_mode), counts(plan.num_observables()) {}
+    BatchSurvivorWorker(const ExecutablePlan& plan, uint32_t capacity, BatchOutputMode output_mode,
+                        const PreparedBatchNoise* noise)
+        : executor(plan, capacity, output_mode, BatchSamplingMode::Ordinary, noise),
+          counts(plan.num_observables()) {}
 
     BatchExecutor executor;
     SurvivorCounts counts;
@@ -106,8 +108,9 @@ struct BatchSurvivorWorker {
 struct ConditionedBatchSurvivorWorker {
     ConditionedBatchSurvivorWorker(const ExecutablePlan& plan,
                                    std::shared_ptr<const KFaultDistribution> fault_distribution,
-                                   uint32_t capacity, BatchOutputMode output_mode)
-        : executor(plan, capacity, output_mode, BatchSamplingMode::FixedFaults),
+                                   uint32_t capacity, BatchOutputMode output_mode,
+                                   const PreparedBatchNoise* noise)
+        : executor(plan, capacity, output_mode, BatchSamplingMode::FixedFaults, noise),
           fault_sampler(std::move(fault_distribution)),
           counts(plan.num_observables()) {}
 
@@ -483,12 +486,13 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
                          ThreadLayout layout, std::optional<uint32_t> batch_size,
                          std::optional<double> tuning_budget_seconds, BatchOutputMode output_mode,
                          BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
-                         SamplingOutputs outputs, MakeScalar&& make_scalar,
-                         MakePacked&& make_packed, RunShot&& run_shot, RunBatch&& run_batch) {
+                         SamplingOutputs outputs, const PreparedBatchNoise* noise,
+                         MakeScalar&& make_scalar, MakePacked&& make_packed, RunShot&& run_shot,
+                         RunBatch&& run_batch) {
     batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
     BatchExecutionPolicy policy = resolve_batch_execution_policy(
         plan, shots, layout.shot_workers, layout.intra_shot_workers, output_mode, batch_size,
-        sampling_mode, additional_worker_bytes);
+        sampling_mode, additional_worker_bytes, 0, 0, noise);
     if (policy.lane_capacity == 1) {
         policy.worker_count = layout.shot_workers;
     }
@@ -534,7 +538,7 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
         } else {
             const auto candidates = batch_detail::batch_tuning_candidates(
                 plan, shots, layout.shot_workers, layout.intra_shot_workers, output_mode,
-                sampling_mode, additional_worker_bytes, policy);
+                sampling_mode, additional_worker_bytes, policy, 0, 0, noise);
             if (candidates.size() < 2) {
                 tuning->stop_reason = "single_candidate";
             } else {
@@ -610,7 +614,7 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     return sample_configured<SamplingResult>(
         plan, shots, seed, resolved, batch_size, tuning_budget_seconds, BatchOutputMode::Rows,
-        BatchSamplingMode::Ordinary, 0, outputs,
+        BatchSamplingMode::Ordinary, 0, outputs, nullptr,
         [&](uint32_t) {
             return std::make_unique<SamplingWorker>(plan, resolved.intra_shot_workers,
                                                     resolved.intra_shot_min_active_width);
@@ -636,7 +640,8 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
                                         std::optional<uint64_t> seed, SamplingOutputs outputs,
                                         uint32_t threads, std::optional<ThreadLayout> thread_layout,
                                         std::optional<uint32_t> batch_size,
-                                        std::optional<double> tuning_budget_seconds) {
+                                        std::optional<double> tuning_budget_seconds,
+                                        const PreparedBatchNoise* noise) {
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "survivor sampling does not support instrument traps; use the trajectory driver");
@@ -651,14 +656,14 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
         outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
     return sample_configured<SamplingSurvivorResult>(
         plan, shots, seed, resolved, batch_size, tuning_budget_seconds, output_mode,
-        BatchSamplingMode::Ordinary, survivor_worker_bytes(plan), outputs,
+        BatchSamplingMode::Ordinary, survivor_worker_bytes(plan), outputs, noise,
         [&](uint32_t) {
             return std::make_unique<SurvivorWorker>(plan, resolved.intra_shot_workers,
                                                     resolved.intra_shot_min_active_width,
                                                     output_mode);
         },
         [&](uint32_t, uint32_t capacity) {
-            return std::make_unique<BatchSurvivorWorker>(plan, capacity, output_mode);
+            return std::make_unique<BatchSurvivorWorker>(plan, capacity, output_mode, noise);
         },
         [](SurvivorWorker& worker) noexcept { worker.executor.run_shot(); },
         [](BatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
@@ -696,6 +701,7 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
     return sample_configured<SamplingResult>(
         plan, shots, seed, resolved, batch_size, tuning_budget_seconds, BatchOutputMode::Rows,
         BatchSamplingMode::FixedFaults, fault_distribution->worker_scratch_bytes(), outputs,
+        nullptr,
         [&](uint32_t) {
             return std::make_unique<ConditionedSamplingWorker>(
                 plan, fault_distribution, resolved.intra_shot_workers,
@@ -719,7 +725,8 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
                                           uint32_t threads,
                                           std::optional<ThreadLayout> thread_layout,
                                           std::optional<uint32_t> batch_size,
-                                          std::optional<double> tuning_budget_seconds) {
+                                          std::optional<double> tuning_budget_seconds,
+                                          const PreparedBatchNoise* noise) {
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "forced-fault survivor sampling does not support instrument traps or trajectory "
@@ -734,14 +741,14 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
         outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
     if (shots == 0) {
         return sample_survivors(plan, shots, seed, outputs, threads, thread_layout, batch_size,
-                                tuning_budget_seconds);
+                                tuning_budget_seconds, noise);
     }
     const auto fault_distribution =
         std::make_shared<const KFaultDistribution>(plan.noise_site_probabilities(), k);
     return sample_configured<SamplingSurvivorResult>(
         plan, shots, seed, resolved, batch_size, tuning_budget_seconds, output_mode,
         BatchSamplingMode::FixedFaults,
-        fault_distribution->worker_scratch_bytes() + survivor_worker_bytes(plan), outputs,
+        fault_distribution->worker_scratch_bytes() + survivor_worker_bytes(plan), outputs, noise,
         [&](uint32_t) {
             return std::make_unique<ConditionedSurvivorWorker>(
                 plan, fault_distribution, resolved.intra_shot_workers,
@@ -749,7 +756,7 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
         },
         [&](uint32_t, uint32_t capacity) {
             return std::make_unique<ConditionedBatchSurvivorWorker>(plan, fault_distribution,
-                                                                    capacity, output_mode);
+                                                                    capacity, output_mode, noise);
         },
         [](ConditionedSurvivorWorker& worker) noexcept {
             worker.executor.run_shot(worker.fault_sampler);

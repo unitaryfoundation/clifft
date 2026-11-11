@@ -26,7 +26,7 @@ void validate_batch_tuning_options(std::optional<uint32_t> batch_size,
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
     BatchExecutionPolicy baseline, uint64_t additional_worker_bit_columns = 0,
-    uint64_t additional_output_row_bytes = 0);
+    uint64_t additional_output_row_bytes = 0, const PreparedBatchNoise* noise = nullptr);
 
 // The clock and probe factory are injected so budget and selection behavior can
 // be tested without depending on machine load or the speed of a particular CPU.
