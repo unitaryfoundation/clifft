@@ -258,9 +258,9 @@ void CoordinateFrame::promote_dormant(const PlannerPauli& promoted, uint32_t act
         }
     });
 
-    for (uint32_t q = dormant_pivot; q > active_width; --q) {
-        set_x_generator(q, current_to_initial_.x_output(q - 1));
-        set_z_generator(q, current_to_initial_.z_output(q - 1));
+    if (dormant_pivot != active_width) {
+        set_x_generator(dormant_pivot, current_to_initial_.x_output(active_width));
+        set_z_generator(dormant_pivot, current_to_initial_.z_output(active_width));
     }
     set_x_generator(active_width, mapped_promoted.view());
     set_z_generator(active_width, pivot_stabilizer.view());
@@ -593,7 +593,6 @@ PlannerTableau dormant_promotion_frame(const PlannerPauli& promoted, uint32_t ac
     frame.set_x_output(active_width, promoted.view());
     frame.set_z_output(active_width, old_stabilizer.view());
 
-    uint32_t new_q = active_width + 1;
     for (uint32_t old_q = active_width; old_q < n; ++old_q) {
         if (old_q == dormant_pivot) {
             continue;
@@ -606,9 +605,9 @@ PlannerTableau dormant_promotion_frame(const PlannerPauli& promoted, uint32_t ac
         if (anticommutes(z, promoted)) {
             z = positive_body_xor(z, old_stabilizer);
         }
+        const uint32_t new_q = old_q == active_width ? dormant_pivot : old_q;
         frame.set_x_output(new_q, x.view());
         frame.set_z_output(new_q, z.view());
-        ++new_q;
     }
 
     if (!frame.satisfies_invariants()) {

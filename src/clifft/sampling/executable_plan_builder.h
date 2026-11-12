@@ -2,8 +2,11 @@
 
 #include "clifft/sampling/executable_plan.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <span>
 #include <vector>
 
 namespace clifft::sampling {
@@ -64,14 +67,50 @@ class ExecutablePlanBuilder {
         const RecordParity& parity);
     [[nodiscard]] ExecutablePlan::PreparedObservableValue prepare_observable_value(
         const ObservableValue& value);
-    void ensure_expression_term_capacity(size_t additional_terms) const;
+
+    // Deduplicates affine expressions into shared register storage while
+    // retaining action-order terms only until the dependency CSR is built.
+    class ExpressionInterner {
+      public:
+        explicit ExpressionInterner(std::vector<uint8_t>& constants);
+
+        void reserve(size_t expected_expressions, size_t expected_terms);
+        [[nodiscard]] uint32_t prepare_constant(bool constant);
+        [[nodiscard]] uint32_t prepare(const AffineBool& expression, uint32_t action_index,
+                                       std::span<uint32_t> symbol_first_actions);
+        [[nodiscard]] uint32_t prepare_measurement_correction(
+            const AffineBool& outcome, uint32_t branch, uint32_t action_index,
+            std::span<uint32_t> symbol_first_actions);
+        [[nodiscard]] std::span<const uint32_t> terms() const noexcept { return terms_; }
+        [[nodiscard]] std::span<const uint32_t> term_begins() const noexcept {
+            return term_begins_;
+        }
+        [[nodiscard]] size_t num_registers() const noexcept { return term_begins_.size(); }
+
+      private:
+        static constexpr uint32_t kNoRegister = std::numeric_limits<uint32_t>::max();
+        struct Slot {
+            uint64_t hash = 0;
+            uint32_t register_id = kNoRegister;
+        };
+
+        void ensure_term_capacity(size_t additional_terms) const;
+        [[nodiscard]] uint32_t intern_appended(bool constant, uint32_t tentative_begin,
+                                               uint64_t hash);
+
+        std::vector<uint8_t>& constants_;
+        size_t initial_table_hint_ = 16;
+        std::vector<uint32_t> terms_;
+        std::vector<uint32_t> term_begins_;
+        std::array<uint32_t, 2> constant_registers_{kNoRegister, kNoRegister};
+        std::vector<Slot> table_;
+        size_t num_interned_ = 0;
+    };
 
     ExecutablePlan& output_;
     const SamplingPlan& source_;
     ExecutorBackend backend_ = ExecutorBackend::Scalar;
-    // Retain action-order terms only until the dependency CSR is complete.
-    std::vector<uint32_t> expression_terms_;
-    std::vector<uint32_t> expression_term_begins_;
+    ExpressionInterner expressions_;
     std::vector<uint32_t> boundary_noise_starts_;
     std::vector<uint8_t> bound_presampled_symbols_;
     std::vector<uint32_t> symbol_first_actions_;

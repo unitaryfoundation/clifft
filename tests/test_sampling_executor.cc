@@ -2437,3 +2437,63 @@ TEST_CASE("Sampling replay probabilities normalize for a small active circuit") 
     REQUIRE(reachable >= 2);
     REQUIRE_THAT(total, Catch::Matchers::WithinAbs(1.0, 1e-12));
 }
+
+TEST_CASE("Sampling executable plan interns identical affine expressions across actions") {
+    SamplingPlan plan;
+    plan.num_qubits = 2;
+    plan.initial_active_width = 1;
+    plan.peak_active_width = 1;
+    plan.num_visible_records = 4;
+    plan.symbols = {SymbolKind::Presampled, SymbolKind::Presampled, SymbolKind::Branch,
+                    SymbolKind::Branch};
+    plan.presampled_noise_sites = {
+        PresampledNoiseSite{0.3, {{SymbolId{0}, 0.3}}},
+        PresampledNoiseSite{0.4, {{SymbolId{1}, 0.4}}},
+    };
+
+    const AffineBool shared_parity(true, {SymbolId{0}, SymbolId{1}});
+    const AffineBool branch2_outcome(true, {SymbolId{0}, SymbolId{1}, SymbolId{2}});
+    const AffineBool branch3_outcome = AffineBool::symbol(SymbolId{3});
+
+    plan.actions = {
+        PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool(false)}},
+        PlannedAction{1, 1, RotateActivePauli{ActivePauli{0, 1}, 0.5, shared_parity}},
+        PlannedAction{1, 1, MeasureDormantRandom{1, SymbolId{2}, branch2_outcome, RecordSlot{0}}},
+        PlannedAction{
+            1, 0,
+            MeasureActivePauli{ActivePauli{0, 1}, 0, SymbolId{3}, branch3_outcome, RecordSlot{1}}},
+        PlannedAction{0, 0, RecordClassical{shared_parity, RecordSlot{2}}},
+        PlannedAction{0, 0, RecordClassical{AffineBool(true), RecordSlot{3}}},
+        PlannedAction{0, 0, WriteExpectationValue{std::nullopt, ExpValSlot{0}}},
+    };
+    plan.num_exp_vals = 1;
+    REQUIRE_NOTHROW(plan.validate());
+
+    const ExecutablePlan executable(plan);
+    REQUIRE(executable.num_expression_registers() == 3);
+
+    Executor executor(executable);
+    for (uint8_t s0 : {uint8_t{0}, uint8_t{1}}) {
+        for (uint8_t s1 : {uint8_t{0}, uint8_t{1}}) {
+            const uint8_t expected_parity = static_cast<uint8_t>(1U ^ s0 ^ s1);
+            for (uint8_t r0 : {uint8_t{0}, uint8_t{1}}) {
+                const ReplayResult replay =
+                    executor.replay_shot(std::array<uint8_t, 4>{r0, 0, expected_parity, 1},
+                                         std::array<uint8_t, 2>{s0, s1});
+                REQUIRE(replay.reachable);
+                REQUIRE(executor.visible_records()[2] == expected_parity);
+                REQUIRE(executor.visible_records()[3] == 1);
+            }
+        }
+    }
+
+    const auto scalar =
+        clifft::sampling::sample(executable, 4096, uint64_t{77}, 1, std::nullopt, 1);
+    const auto packed =
+        clifft::sampling::sample(executable, 4096, uint64_t{78}, 1, std::nullopt, 128);
+    for (const auto* res : {&scalar, &packed}) {
+        for (uint32_t shot = 0; shot < 4096; ++shot) {
+            REQUIRE(res->measurements[static_cast<size_t>(shot) * 4 + 3] == 1);
+        }
+    }
+}

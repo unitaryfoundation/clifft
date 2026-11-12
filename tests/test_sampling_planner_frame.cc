@@ -160,11 +160,7 @@ TEST_CASE("Planner structured coordinate updates match generic frames") {
             for (uint32_t body = 0; body < 1U << (2 * kNumQubits); ++body) {
                 for (bool sign : {false, true}) {
                     const PlannerPauli promoted = signed_pauli(kNumQubits, body, sign);
-                    bool is_selected_pivot = promoted.x().bit_get(dormant_pivot);
-                    for (uint32_t q = active_width; q < dormant_pivot; ++q) {
-                        is_selected_pivot &= !promoted.x().bit_get(q);
-                    }
-                    if (!is_selected_pivot) {
+                    if (!promoted.x().bit_get(dormant_pivot)) {
                         continue;
                     }
                     CAPTURE(active_width, dormant_pivot, body, sign);

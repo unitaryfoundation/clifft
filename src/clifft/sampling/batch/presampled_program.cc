@@ -1,10 +1,8 @@
 #include "clifft/sampling/batch/presampled_program.h"
 
 #include "clifft/sampling/executable_plan.h"
-#include "clifft/util/mask_view.h"
 
 #include <algorithm>
-#include <bit>
 #include <cassert>
 #include <iterator>
 #include <limits>
@@ -28,7 +26,7 @@ struct ExpressionBlock {
 };
 
 struct NoiseEffectBasis {
-    std::vector<uint64_t> effects;
+    std::vector<uint32_t> effects;
     uint32_t carrier_symbol = 0;
 };
 
@@ -94,50 +92,50 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     }
 
     BatchPresampledProgram program;
-    const size_t effect_words = num_expressions / 64 + (num_expressions % 64 != 0);
     program.outcome_assignments_.reserve(executable.noise_outcomes_.size());
+    std::vector<int32_t> basis_for_effect(num_expressions, -1);
+    std::vector<uint32_t> touched_pivots;
+    std::vector<NoiseEffectBasis> basis;
+    std::vector<uint32_t> residual;
+    std::vector<uint32_t> next_residual;
+    std::vector<uint32_t> coordinates;
     for (const auto& site : executable.noise_sites_) {
-        std::vector<NoiseEffectBasis> basis;
-        std::vector<int32_t> basis_for_effect(num_expressions, -1);
-        std::vector<uint64_t> residual(effect_words, 0);
+        basis.clear();
         basis.reserve(site.outcome_count);
+        touched_pivots.clear();
+        touched_pivots.reserve(site.outcome_count);
         for (const auto& outcome : std::span(executable.noise_outcomes_)
                                        .subspan(site.outcome_begin, site.outcome_count)) {
-            std::ranges::fill(residual, uint64_t{0});
-            for (uint32_t expression :
-                 executable.expression_dependencies_.dependent_registers(outcome.symbol)) {
-                residual[expression >> 6] |= uint64_t{1} << (expression & 63);
-            }
-
-            MutableMaskView residual_view(residual);
-            std::vector<uint32_t> coordinates;
-            while (!residual_view.is_zero()) {
-                const uint32_t pivot = residual_view.lowest_bit();
+            const auto deps =
+                executable.expression_dependencies_.dependent_registers(outcome.symbol);
+            assert(std::ranges::is_sorted(deps) && std::ranges::adjacent_find(deps) == deps.end() &&
+                   "dependent registers must be strictly ascending");
+            residual.assign(deps.begin(), deps.end());
+            coordinates.clear();
+            while (!residual.empty()) {
+                const uint32_t pivot = residual.front();
                 const int32_t basis_index = basis_for_effect[pivot];
                 if (basis_index >= 0) {
                     coordinates.push_back(static_cast<uint32_t>(basis_index));
-                    residual_view.xor_with(
-                        MaskView(basis[static_cast<size_t>(basis_index)].effects));
+                    const auto& basis_effects = basis[static_cast<size_t>(basis_index)].effects;
+                    next_residual.clear();
+                    next_residual.reserve(residual.size() + basis_effects.size());
+                    std::ranges::set_symmetric_difference(residual, basis_effects,
+                                                          std::back_inserter(next_residual));
+                    residual.swap(next_residual);
                     continue;
                 }
 
                 const uint32_t new_basis_index = static_cast<uint32_t>(basis.size());
                 basis_for_effect[pivot] = static_cast<int32_t>(new_basis_index);
+                touched_pivots.push_back(pivot);
                 coordinates.push_back(new_basis_index);
-                basis.push_back(NoiseEffectBasis{std::move(residual), outcome.symbol});
-                residual.resize(effect_words, 0);
-                const NoiseEffectBasis& added = basis.back();
-                for (size_t word = 0; word < added.effects.size(); ++word) {
-                    uint64_t pending = added.effects[word];
-                    while (pending != 0) {
-                        const uint32_t bit = std::countr_zero(pending);
-                        const size_t expression = word * 64 + bit;
-                        assert(expression < num_expressions &&
-                               "batch noise effect must name a prepared expression");
-                        presampled_terms[expression].push_back(added.carrier_symbol);
-                        pending &= pending - 1;
-                    }
+                for (uint32_t expression : residual) {
+                    assert(expression < num_expressions &&
+                           "batch noise effect must name a prepared expression");
+                    presampled_terms[expression].push_back(outcome.symbol);
                 }
+                basis.push_back(NoiseEffectBasis{std::move(residual), outcome.symbol});
                 break;
             }
 
@@ -153,6 +151,9 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
             }
             program.outcome_assignments_.push_back(
                 {assignment_begin, static_cast<uint32_t>(coordinates.size())});
+        }
+        for (uint32_t pivot : touched_pivots) {
+            basis_for_effect[pivot] = -1;
         }
     }
     if (program.outcome_assignments_.size() != executable.noise_outcomes_.size()) {

@@ -175,7 +175,6 @@ TEST_CASE("Program prepares each sampling output once and shares it across copie
     const auto& compiled = program.sampling_plan(false);
     REQUIRE(counts.plan().num_visible_records() == 0);
     REQUIRE(counts.plan().num_actions() < compiled.num_actions());
-    REQUIRE(counts.plan().num_expression_registers() < compiled.num_expression_registers());
     REQUIRE(counts.plan().estimated_batch_lane_work(BatchOutputMode::Rows) ==
             compiled.estimated_batch_lane_work(BatchOutputMode::AggregateSurvivors));
     REQUIRE(rows.plan().num_exp_vals() == 1);

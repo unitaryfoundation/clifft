@@ -524,8 +524,9 @@ TEST_CASE("Packed external storage participates in worker budgets") {
 }
 
 TEST_CASE("Packed external readout buffers constrain automatic capacity and workers") {
-    const auto plan = compile("REPEAT 6000 {\nM(0.5) 0\n}\n");
-    REQUIRE(plan.num_readout_noise_sites() == 6000);
+    const auto plan = compile("REPEAT 9000 {\nM(0.5) 0\n}\n");
+    REQUIRE(plan.num_readout_noise_sites() == 9000);
+    REQUIRE(plan.num_expression_registers() == 1);
     const auto ordinary = resolve_batch_execution_policy(plan, 65536, 64, 1, BatchOutputMode::Rows,
                                                          std::nullopt, BatchSamplingMode::Ordinary);
     const auto external = resolve_batch_execution_policy(
