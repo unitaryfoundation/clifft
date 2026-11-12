@@ -21,6 +21,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -107,6 +108,23 @@ struct ReconstructionNoiseResult {
 struct ReconstructionLoweringResult {
     std::optional<HirModule> hir;
     std::string fallback_reason;
+};
+
+// Shares output-independent circuit dilation, causal gadget dressing, and
+// folded-stabilizer frame construction across output variants of one circuit.
+class GlobalSamplingReconstructor {
+  public:
+    explicit GlobalSamplingReconstructor(const Circuit& circuit,
+                                         const ReconstructionLimits& limits = {});
+    ~GlobalSamplingReconstructor();
+    GlobalSamplingReconstructor(GlobalSamplingReconstructor&&) noexcept;
+    GlobalSamplingReconstructor& operator=(GlobalSamplingReconstructor&&) noexcept;
+
+    [[nodiscard]] ReconstructionResult reconstruct(ReconstructionOutputs outputs);
+
+  private:
+    struct Impl;
+    std::unique_ptr<Impl> impl_;
 };
 
 // Reconstructs a closed sampling representation for the requested outputs of a

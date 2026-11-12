@@ -123,6 +123,44 @@ TEST_CASE("Program skips reconstruction lowering without a scheduled width reduc
     REQUIRE(guarded.original().inspect() == original.original().inspect());
 }
 
+TEST_CASE("Program shares reconstruction preparation across asymmetric output variants",
+          "[reconstruction]") {
+    // With measurements only and zero detectors/observables, the detector-only
+    // variant skips reconstruction while the record-preserving variant still
+    // reconstructs from the shared preparation.
+    {
+        const auto source = parse("H 0 1\nT 0 1\nH 0 1\nM 0 1\n");
+        const auto hir = trace(source);
+        const auto program = Program::compile(source, hir, true);
+        REQUIRE_FALSE(program.uses_reconstruction(false));
+        REQUIRE(program.uses_reconstruction(true));
+        REQUIRE(program.sampling_plan(true).peak_active_width() == 1);
+    }
+
+    // When only the record-preserving schedule exceeds max_schedule_operations,
+    // detector-only sampling retains reconstruction while record sampling falls back.
+    {
+        const auto source = parse(
+            "H 0 1\nT 0 1\nH 0 1\nM 0 1 2 3\nDETECTOR rec[-4]\nOBSERVABLE_INCLUDE(0) "
+            "rec[-3]\n");
+        const auto hir = trace(source);
+        const auto det = reconstruct_global_sampling(source, ReconstructionOutputs::Detectors);
+        const auto rec = reconstruct_global_sampling(source, ReconstructionOutputs::Records);
+        REQUIRE(det.reconstruction.has_value());
+        REQUIRE(rec.reconstruction.has_value());
+        REQUIRE(det.reconstruction->operations.size() < rec.reconstruction->operations.size());
+
+        ReconstructionLimits limits;
+        limits.max_schedule_operations =
+            det.reconstruction->operations.size() + det.reconstruction->num_qubits;
+        const auto program = Program::compile(source, hir, true, true, limits);
+        REQUIRE(program.uses_reconstruction(false));
+        REQUIRE_FALSE(program.uses_reconstruction(true));
+        REQUIRE_FALSE(program.reconstruction_fallback_reason(true).empty());
+        REQUIRE(&program.sampling_plan(true) == &program.original());
+    }
+}
+
 TEST_CASE("Program prepares each sampling output once and shares it across copies") {
     const Program program = compile_preparation_program({1, 0});
     const std::string inspected = program.sampling_plan(false).inspect();

@@ -1,8 +1,10 @@
 #include "clifft/circuit/parser.h"
+#include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/global_reconstruction.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/sampler.h"
+#include "clifft/tableau/tableau.h"
 
 #include "dense_circuit_oracle.h"
 
@@ -361,6 +363,63 @@ TEST_CASE("Noise compression reports channel work and support limits", "[reconst
                                                    : "channel convolution work limit exceeded"));
     }
     check_sign_law(r);
+
+    // Wide categorical channels on 11 independent coordinates (2048 outcomes each)
+    // must abort during projection when max_channel_support is small, and before
+    // allocating the 2048 x 2048 product when max_channel_products is exceeded.
+    GlobalReconstruction wide;
+    wide.num_noise_bits = 11;
+    for (uint32_t b = 0; b < 11; ++b) {
+        wide.operations.push_back({PauliString(0), make_sign({b}), 0, b});
+    }
+    std::vector<ReconstructionNoiseOutcome> full_subspace;
+    full_subspace.reserve(2048);
+    for (uint32_t mask = 0; mask < 2048; ++mask) {
+        std::vector<uint32_t> bits;
+        for (uint32_t b = 0; b < 11; ++b) {
+            if (((mask >> b) & 1U) != 0) {
+                bits.push_back(b);
+            }
+        }
+        full_subspace.push_back({1.0 / 2048.0, std::move(bits)});
+    }
+    wide.noise_channels = {full_subspace, full_subspace};
+
+    {
+        ReconstructionLimits limits;
+        limits.max_channel_support = 16;
+        const auto result = compress_reconstruction_noise(wide, limits);
+        REQUIRE_FALSE(result.noise);
+        REQUIRE(result.fallback_reason == "channel support limit exceeded");
+    }
+    {
+        ReconstructionLimits limits;
+        limits.max_channel_support = 4096;
+        limits.max_channel_products = 100;
+        const auto result = compress_reconstruction_noise(wide, limits);
+        REQUIRE_FALSE(result.noise);
+        REQUIRE(result.fallback_reason == "channel convolution work limit exceeded");
+    }
+
+    // Two 65-outcome singleton channels share a key of size 65 (within support
+    // limit 100), while their pairwise XORs expand to 2081 distinct outcomes and
+    // must stop as soon as convolved support exceeds 100.
+    GlobalReconstruction expanding;
+    expanding.num_noise_bits = 64;
+    std::vector<ReconstructionNoiseOutcome> singletons = {{0.36, {}}};
+    for (uint32_t b = 0; b < 64; ++b) {
+        expanding.operations.push_back({PauliString(0), make_sign({b}), 0, b});
+        singletons.push_back({0.01, {b}});
+    }
+    expanding.noise_channels = {singletons, singletons};
+    {
+        ReconstructionLimits limits;
+        limits.max_channel_support = 100;
+        limits.max_channel_products = 10000;
+        const auto result = compress_reconstruction_noise(expanding, limits);
+        REQUIRE_FALSE(result.noise);
+        REQUIRE(result.fallback_reason == "channel support limit exceeded");
+    }
 }
 
 TEST_CASE("Reconstructed HIR preserves complete noisy output laws", "[reconstruction]") {
@@ -469,6 +528,178 @@ TEST_CASE("Reconstruction lowering reports bounded preparation failures", "[reco
     }
 }
 
+TEST_CASE("GlobalSamplingReconstructor shares dilation across output variants",
+          "[reconstruction]") {
+    for (const auto& text : reconstruction_law_cases()) {
+        INFO(text);
+        const auto circuit = parse(text);
+        const auto want_det =
+            reconstruct_global_sampling(circuit, ReconstructionOutputs::Detectors);
+        const auto want_rec = reconstruct_global_sampling(circuit, ReconstructionOutputs::Records);
+        REQUIRE(want_det.reconstruction.has_value());
+        REQUIRE(want_rec.reconstruction.has_value());
+
+        for (bool detectors_first : {true, false}) {
+            GlobalSamplingReconstructor shared(circuit);
+            const auto first_mode =
+                detectors_first ? ReconstructionOutputs::Detectors : ReconstructionOutputs::Records;
+            const auto second_mode =
+                detectors_first ? ReconstructionOutputs::Records : ReconstructionOutputs::Detectors;
+            const auto first = shared.reconstruct(first_mode);
+            const auto second = shared.reconstruct(second_mode);
+            const auto repeat = shared.reconstruct(first_mode);
+
+            const auto& got_det = detectors_first ? first : second;
+            const auto& got_rec = detectors_first ? second : first;
+            REQUIRE(got_det.reconstruction.has_value());
+            REQUIRE(got_rec.reconstruction.has_value());
+            REQUIRE(repeat.reconstruction.has_value());
+
+            auto require_equal_reconstruction = [](const GlobalReconstruction& a,
+                                                   const GlobalReconstruction& b) {
+                REQUIRE(a.num_qubits == b.num_qubits);
+                REQUIRE(a.dilation_qubits == b.dilation_qubits);
+                REQUIRE(a.num_noise_bits == b.num_noise_bits);
+                REQUIRE(a.peak_active_width == b.peak_active_width);
+                REQUIRE(a.outputs.num_records == b.outputs.num_records);
+                REQUIRE(a.outputs.num_detectors == b.outputs.num_detectors);
+                REQUIRE(a.outputs.num_observables == b.outputs.num_observables);
+                REQUIRE(a.operations.size() == b.operations.size());
+                REQUIRE(a.noise_channels.size() == b.noise_channels.size());
+                for (size_t i = 0; i < a.operations.size(); ++i) {
+                    REQUIRE(a.operations[i].axis == b.operations[i].axis);
+                    REQUIRE(a.operations[i].sign.constant == b.operations[i].sign.constant);
+                    REQUIRE(a.operations[i].sign.words == b.operations[i].sign.words);
+                    REQUIRE(a.operations[i].half_turns == b.operations[i].half_turns);
+                    REQUIRE(a.operations[i].output == b.operations[i].output);
+                }
+            };
+            require_equal_reconstruction(*got_det.reconstruction, *want_det.reconstruction);
+            require_equal_reconstruction(*got_rec.reconstruction, *want_rec.reconstruction);
+            require_equal_reconstruction(*repeat.reconstruction,
+                                         *(detectors_first ? want_det : want_rec).reconstruction);
+        }
+    }
+
+    // Preparation-stage rejections apply to both output variants, while schedule
+    // budgets remain independent per output variant.
+    {
+        ReconstructionLimits tight;
+        tight.max_dilation_qubits = 1;
+        GlobalSamplingReconstructor rejected(parse("H 0\nT 0\nM 0\nDETECTOR rec[-1]\n"), tight);
+        for (auto mode : {ReconstructionOutputs::Detectors, ReconstructionOutputs::Records}) {
+            const auto res = rejected.reconstruct(mode);
+            REQUIRE_FALSE(res.reconstruction);
+            REQUIRE_FALSE(res.fallback_reason.empty());
+        }
+    }
+    {
+        const auto asymmetric = parse(
+            "H 0\nT 0\nMX 0\nX_ERROR(0.1) 1\nM 1 2 3\nDETECTOR rec[-4]\nOBSERVABLE_INCLUDE(0) "
+            "rec[-4]\n");
+        const auto det_unbounded =
+            reconstruct_global_sampling(asymmetric, ReconstructionOutputs::Detectors);
+        const auto rec_unbounded =
+            reconstruct_global_sampling(asymmetric, ReconstructionOutputs::Records);
+        REQUIRE(det_unbounded.reconstruction.has_value());
+        REQUIRE(rec_unbounded.reconstruction.has_value());
+        REQUIRE(det_unbounded.reconstruction->operations.size() <
+                rec_unbounded.reconstruction->operations.size());
+
+        ReconstructionLimits limits;
+        limits.max_schedule_operations = det_unbounded.reconstruction->operations.size() +
+                                         det_unbounded.reconstruction->num_qubits;
+        GlobalSamplingReconstructor shared(asymmetric, limits);
+        const auto rec_bounded = shared.reconstruct(ReconstructionOutputs::Records);
+        const auto det_bounded = shared.reconstruct(ReconstructionOutputs::Detectors);
+        REQUIRE_FALSE(rec_bounded.reconstruction);
+        REQUIRE_FALSE(rec_bounded.fallback_reason.empty());
+        REQUIRE(det_bounded.reconstruction.has_value());
+        require_same_law(reconstructed_law(*det_bounded.reconstruction),
+                         reconstructed_law(*det_unbounded.reconstruction));
+    }
+}
+
+TEST_CASE("Global reconstruction lowering omits identity hidden measurements", "[reconstruction]") {
+    // Qubits 1..3 produce identity-axis outputs (fault-flipped M 1 and inverted
+    // !2, !3), while qubit 0 exercises a genuine quantum rotation.
+    const auto source = parse(
+        "H 0\nT 0\nMX 0\nX_ERROR(0.25) 1\nM 1 !2 !3\n"
+        "DETECTOR rec[-3]\nDETECTOR rec[-2]\nDETECTOR rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-4] rec[-2]\n");
+    const auto expected = compute_dense_circuit_distribution(source);
+
+    auto count_identity_measures = [](const HirModule& hir, bool sign) {
+        size_t count = 0;
+        for (const HeisenbergOp& op : hir.ops) {
+            if (op.op_type() == OpType::MEASURE && hir.destab_mask(op).is_zero() &&
+                hir.stab_mask(op).is_zero() && hir.sign(op) == sign) {
+                ++count;
+            }
+        }
+        return count;
+    };
+
+    for (auto mode : {ReconstructionOutputs::Detectors, ReconstructionOutputs::Records}) {
+        const auto r = reconstruct_global_sampling(source, mode);
+        REQUIRE(r.reconstruction.has_value());
+        const auto identity_ops = std::ranges::count_if(
+            r.reconstruction->operations, [](const ReconstructionOperation& op) {
+                return op.half_turns == 0.0 && op.axis.x().is_zero() && op.axis.z().is_zero();
+            });
+        REQUIRE(identity_ops >= 3);
+
+        const auto noise = compress_reconstruction_noise(*r.reconstruction);
+        REQUIRE(noise.noise.has_value());
+        const auto lowered = lower_global_reconstruction(*r.reconstruction);
+        REQUIRE(lowered.hir.has_value());
+
+        // Neither output mode emits +I hidden measurements; inverted constants
+        // share a single -I helper record, and detector-only lowering omits the
+        // visible-record carrier wire.
+        REQUIRE(count_identity_measures(*lowered.hir, false) == 0);
+        REQUIRE(count_identity_measures(*lowered.hir, true) == 1);
+        const uint32_t expected_wires = r.reconstruction->num_qubits + noise.noise->num_bits +
+                                        (mode == ReconstructionOutputs::Records ? 1U : 0U);
+        REQUIRE(lowered.hir->num_qubits == expected_wires);
+
+        auto hir = *lowered.hir;
+        default_hir_pass_manager().run(hir);
+        const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(hir));
+        require_same_law(output_law(actual, r.reconstruction->outputs),
+                         output_law(expected, r.reconstruction->outputs));
+    }
+
+    // Without inverted constants, zero identity-axis measurements of either sign are emitted.
+    const auto uninverted = reconstruct_global_sampling(
+        parse("H 0\nT 0\nMX 0\nX_ERROR(0.25) 1\nM 1 2\nDETECTOR rec[-2]\n"),
+        ReconstructionOutputs::Detectors);
+    REQUIRE(uninverted.reconstruction.has_value());
+    const auto lowered_uninverted = lower_global_reconstruction(*uninverted.reconstruction);
+    REQUIRE(lowered_uninverted.hir.has_value());
+    REQUIRE(count_identity_measures(*lowered_uninverted.hir, false) == 0);
+    REQUIRE(count_identity_measures(*lowered_uninverted.hir, true) == 0);
+}
+
+TEST_CASE("Noise compression conserves non-subspace convolution laws across words",
+          "[reconstruction]") {
+    // 66 independent outputs span two compressed coordinate words. Three channels
+    // share the non-subspace support {I, b_0, b_65}: convolving the first two
+    // introduces {b_0, b_65}, expanding the distribution beyond its initial key
+    // while the third channel must still merge into the same group.
+    GlobalReconstruction r;
+    r.num_noise_bits = 132;
+    for (uint32_t i = 0; i < 66; ++i)
+        r.operations.push_back({PauliString(0), make_sign({2 * i}, i % 3 == 0), 0, i});
+    r.noise_channels = {{{0.5, {}}, {0.3, {0}}, {0.2, {130}}},
+                        {{0.6, {}}, {0.15, {0}}, {0.25, {130}}},
+                        {{0.7, {}}, {0.2, {0}}, {0.1, {130}}},
+                        {{0.8, {}}, {0.2, {66}}}};
+    const auto noise = check_sign_law(r);
+    REQUIRE(noise.num_bits == 66);
+    REQUIRE(noise.channels.size() == 2);
+}
+
 TEST_CASE("Global reconstruction lowers complete noisy cultivation circuits",
           "[reconstruction][expensive]") {
     for (uint32_t distance : {5, 7}) {
@@ -496,6 +727,73 @@ TEST_CASE("Global reconstruction lowers complete noisy cultivation circuits",
             REQUIRE(packed.measurements.size() == scalar.measurements.size());
             REQUIRE(packed.detectors.size() == 65 * source.num_detectors);
             REQUIRE(packed.observables.size() == 65 * source.num_observables);
+        }
+    }
+}
+
+TEST_CASE("Global reconstruction dilation propagates fault signs for every named Clifford gate",
+          "[reconstruction]") {
+    for (uint32_t raw = 0; raw < static_cast<uint32_t>(GateType::UNKNOWN); ++raw) {
+        const auto gate = static_cast<GateType>(raw);
+        if (!is_clifford(gate) || gate == GateType::SPP || gate == GateType::SPP_DAG) {
+            continue;
+        }
+        const Tableau& local = Tableau::from_named_gate(gate);
+        const uint32_t arity = local.num_qubits();
+        for (bool z_measurement : {false, true}) {
+            INFO(gate_name(gate) << " z_measurement=" << z_measurement);
+            Circuit circuit;
+            circuit.num_qubits = arity;
+            circuit.num_measurements = arity;
+            for (uint32_t j = 0; j < arity; ++j) {
+                circuit.nodes.push_back({GateType::H, {Target::qubit(j)}, {}});
+                circuit.nodes.push_back({GateType::T, {Target::qubit(j)}, {}});
+                circuit.nodes.push_back({GateType::X_ERROR, {Target::qubit(j)}, {0.11 + 0.03 * j}});
+                circuit.nodes.push_back({GateType::Z_ERROR, {Target::qubit(j)}, {0.17 + 0.05 * j}});
+            }
+            std::vector<Target> gate_targets;
+            for (uint32_t i = 0; i < arity; ++i) {
+                gate_targets.push_back(Target::qubit(i));
+            }
+            circuit.nodes.push_back({gate, std::move(gate_targets), {}});
+            for (uint32_t i = 0; i < arity; ++i) {
+                circuit.nodes.push_back(
+                    {z_measurement ? GateType::M : GateType::MX, {Target::qubit(i)}, {}});
+            }
+
+            const auto res = reconstruct_global_sampling(circuit, ReconstructionOutputs::Records);
+            REQUIRE(res.reconstruction.has_value());
+            std::vector<uint64_t> got_masks(arity, UINT64_MAX);
+            for (const ReconstructionOperation& op : res.reconstruction->operations) {
+                if (op.output.has_value()) {
+                    got_masks.at(*op.output) = op.sign.words.empty() ? 0 : op.sign.words[0];
+                }
+            }
+            for (uint32_t i = 0; i < arity; ++i) {
+                uint64_t want_mask = 0;
+                for (uint32_t j = 0; j < arity; ++j) {
+                    const bool from_x = z_measurement ? local.x_output(j).x().bit_get(i)
+                                                      : local.x_output(j).z().bit_get(i);
+                    const bool from_z = z_measurement ? local.z_output(j).x().bit_get(i)
+                                                      : local.z_output(j).z().bit_get(i);
+                    if (from_x) {
+                        want_mask |= uint64_t{1} << (2 * j);
+                    }
+                    if (from_z) {
+                        want_mask |= uint64_t{1} << (2 * j + 1);
+                    }
+                }
+                REQUIRE(got_masks[i] == want_mask);
+            }
+
+            const auto lowered = lower_global_reconstruction(*res.reconstruction);
+            REQUIRE(lowered.hir.has_value());
+            const auto actual =
+                compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+            const auto expected =
+                compute_exact_plan_distribution(sampling::plan_sampling(trace(circuit)));
+            require_same_law(output_law(actual, res.reconstruction->outputs),
+                             output_law(expected, res.reconstruction->outputs));
         }
     }
 }

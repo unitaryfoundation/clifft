@@ -39,6 +39,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
         return Program(std::move(data));
     }
     const auto& original = data->original;
+    std::optional<GlobalSamplingReconstructor> reconstructor;
     for (bool keep_records : {false, true}) {
         auto& variant = data->variants[keep_records];
         if (!passes_preserve_sampling) {
@@ -60,10 +61,14 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
             variant.fallback_reason = "no requested sampling outputs";
             continue;
         }
-        auto result = reconstruct_global_sampling(
-            source,
-            keep_records ? ReconstructionOutputs::Records : ReconstructionOutputs::Detectors,
-            limits);
+        if (!reconstructor) {
+            reconstructor.emplace(source, limits);
+        }
+        auto result = reconstructor->reconstruct(keep_records ? ReconstructionOutputs::Records
+                                                              : ReconstructionOutputs::Detectors);
+        if (keep_records) {
+            reconstructor.reset();
+        }
         if (!result.reconstruction) {
             variant.fallback_reason = std::move(result.fallback_reason);
             continue;
@@ -76,6 +81,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
         }
         auto lowered =
             lower_global_reconstruction(*result.reconstruction, original_hir.postselection, limits);
+        result.reconstruction.reset();
         if (!lowered.hir) {
             variant.fallback_reason = std::move(lowered.fallback_reason);
             continue;
@@ -91,7 +97,8 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
             continue;
         }
         auto plan = sampling::plan_sampling(*lowered.hir);
-        variant.plan.emplace(plan);
+        lowered.hir.reset();
+        variant.plan.emplace(std::move(plan));
         variant.fallback_reason.clear();
     }
     return Program(std::move(data));
