@@ -1,9 +1,11 @@
 #pragma once
 
 #include "clifft/frontend/hir.h"
+#include "clifft/optimizer/stabilizer_basis.h"
 #include "clifft/tableau/pauli_string.h"
 
-#include <map>
+#include <cstddef>
+#include <cstdint>
 #include <optional>
 
 namespace clifft {
@@ -19,7 +21,7 @@ class KnownStabilizers {
     KnownStabilizers() = default;
     explicit KnownStabilizers(uint32_t num_qubits);
 
-    [[nodiscard]] bool empty() const { return rows_.empty(); }
+    [[nodiscard]] bool empty() const noexcept { return basis_.empty(); }
 
     [[nodiscard]] PauliString reduce_body(PauliString axis) const;
     // A missing value cannot justify a fixed rewrite; true denotes eigenvalue -1.
@@ -35,7 +37,12 @@ class KnownStabilizers {
 
   private:
     friend class SymbolicStabilizers;
-    std::map<uint32_t, PauliString> rows_;
+    using Basis = optimizer_detail::StabilizerBasis<optimizer_detail::FixedSign>;
+
+    void clear() noexcept { basis_.clear(); }
+    bool reduce_and_insert_bounded(PauliString axis, size_t& products, size_t max_products);
+
+    Basis basis_;
 };
 
 }  // namespace clifft

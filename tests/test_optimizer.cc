@@ -1180,6 +1180,166 @@ TEST_CASE("Squeeze: order does not depend on which mask words hold the qubits", 
     REQUIRE(reordered);
 }
 
+TEST_CASE("Squeeze: multi-bucket compaction matches pairwise swap order", "[optimizer]") {
+    // Build > 1200 HIR operations across multiple mask words so Sweep 1 splits
+    // buckets both at the tail and inside bucket 0 as distant measurements
+    // bubble left, while respecting reused classical slots, detectors, and
+    // EXP_VAL barriers.
+    std::string source;
+    for (uint32_t round = 0; round < 3; ++round) {
+        for (uint32_t k = 0; k < 180; ++k) {
+            const uint32_t q = (k * 3) % 210;
+            source += "DEPOLARIZE1(0.05) " + std::to_string(q) + "\n";
+            if (k % 11 == 0) {
+                source += "T " + std::to_string(q) + "\n";
+            }
+        }
+        if (round == 0) {
+            source += "EXP_VAL Z0*Z70\n";
+        }
+        if (round == 1) {
+            for (uint32_t s = 0; s < 6; ++s) {
+                source += "M " + std::to_string(210 + s) + "\n";
+            }
+        }
+        for (uint32_t k = 0; k < 180; ++k) {
+            const uint32_t q = (k * 3) % 210;
+            source += "M " + std::to_string(q) + "\n";
+            if (k % 17 == 0) {
+                source += "DETECTOR rec[-1]\n";
+            }
+        }
+        if (round == 2) {
+            for (uint32_t s = 0; s < 6; ++s) {
+                source += "M " + std::to_string(216 + s) + "\n";
+            }
+        }
+    }
+
+    HirModule actual = trace(parse(source));
+    REQUIRE(actual.ops.size() > 1100);
+    // Reuse 6 hidden classical slots across measurements on disjoint spectator
+    // qubits (> 700 ops apart across barrier-free buckets) and periodic main-body
+    // measurements so Sweep 1 exercises cross-bucket classical slot hazards.
+    std::vector<bool> used_by_detector(actual.num_measurements, false);
+    for (const auto& targets : actual.detector_targets) {
+        for (uint32_t rec : targets) {
+            used_by_detector.at(rec) = true;
+        }
+    }
+    const uint32_t hidden_base = actual.num_measurements;
+    actual.num_hidden_measurements = 6;
+    uint32_t reused_count = 0;
+    for (HeisenbergOp& op : actual.ops) {
+        if (op.op_type() != OpType::MEASURE) {
+            continue;
+        }
+        const uint32_t rec = static_cast<uint32_t>(op.meas_record_idx());
+        if (used_by_detector[rec]) {
+            continue;
+        }
+        const MaskView az = actual.stab_mask(op);
+        bool spectator = false;
+        uint32_t spectator_slot = 0;
+        for (uint32_t s = 0; s < 12; ++s) {
+            if (az.bit_get(210 + s)) {
+                spectator = true;
+                spectator_slot = s % 6;
+                break;
+            }
+        }
+        if (spectator || (rec % 5 == 1)) {
+            const uint32_t slot = hidden_base + (spectator ? spectator_slot : (reused_count++ % 6));
+            op = HeisenbergOp::make_measure(op.mask_handle(), static_cast<MeasRecordIdx>(slot));
+        }
+    }
+    actual.source_map.resize(actual.ops.size());
+    for (size_t i = 0; i < actual.ops.size(); ++i) {
+        actual.source_map[i] = {static_cast<uint32_t>(i)};
+    }
+    actual.logical_noise_prefix.resize(actual.ops.size());
+    for (size_t i = 0; i < actual.ops.size(); ++i) {
+        actual.logical_noise_prefix[i] = static_cast<uint32_t>(i);
+    }
+
+    // Reference implementation: direct pairwise adjacent swaps using can_swap.
+    HirModule expected = actual;
+    for (size_t i = 1; i < expected.ops.size(); ++i) {
+        if (expected.ops[i].op_type() != OpType::MEASURE) {
+            continue;
+        }
+        size_t curr = i;
+        while (curr > 0 && can_swap(expected.ops[curr], expected.ops[curr - 1], expected)) {
+            std::swap(expected.ops[curr], expected.ops[curr - 1]);
+            std::swap(expected.source_map[curr], expected.source_map[curr - 1]);
+            std::swap(expected.logical_noise_prefix[curr], expected.logical_noise_prefix[curr - 1]);
+            --curr;
+        }
+    }
+    auto is_exp = [](const HeisenbergOp& op) {
+        return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
+    };
+    for (size_t i = expected.ops.size() - 2;; --i) {
+        if (is_exp(expected.ops[i])) {
+            size_t curr = i;
+            while (curr < expected.ops.size() - 1) {
+                if (is_exp(expected.ops[curr + 1])) {
+                    size_t target = curr + 1;
+                    while (target < expected.ops.size() && is_exp(expected.ops[target])) {
+                        ++target;
+                    }
+                    if (target == expected.ops.size()) {
+                        break;
+                    }
+                    bool ok = can_swap(expected.ops[curr], expected.ops[target], expected);
+                    for (size_t next = target; ok && next > curr + 1; --next) {
+                        ok = can_swap(expected.ops[curr], expected.ops[next - 1], expected);
+                    }
+                    if (!ok) {
+                        break;
+                    }
+                    std::rotate(expected.ops.begin() + static_cast<std::ptrdiff_t>(curr),
+                                expected.ops.begin() + static_cast<std::ptrdiff_t>(curr + 1),
+                                expected.ops.begin() + static_cast<std::ptrdiff_t>(target + 1));
+                    std::rotate(
+                        expected.source_map.begin() + static_cast<std::ptrdiff_t>(curr),
+                        expected.source_map.begin() + static_cast<std::ptrdiff_t>(curr + 1),
+                        expected.source_map.begin() + static_cast<std::ptrdiff_t>(target + 1));
+                    std::rotate(
+                        expected.logical_noise_prefix.begin() + static_cast<std::ptrdiff_t>(curr),
+                        expected.logical_noise_prefix.begin() +
+                            static_cast<std::ptrdiff_t>(curr + 1),
+                        expected.logical_noise_prefix.begin() +
+                            static_cast<std::ptrdiff_t>(target + 1));
+                    curr = target;
+                    continue;
+                }
+                if (!can_swap(expected.ops[curr], expected.ops[curr + 1], expected)) {
+                    break;
+                }
+                std::swap(expected.ops[curr], expected.ops[curr + 1]);
+                std::swap(expected.source_map[curr], expected.source_map[curr + 1]);
+                std::swap(expected.logical_noise_prefix[curr],
+                          expected.logical_noise_prefix[curr + 1]);
+                ++curr;
+            }
+        }
+        if (i == 0) {
+            break;
+        }
+    }
+
+    const auto initial_sm = actual.source_map;
+    StatevectorSqueezePass{}.run(actual);
+    REQUIRE(actual.source_map != initial_sm);
+    REQUIRE(actual.source_map == expected.source_map);
+    REQUIRE(actual.logical_noise_prefix == expected.logical_noise_prefix);
+    REQUIRE(actual.ops.size() == expected.ops.size());
+    for (size_t i = 0; i < actual.ops.size(); ++i) {
+        REQUIRE(actual.ops[i].op_type() == expected.ops[i].op_type());
+    }
+}
+
 TEST_CASE("Peephole: virtual S conjugation updates EXP_VAL masks", "[optimizer][exp_val]") {
     // Circuit: T 0, T 0, EXP_VAL X0
     // T+T fuses to virtual S on Z0. The S conjugation must update the
