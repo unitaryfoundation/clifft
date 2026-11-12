@@ -45,6 +45,9 @@ class PauliCommutation {
                x.num_words() == x_.num_words() && z.num_words() == z_.num_words();
     }
 
+    [[nodiscard]] MaskView x() const { return x_; }
+    [[nodiscard]] MaskView z() const { return z_; }
+
     // Half-open range of words where the borrowed Pauli is nonzero.
     [[nodiscard]] uint32_t begin_word() const { return begin_; }
     [[nodiscard]] uint32_t end_word() const { return end_; }

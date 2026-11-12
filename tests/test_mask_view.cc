@@ -8,8 +8,10 @@
 #include <cstdint>
 #include <random>
 #include <span>
+#include <vector>
 
 using clifft::BitMask;
+using clifft::for_each_set_bit;
 using clifft::lowest_bit_at_or_above;
 using clifft::lowest_bit_below;
 using clifft::MaskView;
@@ -403,4 +405,26 @@ TEST_CASE("lowest_bit_below: handles k aligned to word boundary") {
     // k=64: word 0 fully below k. Bit 100 is in word 1, not below k.
     std::array<uint64_t, 4> a{0, 1ULL << 36, 0, 0};
     REQUIRE(lowest_bit_below(mv_from(a), 64) == kSentinel);
+}
+
+TEST_CASE("for_each_set_bit visits set bits in ascending order across word ranges") {
+    std::array<uint64_t, 4> a{
+        (1ULL << 0) | (1ULL << 63),
+        0,
+        (1ULL << 5) | (1ULL << 40),
+        1ULL << 63,
+    };
+    const MaskView mv = mv_from(a);
+
+    std::vector<uint32_t> all_bits;
+    for_each_set_bit(mv, [&](uint32_t b) { all_bits.push_back(b); });
+    REQUIRE(all_bits == std::vector<uint32_t>{0, 63, 128 + 5, 128 + 40, 192 + 63});
+
+    std::vector<uint32_t> subrange_bits;
+    for_each_set_bit(mv, 1, 3, [&](uint32_t b) { subrange_bits.push_back(b); });
+    REQUIRE(subrange_bits == std::vector<uint32_t>{128 + 5, 128 + 40});
+
+    std::vector<uint32_t> empty_bits;
+    for_each_set_bit(mv, 2, 2, [&](uint32_t b) { empty_bits.push_back(b); });
+    REQUIRE(empty_bits.empty());
 }

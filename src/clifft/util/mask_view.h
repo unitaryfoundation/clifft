@@ -216,4 +216,22 @@ inline MutableMaskView mut_view(BitMask<N>& m) {
     return n * 64;
 }
 
+/// Invoke fn(bit) in ascending order for each set bit in words [begin_word, end_word).
+template <typename Fn>
+constexpr void for_each_set_bit(MaskView bits, uint32_t begin_word, uint32_t end_word, Fn&& fn) {
+    assert(begin_word <= end_word && end_word <= bits.num_words() &&
+           "for_each_set_bit: word range out of bounds");
+    for (uint32_t w = begin_word; w < end_word; ++w) {
+        for (uint64_t word = bits.words[w]; word != 0; word &= word - 1) {
+            fn(w * 64 + static_cast<uint32_t>(std::countr_zero(word)));
+        }
+    }
+}
+
+/// Invoke fn(bit) in ascending order for each set bit in bits.
+template <typename Fn>
+constexpr void for_each_set_bit(MaskView bits, Fn&& fn) {
+    for_each_set_bit(bits, 0, bits.num_words(), std::forward<Fn>(fn));
+}
+
 }  // namespace clifft

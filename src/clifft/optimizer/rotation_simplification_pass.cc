@@ -286,11 +286,10 @@ void RotationSimplificationPass::run(HirModule& hir) {
         return;
     }
     if (rewriter.needs_cost_guard) {
-        const auto after = analyze_active_width(*candidate);
+        const ActiveWidthCost after = summarize_active_width(*candidate);
         if (after.peak_width != 0) {
-            const auto before = analyze_active_width(hir);
-            if (after.peak_width > before.peak_width ||
-                estimate_dense_work(after) > estimate_dense_work(before)) {
+            const ActiveWidthCost before = summarize_active_width(hir);
+            if (after.peak_width > before.peak_width || after.dense_work > before.dense_work) {
                 return;
             }
         }

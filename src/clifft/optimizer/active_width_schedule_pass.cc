@@ -102,6 +102,8 @@ class SearchFrontier {
     mutable uint32_t lowest_ready_hint_ = 0;
     size_t executed_count_ = 0;
     std::vector<uint64_t> known_expanding_bits_;
+    uint32_t expanding_begin_ = 0;
+    uint32_t expanding_end_ = 0;
     uint32_t candidate_hint_ = 0;
 };
 
@@ -118,7 +120,8 @@ SearchFrontier::SearchFrontier(const detail::ScheduleDependence& dependence)
       executed_((dependence.num_ops() + 63) / 64, 0),
       remaining_preds_(dependence.num_ops()),
       ready_bits_((dependence.num_ops() + 63) / 64, 0),
-      known_expanding_bits_((dependence.num_ops() + 63) / 64, 0) {
+      known_expanding_bits_((dependence.num_ops() + 63) / 64, 0),
+      expanding_begin_(static_cast<uint32_t>(known_expanding_bits_.size())) {
     for (uint32_t op = 0; op < dependence.num_ops(); ++op) {
         remaining_preds_[op] = static_cast<uint32_t>(dependence.predecessors(op).size());
         if (remaining_preds_[op] == 0) {
@@ -145,24 +148,8 @@ void SearchFrontier::mark_not_ready(uint32_t op) {
 }
 
 uint32_t SearchFrontier::lowest_ready() const {
-    uint32_t word = lowest_ready_hint_ / 64;
-    if (word < ready_bits_.size()) {
-        uint64_t pending = ready_bits_[word] & (~uint64_t{0} << (lowest_ready_hint_ % 64));
-        while (pending == 0) {
-            ++word;
-            if (word >= ready_bits_.size()) {
-                lowest_ready_hint_ = num_ops();
-                pending = 0;
-                break;
-            }
-            pending = ready_bits_[word];
-        }
-        if (pending != 0) {
-            lowest_ready_hint_ = 64 * word + static_cast<uint32_t>(std::countr_zero(pending));
-        }
-    } else {
-        lowest_ready_hint_ = num_ops();
-    }
+    lowest_ready_hint_ =
+        std::min(num_ops(), lowest_bit_at_or_above(MaskView{ready_bits_}, lowest_ready_hint_));
     assert((lowest_ready_hint_ == num_ops() || is_ready(lowest_ready_hint_)) &&
            "lowest_ready() must return num_ops() or an actually ready op");
     return lowest_ready_hint_;
@@ -183,13 +170,21 @@ bool SearchFrontier::has_single_ready() const {
 }
 
 void SearchFrontier::reset_expanding_memo() {
-    std::ranges::fill(known_expanding_bits_, uint64_t{0});
+    if (expanding_begin_ < expanding_end_) {
+        std::fill(known_expanding_bits_.begin() + expanding_begin_,
+                  known_expanding_bits_.begin() + expanding_end_, uint64_t{0});
+        expanding_begin_ = static_cast<uint32_t>(known_expanding_bits_.size());
+        expanding_end_ = 0;
+    }
     // Every candidate is ready, so the ready hint is also a candidate lower bound.
     candidate_hint_ = lowest_ready_hint_;
 }
 
 void SearchFrontier::note_expanding(uint32_t op) {
-    bitset_set(known_expanding_bits_, op);
+    const uint32_t word = op / 64;
+    known_expanding_bits_[word] |= (uint64_t{1} << (op % 64));
+    expanding_begin_ = std::min(expanding_begin_, word);
+    expanding_end_ = std::max(expanding_end_, word + 1);
     if (op == candidate_hint_) {
         ++candidate_hint_;
     }
@@ -280,7 +275,7 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFro
 void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace& subspace,
                  std::vector<uint32_t>& order, std::vector<UndoStep>& log,
                  std::vector<uint32_t>& newly_ready_log, SearchWork& work, uint32_t& peak,
-                 double& dense_work) {
+                 double& dense_work, DormantSubspace::UndoLog* subspace_undo = nullptr) {
     frontier.reset_expanding_memo();
     while (const std::optional<uint32_t> op =
                find_ready_non_expanding(hir, frontier, subspace, work)) {
@@ -288,7 +283,8 @@ void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace
         log.push_back(UndoStep{*op, newly_ready_count});
         order.push_back(*op);
         ++work.swept_ops;
-        const WidthTransition transition = detail::apply_non_expanding(hir, hir.ops[*op], subspace);
+        const WidthTransition transition =
+            detail::apply_non_expanding(hir, hir.ops[*op], subspace, subspace_undo);
         assert(!is_expanding_effect(transition.effect) &&
                "find_ready_non_expanding chose an op classify_and_apply treats as expanding");
         if (transition.effect == WidthEffect::MeasureDormantRandom) {
@@ -328,22 +324,10 @@ BeamState make_initial_beam_state(const HirModule& hir,
 std::vector<uint32_t> ready_ops_snapshot(const SearchFrontier& frontier) {
     std::vector<uint32_t> ready;
     const uint32_t start = frontier.lowest_ready();
-    if (start >= frontier.num_ops()) {
-        return ready;
-    }
-    const std::vector<uint64_t>& bits = frontier.ready_bits();
-    uint32_t word = start / 64;
-    uint64_t pending = bits[word] & (~uint64_t{0} << (start % 64));
-    for (;;) {
-        while (pending != 0) {
-            ready.push_back(64 * word + static_cast<uint32_t>(std::countr_zero(pending)));
-            pending &= pending - 1;
-        }
-        ++word;
-        if (word >= bits.size()) {
-            break;
-        }
-        pending = bits[word];
+    if (start < frontier.num_ops()) {
+        for_each_set_bit(MaskView{frontier.ready_bits()}, start / 64,
+                         static_cast<uint32_t>(frontier.ready_bits().size()),
+                         [&](uint32_t op) { ready.push_back(op); });
     }
     return ready;
 }
@@ -361,16 +345,20 @@ struct ScoredCandidate {
 };
 
 // A closed parent has only expanding ready ops; no second classification is
-// needed. Clone its subspace, but mutate and undo its frontier so candidates
-// later discarded do not each need a full frontier and prefix copy.
-// Stop comparing alternatives at the swept-op threshold.
+// needed. Mutate and roll back both its frontier and subspace so discarded
+// candidates never copy either structure. Stop comparing alternatives at the
+// swept-op threshold.
 std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& parent,
                                               uint32_t parent_index, SearchWork& work) {
     std::vector<ScoredCandidate> scored;
+    DormantSubspace::UndoLog subspace_undo;
+    std::vector<UndoStep> log;
+    std::vector<uint32_t> newly_ready_log;
+
     for (uint32_t op : ready_ops_snapshot(parent.frontier)) {
-        DormantSubspace scratch(parent.subspace);
-        std::vector<UndoStep> log;
-        std::vector<uint32_t> newly_ready_log;
+        subspace_undo.clear();
+        log.clear();
+        newly_ready_log.clear();
 
         log.push_back(UndoStep{op, parent.frontier.execute(op, newly_ready_log)});
         ++work.swept_ops;
@@ -379,7 +367,8 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
         candidate.first_op = op;
         candidate.ops.push_back(op);
 
-        const WidthTransition first_transition = classify_and_apply(hir, hir.ops[op], scratch);
+        const WidthTransition first_transition =
+            classify_and_apply(hir, hir.ops[op], parent.subspace, &subspace_undo);
         assert(is_expanding_effect(first_transition.effect) &&
                "score_candidates chose a ready op is_expanding did not classify as expanding");
         candidate.peak = std::max(parent.peak, first_transition.after);
@@ -388,12 +377,13 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
                                                                 first_transition.before,
                                                                 first_transition.after);
 
-        run_closure(hir, parent.frontier, scratch, candidate.ops, log, newly_ready_log, work,
-                    candidate.peak, candidate.dense_work);
+        run_closure(hir, parent.frontier, parent.subspace, candidate.ops, log, newly_ready_log,
+                    work, candidate.peak, candidate.dense_work, &subspace_undo);
 
-        candidate.width_after_closure = scratch.active_width();
+        candidate.width_after_closure = parent.subspace.active_width();
         candidate.executed_bits = parent.frontier.executed_bits();
 
+        parent.subspace.rollback(subspace_undo);
         undo_all(parent.frontier, log, newly_ready_log);
         scored.push_back(std::move(candidate));
 
@@ -407,13 +397,11 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
 // Replay only surviving candidates. Scoring and replay accumulate identical
 // transitions in identical order, so even floating-point costs agree exactly.
 // Charge replay to the swept-op budget as well as speculative execution.
-BeamState materialize_candidate(const HirModule& hir, const std::vector<BeamState>& beam,
-                                const ScoredCandidate& candidate, SearchWork& work) {
-    const BeamState& parent = beam[candidate.parent_index];
-    BeamState state(parent.frontier, parent.subspace);
-    state.peak = parent.peak;
-    state.dense_work = parent.dense_work;
-    state.order = parent.order;
+BeamState materialize_candidate(const HirModule& hir, std::vector<BeamState>& beam,
+                                const ScoredCandidate& candidate, bool steal_parent,
+                                SearchWork& work) {
+    BeamState state =
+        steal_parent ? std::move(beam[candidate.parent_index]) : beam[candidate.parent_index];
     state.order.reserve(state.order.size() + candidate.ops.size());
 
     // Reuse one log buffer even though replay never needs to undo its entries.
@@ -616,76 +604,91 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
             return a.parent_index < b.parent_index;
         });
 
-        std::vector<BeamState> next_beam;
         const size_t width = work.narrow() ? 1 : beam_width;
-        next_beam.reserve(std::min<size_t>(deduped.size(), width));
-        for (size_t i = 0; i < deduped.size() && i < width; ++i) {
-            next_beam.push_back(materialize_candidate(hir, beam, deduped[i], work));
+        const size_t take = std::min<size_t>(deduped.size(), width);
+        std::vector<uint32_t> parent_uses(beam.size(), 0);
+        for (size_t i = 0; i < take; ++i) {
+            ++parent_uses[deduped[i].parent_index];
+        }
+        std::vector<BeamState> next_beam;
+        next_beam.reserve(take);
+        for (size_t i = 0; i < take; ++i) {
+            const bool steal_parent = (--parent_uses[deduped[i].parent_index] == 0);
+            next_beam.push_back(materialize_candidate(hir, beam, deduped[i], steal_parent, work));
         }
         beam = std::move(next_beam);
     }
 
     assert(best.has_value() &&
            "beam_width >= 1 (the constructor rejects 0) guarantees at least one completed state");
-    return best->order;
+    return std::move(best->order);
 }
 
 // ---------------------------------------------------------------------------
 // Neutral-rotation sinking: a rightward bubble per RotationNeutral op.
 // ---------------------------------------------------------------------------
 
-// For adjacent ops in a legal order, any dependency has a direct edge;
-// see ScheduleDependence. Callers must only pass adjacent ops.
-bool independent(const detail::ScheduleDependence& dependence, uint32_t a, uint32_t b) {
-    return !std::ranges::binary_search(dependence.successors(a), b) &&
-           !std::ranges::binary_search(dependence.predecessors(a), b);
-}
-
-// Index effects by op so they survive permutation. Sinking a neutral rotation
-// does not change S, so the other operations retain their classifications.
-std::vector<WidthEffect> effect_by_op_index(const HirModule& hir,
-                                            const std::vector<uint32_t>& order) {
-    std::vector<WidthEffect> effect(hir.ops.size(), WidthEffect::None);
-    DormantSubspace subspace(hir.num_qubits);
-    for (uint32_t op : order) {
-        effect[op] = classify_and_apply(hir, hir.ops[op], subspace).effect;
-    }
-    return effect;
-}
-
 // Sink neutral rotations across independent, non-expanding ops, which cannot
 // increase the width they run at. Stabilizer rotations need no action or sinking.
+// For adjacent ops in a legal order, any dependency has a direct edge in
+// ScheduleDependence, so marking the rotation's incident vertices once lets the
+// scan test adjacency in O(1) without repeated CSR lookups.
 void sink_neutral_rotations(const HirModule& hir, const detail::ScheduleDependence& dependence,
                             std::vector<uint32_t>& order) {
-    const std::vector<WidthEffect> effect = effect_by_op_index(hir, order);
-
+    // Sinking a neutral rotation does not change S, so expanding classifications
+    // stay fixed across permutations. Mark expanding ops with kExpandingStamp so
+    // any stamp <= to_sink.size() treats both expanding and adjacent ops as stops.
+    constexpr uint32_t kExpandingStamp = ~uint32_t{0};
     std::vector<uint32_t> to_sink;
-    for (uint32_t op : order) {
-        if (effect[op] == WidthEffect::RotationNeutral) {
-            to_sink.push_back(op);
+    std::vector<uint32_t> blocked_stamp(hir.ops.size(), 0);
+    std::vector<uint32_t> position(hir.ops.size());
+    {
+        DormantSubspace subspace(hir.num_qubits);
+        for (size_t i = 0; i < order.size(); ++i) {
+            const uint32_t op = order[i];
+            position[op] = static_cast<uint32_t>(i);
+            const WidthEffect effect = classify_and_apply(hir, hir.ops[op], subspace).effect;
+            if (effect == WidthEffect::RotationNeutral) {
+                to_sink.push_back(op);
+            } else if (is_expanding_effect(effect)) {
+                blocked_stamp[op] = kExpandingStamp;
+            }
         }
     }
     if (to_sink.empty()) {
         return;
     }
+    assert(to_sink.size() < kExpandingStamp);
 
-    // Earlier bubbles can shift a rotation before its own turn to move.
-    std::vector<uint32_t> position(hir.ops.size());
-    for (uint32_t i = 0; i < order.size(); ++i) {
-        position[order[i]] = i;
-    }
-
-    for (uint32_t op : to_sink) {
-        size_t curr = position[op];
-        while (curr + 1 < order.size()) {
-            const uint32_t next_op = order[curr + 1];
-            if (!independent(dependence, op, next_op) || is_expanding_effect(effect[next_op])) {
-                break;
+    for (size_t s = 0; s < to_sink.size(); ++s) {
+        const uint32_t op = to_sink[s];
+        const auto stamp = static_cast<uint32_t>(s + 1);
+        for (uint32_t pred : dependence.predecessors(op)) {
+            if (blocked_stamp[pred] != kExpandingStamp) {
+                blocked_stamp[pred] = stamp;
             }
-            std::swap(order[curr], order[curr + 1]);
-            position[order[curr]] = static_cast<uint32_t>(curr);
-            position[order[curr + 1]] = static_cast<uint32_t>(curr + 1);
-            ++curr;
+        }
+        for (uint32_t succ : dependence.successors(op)) {
+            if (blocked_stamp[succ] != kExpandingStamp) {
+                blocked_stamp[succ] = stamp;
+            }
+        }
+
+        const size_t start = position[op];
+        size_t dest = start;
+        while (dest + 1 < order.size() && blocked_stamp[order[dest + 1]] < stamp) {
+            ++dest;
+        }
+        if (dest > start) {
+            std::move(order.begin() + static_cast<std::ptrdiff_t>(start + 1),
+                      order.begin() + static_cast<std::ptrdiff_t>(dest + 1),
+                      order.begin() + static_cast<std::ptrdiff_t>(start));
+            order[dest] = op;
+            if (s + 1 < to_sink.size()) {
+                for (size_t pos = start; pos <= dest; ++pos) {
+                    position[order[pos]] = static_cast<uint32_t>(pos);
+                }
+            }
         }
     }
 }
@@ -715,9 +718,9 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
     swept_ops_ = 0;
     classification_probes_ = 0;
 
-    const ActiveWidthTrace incumbent_trace = analyze_active_width(hir);
-    incumbent_peak_ = incumbent_trace.peak_width;
-    incumbent_dense_work_ = estimate_dense_work(incumbent_trace);
+    const ActiveWidthCost incumbent = summarize_active_width(hir);
+    incumbent_peak_ = incumbent.peak_width;
+    incumbent_dense_work_ = incumbent.dense_work;
 
     // Avoid graph construction when no rotation can benefit from scheduling.
     // The incumbent statistics still describe the input.
@@ -747,19 +750,16 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
         sink_neutral_rotations(hir, dependence, order);
     }
 
-    HirModule candidate = hir;
-    detail::apply_schedule(candidate, dependence, order);
-    const ActiveWidthTrace candidate_trace = analyze_active_width(candidate);
-    const double candidate_dense_work = estimate_dense_work(candidate_trace);
+    const ActiveWidthCost candidate = summarize_active_width(hir, order);
 
-    const bool better = (candidate_trace.peak_width < incumbent_peak_) ||
-                        (candidate_trace.peak_width == incumbent_peak_ &&
-                         candidate_dense_work < incumbent_dense_work_);
+    const bool better =
+        (candidate.peak_width < incumbent_peak_) ||
+        (candidate.peak_width == incumbent_peak_ && candidate.dense_work < incumbent_dense_work_);
 
     if (better) {
-        hir = std::move(candidate);
-        result_peak_ = candidate_trace.peak_width;
-        result_dense_work_ = candidate_dense_work;
+        detail::apply_schedule(hir, dependence, order);
+        result_peak_ = candidate.peak_width;
+        result_dense_work_ = candidate.dense_work;
         applied_ = true;
     } else {
         result_peak_ = incumbent_peak_;

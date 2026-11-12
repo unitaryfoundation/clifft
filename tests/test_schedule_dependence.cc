@@ -301,6 +301,72 @@ TEST_CASE("Schedule dependence closure matches can_swap with an evicting ancesto
     }
 }
 
+TEST_CASE("Schedule dependence closure matches can_swap across wide registers and barriers",
+          "[schedule_dependence]") {
+    clifft::Xoshiro256PlusPlus rng(0x5C4ED3);
+
+    SECTION("multi-word registers with non-contiguous support and expectation barriers") {
+        for (const uint32_t num_qubits : {65u, 129u, 195u}) {
+            for (int trial = 0; trial < 8; ++trial) {
+                std::string source =
+                    "H 0 " + std::to_string(num_qubits / 2) + " " + std::to_string(num_qubits - 1) +
+                    "\nCX 0 " + std::to_string(num_qubits / 2) + "\nCX " +
+                    std::to_string(num_qubits / 2) + " " + std::to_string(num_qubits - 1) + "\n";
+                source += clifft::test::generate_noisy_source(rng, num_qubits, 45);
+                source += "EXP_VAL X0*Z" + std::to_string(num_qubits - 1) + "\n";
+                source += clifft::test::generate_noisy_source(rng, num_qubits, 35);
+
+                const HirModule hir = clifft::trace(clifft::parse(source));
+                const size_t words = (hir.ops.size() + 63) / 64;
+                for (const bool noise_transparent : {false, true}) {
+                    CAPTURE(num_qubits, trial, noise_transparent);
+                    check_closure_matches_can_swap(hir, noise_transparent);
+
+                    ScheduleDependenceOptions evicted;
+                    evicted.ancestor_cache_bytes = 2 * words * sizeof(uint64_t);
+                    check_closure_matches_can_swap(hir, noise_transparent, evicted);
+                }
+            }
+        }
+    }
+
+    SECTION("dense narrow circuits with high per-qubit conflict counts") {
+        for (int trial = 0; trial < 12; ++trial) {
+            const std::string source = clifft::test::generate_noisy_source(rng, 4, 140);
+            const HirModule hir = clifft::trace(clifft::parse(source));
+            for (const bool noise_transparent : {false, true}) {
+                CAPTURE(trial, noise_transparent);
+                check_closure_matches_can_swap(hir, noise_transparent);
+            }
+        }
+    }
+
+    SECTION("high-weight Pauli support and multi-channel noise across words") {
+        constexpr uint32_t kNumQubits = 320;
+        std::string source;
+        for (uint32_t q = 1; q <= 300; ++q) {
+            source += "CX " + std::to_string(q) + " 0\n";
+        }
+        // Movable and fixed ops on qubit 0 inherit weight-301 Z support; later
+        // narrow ops on qubits 150 and 310 test both conflicting and commuting pairs.
+        source += "T 0\nM 0\nCZ rec[-1] 0\nDEPOLARIZE2(0.05) 0 150\n";
+        source += "H 150 310\nT 150 310\nM 150 310\n";
+        source += clifft::test::generate_noisy_source(rng, kNumQubits, 40);
+
+        const HirModule hir = clifft::trace(clifft::parse(source));
+        REQUIRE(hir.stab_mask(hir.ops[0]).popcount() == 301);
+        const size_t words = (hir.ops.size() + 63) / 64;
+        for (const bool noise_transparent : {false, true}) {
+            CAPTURE(noise_transparent);
+            check_closure_matches_can_swap(hir, noise_transparent);
+
+            ScheduleDependenceOptions evicted;
+            evicted.ancestor_cache_bytes = 2 * words * sizeof(uint64_t);
+            check_closure_matches_can_swap(hir, noise_transparent, evicted);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Chain reduction has teeth
 // ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 #include "clifft/optimizer/commutation.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
 #include <optional>
@@ -14,6 +15,10 @@ namespace clifft::detail {
 
 namespace {
 
+// Candidate lists longer than this many entries per ancestor-row word cost
+// more to sort than scanning the bitset row directly.
+constexpr size_t kDenseScanCandidatesPerWord = 8;
+
 bool is_movable_op(OpType type) {
     return type == OpType::T_GATE || type == OpType::PHASE_ROTATION || type == OpType::MEASURE;
 }
@@ -21,7 +26,7 @@ bool is_movable_op(OpType type) {
 // Check noise transparency first: a type check avoids walking noise-channel
 // masks when sign correction already makes the crossing legal.
 bool allowed(const HirModule& hir, const HeisenbergOp& left, const HeisenbergOp& right,
-             bool noise_transparent) {
+             bool noise_transparent, const PauliCommutation* right_axis = nullptr) {
     if (noise_transparent) {
         const bool left_noise = left.op_type() == OpType::NOISE;
         const bool right_noise = right.op_type() == OpType::NOISE;
@@ -31,11 +36,24 @@ bool allowed(const HirModule& hir, const HeisenbergOp& left, const HeisenbergOp&
             return true;
         }
     }
-    return can_swap(left, right, hir);
+    return can_swap(right, left, hir, right_axis);
 }
 
+void append_unique_back(std::vector<uint32_t>& vec, uint32_t val) {
+    if (vec.empty() || vec.back() != val) {
+        vec.push_back(val);
+    }
+}
+
+// Per-qubit and per-record lists of earlier ops for one movability class.
+struct ConflictIndex {
+    std::vector<std::vector<uint32_t>> with_x;
+    std::vector<std::vector<uint32_t>> with_z;
+    std::vector<std::vector<uint32_t>> with_slot;
+};
+
 // Sort by key and value so each CSR adjacency list is ordered.
-void group_into_csr(size_t num_keys, std::vector<std::pair<uint32_t, uint32_t>> pairs,
+void group_into_csr(size_t num_keys, std::vector<std::pair<uint32_t, uint32_t>>& pairs,
                     std::vector<uint32_t>& offsets, std::vector<uint32_t>& indices) {
     std::ranges::sort(pairs);
     offsets.assign(num_keys + 1, 0);
@@ -60,10 +78,6 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
     ScheduleDependence dep;
     dep.noise_transparent_ = options.noise_transparent;
     dep.num_ops_ = n;
-    std::vector<bool> movable(n);
-    for (size_t i = 0; i < n; ++i) {
-        movable[i] = is_movable_op(hir.ops[i].op_type());
-    }
 
     std::vector<std::pair<uint32_t, uint32_t>> edges;
 
@@ -75,6 +89,35 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
         const size_t rows_in_budget = options.ancestor_cache_bytes / row_bytes;
         const size_t ring_rows = std::max<size_t>(1, std::min(n, rows_in_budget));
 
+        std::vector<uint64_t> movable_bits(words, 0);
+        for (size_t i = 0; i < n; ++i) {
+            if (is_movable_op(hir.ops[i].op_type())) {
+                movable_bits[i / 64] |= (uint64_t{1} << (i % 64));
+            }
+        }
+
+        // Index earlier ops by movability (0 = fixed, 1 = movable) and by the
+        // qubits and classical slots they touch so a sparse op on a wide
+        // register inspects only potential conflicts.
+        const size_t num_record_slots =
+            static_cast<size_t>(hir.num_measurements) + hir.num_hidden_measurements;
+        const uint32_t noise_words =
+            dep.noise_transparent_ ? 0u : hir.noise_channel_masks.num_words();
+        const uint32_t mask_words = std::max(hir.pauli_masks.num_words(), noise_words);
+        const size_t num_bit_slots = static_cast<size_t>(mask_words) * 64;
+
+        std::array<ConflictIndex, 2> index;
+        for (ConflictIndex& idx : index) {
+            idx.with_x.resize(num_bit_slots);
+            idx.with_z.resize(num_bit_slots);
+            idx.with_slot.resize(num_record_slots);
+        }
+        std::vector<uint32_t> barriers;
+        std::vector<uint64_t> noise_x(noise_words, 0);
+        std::vector<uint64_t> noise_z(noise_words, 0);
+        std::vector<std::span<const uint32_t>> candidate_spans;
+        std::vector<uint32_t> candidates;
+
         std::vector<uint64_t> ancestor_rows(ring_rows * words, 0);
         auto row = [&](size_t k) {
             return std::span<uint64_t>(ancestor_rows).subspan((k % ring_rows) * words, words);
@@ -84,14 +127,19 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
 
         for (size_t j = 0; j < n; ++j) {
             const std::span<uint64_t> rj = row(j);
-            std::ranges::fill(rj, uint64_t{0});
+            const size_t j_words = j / 64 + 1;
 
-            // Known ancestors of i also precede j, so they need no separate test.
-            // Only read cached rows that have not been evicted.
+            const HeisenbergOp& op_j = hir.ops[j];
+            const OpType type_j = op_j.op_type();
+            const bool j_movable = is_movable_op(type_j);
+
+            // Known ancestors of i have index < i, so only words [0, i / 64] can
+            // be nonzero. Only read cached rows that have not been evicted.
             auto link = [&](uint32_t i) {
                 if (j - i < ring_rows) {
-                    const std::span<const uint64_t> ri = row(i);
-                    for (size_t w = 0; w < words; ++w) {
+                    const uint64_t* ri = row(i).data();
+                    const size_t i_words = i / 64 + 1;
+                    for (size_t w = 0; w < i_words; ++w) {
                         rj[w] |= ri[w];
                     }
                 }
@@ -101,53 +149,195 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
 
             // Fixed ops retain their relative order even when they commute.
             // Keep consecutive fixed ops directly linked for adjacency queries.
-            if (!movable[j]) {
-                if (previous_fixed.has_value()) {
-                    link(*previous_fixed);
+            if (!j_movable && previous_fixed.has_value()) {
+                const uint32_t pf = *previous_fixed;
+                if (j - pf < ring_rows) {
+                    const size_t pf_words = pf / 64 + 1;
+                    std::copy_n(row(pf).data(), pf_words, rj.data());
+                    std::fill(rj.data() + pf_words, rj.data() + j_words, uint64_t{0});
+                } else {
+                    std::fill_n(rj.data(), j_words, uint64_t{0});
                 }
+                rj[pf / 64] |= (uint64_t{1} << (pf % 64));
+                edges.emplace_back(pf, static_cast<uint32_t>(j));
                 previous_fixed = static_cast<uint32_t>(j);
+            } else {
+                std::fill_n(rj.data(), j_words, uint64_t{0});
+                if (!j_movable) {
+                    previous_fixed = static_cast<uint32_t>(j);
+                }
             }
 
-            if (j == 0) {
+            if (type_j == OpType::NOISE && dep.noise_transparent_) {
                 continue;
             }
 
+            std::optional<PauliCommutation> j_support;
+            if (type_j == OpType::T_GATE || type_j == OpType::PHASE_ROTATION ||
+                type_j == OpType::MEASURE || type_j == OpType::CONDITIONAL_PAULI) {
+                j_support.emplace(hir.destab_mask(op_j), hir.stab_mask(op_j));
+            } else if (type_j == OpType::NOISE) {
+                MutableMaskView ux{noise_x};
+                MutableMaskView uz{noise_z};
+                ux.zero_out();
+                uz.zero_out();
+                for (const NoiseChannel& ch :
+                     hir.noise_sites[static_cast<uint32_t>(op_j.noise_site_idx())].channels) {
+                    const PauliMaskView cv = hir.noise_channel_masks.at(ch.mask);
+                    ux.or_with(cv.x());
+                    uz.or_with(cv.z());
+                }
+                j_support.emplace(ux, uz);
+            }
+            const PauliCommutation* j_axis_ptr =
+                (j_support && type_j != OpType::NOISE) ? &*j_support : nullptr;
+
+            auto for_each_support = [&](auto&& on_x, auto&& on_z, auto&& on_slot) {
+                if (j_support) {
+                    for_each_set_bit(j_support->x(), j_support->begin_word(), j_support->end_word(),
+                                     on_x);
+                    for_each_set_bit(j_support->z(), j_support->begin_word(), j_support->end_word(),
+                                     on_z);
+                }
+                switch (type_j) {
+                    case OpType::MEASURE:
+                        on_slot(static_cast<uint32_t>(op_j.meas_record_idx()));
+                        break;
+                    case OpType::CONDITIONAL_PAULI:
+                        on_slot(static_cast<uint32_t>(op_j.controlling_meas()));
+                        break;
+                    case OpType::READOUT_NOISE:
+                        on_slot(hir.readout_noise[static_cast<uint32_t>(op_j.readout_noise_idx())]
+                                    .meas_idx);
+                        break;
+                    case OpType::DETECTOR:
+                        for (uint32_t m :
+                             hir.detector_targets[static_cast<uint32_t>(op_j.detector_idx())]) {
+                            on_slot(m);
+                        }
+                        break;
+                    case OpType::OBSERVABLE:
+                        for (uint32_t m :
+                             hir.observable_targets[op_j.observable_target_list_idx()]) {
+                            on_slot(m);
+                        }
+                        break;
+                    case OpType::T_GATE:
+                    case OpType::PHASE_ROTATION:
+                    case OpType::NOISE:
+                    case OpType::EXP_VAL:
+                    case OpType::INSTRUMENT:
+                    case OpType::NUM_OP_TYPES:
+                        break;
+                }
+            };
+
             // Try nearby predecessors first: their ancestor sets can rule out
             // many earlier candidates at once.
-            const size_t top_word = (j - 1) / 64;
-            for (size_t w = top_word + 1; w-- > 0;) {
-                uint64_t mask = ~rj[w];
-                if (w == top_word) {
-                    const size_t valid_bits = j - w * 64;
-                    if (valid_bits < 64) {
-                        mask &= (uint64_t{1} << valid_bits) - 1;
+            auto scan_dense = [&]() {
+                const size_t top_word = (j - 1) / 64;
+                for (size_t w = top_word + 1; w-- > 0;) {
+                    uint64_t mask = ~rj[w];
+                    if (!j_movable) {
+                        mask &= movable_bits[w];
+                    }
+                    if (w == top_word) {
+                        const size_t valid_bits = j - w * 64;
+                        if (valid_bits < 64) {
+                            mask &= (uint64_t{1} << valid_bits) - 1;
+                        }
+                    }
+                    while (mask != 0) {
+                        const int bit = 63 - std::countl_zero(mask);
+                        mask &= ~(uint64_t{1} << bit);
+                        const auto i = static_cast<uint32_t>(w * 64 + static_cast<size_t>(bit));
+                        if (!allowed(hir, hir.ops[i], op_j, dep.noise_transparent_, j_axis_ptr)) {
+                            link(i);
+                            // Skip ancestors just absorbed by link().
+                            mask &= ~rj[w];
+                        }
                     }
                 }
-                while (mask != 0) {
-                    const int bit = 63 - std::countl_zero(mask);
-                    mask &= ~(uint64_t{1} << bit);
-                    const auto i = static_cast<uint32_t>(w * 64 + static_cast<size_t>(bit));
-                    if (!movable[i] && !movable[j]) {
-                        continue;  // both fixed: already ordered by the chain above
+            };
+
+            const bool is_barrier = type_j == OpType::EXP_VAL || type_j == OpType::INSTRUMENT;
+            if (j > 0 && is_barrier) {
+                scan_dense();
+            } else if (j > 0) {
+                candidate_spans.clear();
+                size_t total_candidates = 0;
+                auto add_span = [&](std::span<const uint32_t> ops) {
+                    if (!ops.empty()) {
+                        candidate_spans.push_back(ops);
+                        total_candidates += ops.size();
                     }
-                    if (!allowed(hir, hir.ops[i], hir.ops[j], dep.noise_transparent_)) {
-                        link(i);
-                        // Skip ancestors just absorbed by link().
-                        mask &= ~rj[w];
+                };
+                auto add_lists = [&](const std::vector<uint32_t>& movable_ops,
+                                     const std::vector<uint32_t>& fixed_ops) {
+                    add_span(movable_ops);
+                    if (j_movable) {
+                        add_span(fixed_ops);
                     }
+                };
+                if (j_movable) {
+                    add_span(barriers);
+                }
+                for_each_support(
+                    [&](uint32_t q) { add_lists(index[1].with_z[q], index[0].with_z[q]); },
+                    [&](uint32_t q) { add_lists(index[1].with_x[q], index[0].with_x[q]); },
+                    [&](uint32_t m) {
+                        assert(m < num_record_slots);
+                        add_lists(index[1].with_slot[m], index[0].with_slot[m]);
+                    });
+
+                // Fall back to the ancestor bitset scan on narrow dense
+                // circuits where candidate lists grow longer than the row.
+                const size_t top_word = (j - 1) / 64;
+                if (total_candidates > (top_word + 1) * kDenseScanCandidatesPerWord) {
+                    scan_dense();
+                } else if (total_candidates > 0) {
+                    candidates.clear();
+                    for (std::span<const uint32_t> ops : candidate_spans) {
+                        for (uint32_t i : ops) {
+                            if ((rj[i / 64] & (uint64_t{1} << (i % 64))) == 0) {
+                                candidates.push_back(i);
+                            }
+                        }
+                    }
+                    if (candidates.size() > 1) {
+                        std::ranges::sort(candidates, std::greater<uint32_t>{});
+                        const auto dup = std::ranges::unique(candidates);
+                        candidates.erase(dup.begin(), dup.end());
+                    }
+                    for (uint32_t i : candidates) {
+                        if ((rj[i / 64] & (uint64_t{1} << (i % 64))) == 0 &&
+                            !allowed(hir, hir.ops[i], op_j, dep.noise_transparent_, j_axis_ptr)) {
+                            link(i);
+                        }
+                    }
+                }
+            }
+
+            if (j + 1 < n) {
+                const auto j_idx = static_cast<uint32_t>(j);
+                if (is_barrier) {
+                    barriers.push_back(j_idx);
+                } else {
+                    ConflictIndex& idx = index[j_movable ? 1 : 0];
+                    for_each_support(
+                        [&](uint32_t q) { idx.with_x[q].push_back(j_idx); },
+                        [&](uint32_t q) { idx.with_z[q].push_back(j_idx); },
+                        [&](uint32_t m) { append_unique_back(idx.with_slot[m], j_idx); });
                 }
             }
         }
     }
 
     group_into_csr(n, edges, dep.succ_offsets_, dep.succ_indices_);
-
-    std::vector<std::pair<uint32_t, uint32_t>> reversed_edges;
-    reversed_edges.reserve(edges.size());
-    for (const auto& [from, to] : edges) {
-        reversed_edges.emplace_back(to, from);
+    for (auto& [from, to] : edges) {
+        std::swap(from, to);
     }
-    group_into_csr(n, std::move(reversed_edges), dep.pred_offsets_, dep.pred_indices_);
+    group_into_csr(n, edges, dep.pred_offsets_, dep.pred_indices_);
 
     return dep;
 }

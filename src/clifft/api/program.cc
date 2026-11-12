@@ -86,7 +86,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
         passes.run(*lowered.hir);
         // Check peak width before plan_sampling(), which enforces the active-width
         // cap and would otherwise throw on a wide candidate.
-        if (analyze_active_width(*lowered.hir).peak_width >= original.peak_active_width()) {
+        if (summarize_active_width(*lowered.hir).peak_width >= original.peak_active_width()) {
             variant.fallback_reason = "reconstruction does not reduce peak active width";
             continue;
         }
