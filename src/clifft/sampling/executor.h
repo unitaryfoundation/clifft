@@ -50,7 +50,12 @@ struct ReadoutNoiseInput {
 // and numerical-dust telemetry for repeated shots. The plan must outlive the
 // executor. Construction allocates all storage; run_shot only resets and
 // overwrites it. A plan with a runtime Clifford frame also gets an OnlineFrame
-// over its frame coordinates, which each shot starts from the identity.
+// over its frame coordinates, which each shot starts from the identity. Such a
+// plan states only an upper bound on its active width, so its coefficient
+// storage starts at the width where the frame begins and grows at an
+// activation boundary when a shot promotes past it. That boundary is the one
+// place a shot can throw: std::overflow_error at the dense-state limit, or
+// the allocator's exception.
 class Executor {
   public:
     // Aggregate callers can omit probe evaluation and its output storage.
@@ -69,11 +74,11 @@ class Executor {
     }
 
     // Draw plan-bound quantum noise from this executor's RNG before dispatch.
-    void run_shot() noexcept;
+    void run_shot();
 
     // Use caller-supplied Boolean values for every Presampled symbol in
     // ascending SymbolId order. This path consumes no quantum-noise RNG draws.
-    void run_shot(std::span<const uint8_t> presampled_values) noexcept;
+    void run_shot(std::span<const uint8_t> presampled_values);
 
     // Supply every quantum-noise symbol and readout site in plan order.
     // The caller validates and allocates inputs before entering hot execution.
@@ -102,9 +107,8 @@ class Executor {
     // the probability is conditional on supplied presampled symbols. Replay
     // consumes no RNG. After an unreachable result, state and record accessors
     // expose only the executed prefix, not completed-shot output.
-    [[nodiscard]] ReplayResult replay_shot(
-        std::span<const uint8_t> forced_records,
-        std::span<const uint8_t> presampled_values = {}) noexcept;
+    [[nodiscard]] ReplayResult replay_shot(std::span<const uint8_t> forced_records,
+                                           std::span<const uint8_t> presampled_values = {});
 
     [[nodiscard]] std::span<const uint8_t> visible_records() const {
         return std::span<const uint8_t>(records_).first(plan_->num_visible_records_);
@@ -218,6 +222,11 @@ class Executor {
     [[nodiscard]] bool sample_dormant_branch() noexcept;
     // Maps a stored frame Pauli through this shot's frame into scratch storage.
     [[nodiscard]] PauliStringView map_frame_pauli(uint32_t pauli) noexcept;
+    // Runs attempt, which executes one whole shot. When a frame promotion
+    // needs more coefficient storage, grows it and runs the shot again from
+    // the same RNG position.
+    template <typename Attempt>
+    ReplayResult run_with_activation(Attempt&& attempt);
     void trap_instrument(uint32_t site, uint8_t source, bool destination_pending) noexcept;
     void finish_instrument_fire(uint32_t site, uint32_t destination_flip, uint8_t source,
                                 const InstrumentDistribution& distribution) noexcept;
@@ -252,6 +261,8 @@ class Executor {
         PauliString mapped;
         // Lets a shot that ends before its first frame action skip the reset.
         bool changed = false;
+        // Set when a promotion found the coefficient storage full.
+        bool needs_storage = false;
     };
     std::optional<RuntimeFrame> frame_;
     std::vector<uint8_t> symbols_;

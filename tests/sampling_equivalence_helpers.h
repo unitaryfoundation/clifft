@@ -1223,14 +1223,9 @@ inline ExactPlanDistribution compute_exact_hir_distribution(
 // observables, postselection, and expectation values for the same fixed
 // quantum noise outcomes. Supports hidden reset records and readout noise by
 // marginalizing over hidden records and readout flips within each realization.
-inline void check_exact_equivalent(const HirModule& original, const HirModule& reordered,
-                                   clifft::Xoshiro256PlusPlus& rng, size_t max_realizations = 16,
-                                   const clifft::sampling::SamplingPlanOptions& options = {}) {
-    const clifft::sampling::SamplingPlan plan_a =
-        clifft::sampling::plan_sampling(original, options);
-    const clifft::sampling::SamplingPlan plan_b =
-        clifft::sampling::plan_sampling(reordered, options);
-
+inline void check_exact_equivalent(const clifft::sampling::SamplingPlan& plan_a,
+                                   const clifft::sampling::SamplingPlan& plan_b,
+                                   clifft::Xoshiro256PlusPlus& rng, size_t max_realizations = 16) {
     REQUIRE(plan_a.num_visible_records == plan_b.num_visible_records);
     REQUIRE(plan_a.num_detectors == plan_b.num_detectors);
     REQUIRE(plan_a.num_observables == plan_b.num_observables);
@@ -1299,6 +1294,14 @@ inline void check_exact_equivalent(const HirModule& original, const HirModule& r
             run_realization();
         }
     }
+}
+
+inline void check_exact_equivalent(const HirModule& original, const HirModule& reordered,
+                                   clifft::Xoshiro256PlusPlus& rng, size_t max_realizations = 16,
+                                   const clifft::sampling::SamplingPlanOptions& options = {}) {
+    check_exact_equivalent(clifft::sampling::plan_sampling(original, options),
+                           clifft::sampling::plan_sampling(reordered, options), rng,
+                           max_realizations);
 }
 
 // ---------------------------------------------------------------------------

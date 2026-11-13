@@ -82,6 +82,12 @@ class ExecutablePlan {
     // Frame plans run on the scalar Executor only.
     [[nodiscard]] uint32_t frame_width() const { return frame_width_; }
     [[nodiscard]] bool uses_runtime_frame() const { return frame_width_ != 0; }
+    // Coefficient capacity an executor allocates up front. For a frame plan
+    // this is the peak width up to the first frame action; peak_active_width
+    // is then an upper bound that few shots may reach.
+    [[nodiscard]] uint32_t initial_capacity_width() const {
+        return uses_runtime_frame() ? frame_entry_peak_width_ : peak_active_width_;
+    }
     [[nodiscard]] uint32_t num_visible_records() const { return num_visible_records_; }
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
     [[nodiscard]] uint32_t num_detectors() const { return num_detectors_; }
@@ -420,6 +426,7 @@ class ExecutablePlan {
     uint32_t initial_active_width_ = 0;
     uint32_t peak_active_width_ = 0;
     uint32_t frame_width_ = 0;
+    uint32_t frame_entry_peak_width_ = 0;
     uint32_t num_visible_records_ = 0;
     uint32_t num_hidden_records_ = 0;
     uint32_t num_detectors_ = 0;

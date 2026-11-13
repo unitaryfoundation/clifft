@@ -3,6 +3,7 @@
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <limits>
@@ -598,6 +599,10 @@ void SamplingPlan::validate() const {
     // Set by the first frame action. Later actions cannot address coefficient
     // coordinates directly, because each shot's frame decides where they are.
     bool frame_live = false;
+    // Leading coordinates the frame has used so far: the active ones when it
+    // started and every coordinate a frame Pauli has named. A shot's active
+    // coordinates stay inside this set.
+    uint32_t frame_extent = 0;
     const auto require_static_coordinates = [&](uint32_t action_index) {
         if (frame_live) {
             invalid_plan("action " + std::to_string(action_index) +
@@ -612,6 +617,14 @@ void SamplingPlan::validate() const {
         }
         validate_frame_pauli(pauli, frame_width, action_index);
         frame_live = true;
+        frame_extent = std::max(frame_extent, active_before);
+        for (size_t word = pauli.x.size(); word-- > 0;) {
+            if (const uint64_t bits = pauli.x[word] | pauli.z[word]; bits != 0) {
+                frame_extent =
+                    std::max(frame_extent, static_cast<uint32_t>(64 * word + std::bit_width(bits)));
+                break;
+            }
+        }
     };
     written_records.reserve(std::min<size_t>(
         actions.size(), static_cast<uint64_t>(num_visible_records) + num_hidden_records));
@@ -683,8 +696,7 @@ void SamplingPlan::validate() const {
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                     if (planned.active_after != planned.active_before ||
                         typed.dormant_pivot < planned.active_before ||
-                        typed.dormant_pivot >= num_qubits ||
-                        (frame_live && typed.dormant_pivot < frame_width)) {
+                        typed.dormant_pivot >= num_qubits || typed.dormant_pivot < frame_extent) {
                         invalid_plan("dormant measurement has an invalid width or pivot");
                     }
                     validate_measurement_outcome(*this, actual_definitions, typed.outcome,
@@ -822,7 +834,12 @@ void SamplingPlan::validate() const {
                                         definition, false);
                 } else if constexpr (std::is_same_v<T, RotateFramePauli>) {
                     enter_frame(typed.pauli, planned.active_before, action_index);
-                    if (planned.active_after != std::min(planned.active_before + 1, frame_width)) {
+                    // The rotation can promote one coordinate the frame already
+                    // uses. The bound stops below the dense-state limit, which
+                    // the executor enforces on the widths shots reach.
+                    if (planned.active_after < std::min({planned.active_before + 1, frame_extent,
+                                                         kDenseActiveWidthLimit - 1}) ||
+                        planned.active_after > frame_width) {
                         invalid_plan("frame rotation has an invalid width bound");
                     }
                     if (!is_finite_robust(typed.half_turns)) {

@@ -50,6 +50,15 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       num_exp_vals_(plan.num_exp_vals),
       final_tableau_(plan.final_tableau),
       instrument_distributions_(plan.instrument_distributions) {
+    frame_entry_peak_width_ = initial_active_width_;
+    for (const PlannedAction& planned : plan.actions) {
+        if (std::holds_alternative<ApplyConditionalClifford>(planned.action) ||
+            std::holds_alternative<RotateFramePauli>(planned.action) ||
+            std::holds_alternative<MeasureFramePauli>(planned.action)) {
+            break;
+        }
+        frame_entry_peak_width_ = std::max(frame_entry_peak_width_, planned.active_after);
+    }
     // Keep construction-only lowering state out of the immutable executable.
     ExecutablePlanBuilder::build(*this, plan);
 }

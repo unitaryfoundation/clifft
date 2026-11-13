@@ -1515,11 +1515,11 @@ NB_MODULE(_clifft_core, m) {
             return text + ")";
         });
 
-    m.def(
-        "lower",
-        [](const clifft::HirModule& hir, std::optional<std::vector<uint8_t>> postselection_mask,
-           std::optional<std::vector<uint8_t>> expected_detectors,
-           std::optional<std::vector<uint8_t>> expected_observables) {
+    const auto lower = [](bool runtime_frame) {
+        return [runtime_frame](const clifft::HirModule& hir,
+                               std::optional<std::vector<uint8_t>> postselection_mask,
+                               std::optional<std::vector<uint8_t>> expected_detectors,
+                               std::optional<std::vector<uint8_t>> expected_observables) {
             nb::gil_scoped_release release;
             static constexpr uint8_t kZeroFlag = 0;
             auto to_span = [&](const std::optional<std::vector<uint8_t>>& opt) {
@@ -1532,20 +1532,30 @@ NB_MODULE(_clifft_core, m) {
                 return std::span<const uint8_t>(*opt);
             };
             return clifft::Program(clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
-                hir, {to_span(postselection_mask), to_span(expected_detectors),
-                      to_span(expected_observables)})));
-        },
-        nb::arg("hir"), nb::arg("postselection_mask") = nb::none(),
-        nb::arg("expected_detectors") = nb::none(), nb::arg("expected_observables") = nb::none(),
-        "Lower a Heisenberg IR module to an executable sampling program.\n\n"
-        "Args:\n"
-        "    hir: The Heisenberg IR module to lower.\n"
-        "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
-        "        Defaults to hir.postselection_mask when None.\n"
-        "    expected_detectors: Optional noiseless reference parities for detectors.\n"
-        "        Defaults to hir.expected_detectors when None.\n"
-        "    expected_observables: Optional noiseless reference parities for observables.\n"
-        "        Defaults to hir.expected_observables when None.\n");
+                hir, {.postselection_mask = to_span(postselection_mask),
+                      .expected_detectors = to_span(expected_detectors),
+                      .expected_observables = to_span(expected_observables),
+                      .runtime_frame = runtime_frame})));
+        };
+    };
+
+    // Lowers like lower(), planning signed T regions on a runtime Clifford
+    // frame where that needs fewer active coordinates.
+    m.def("_lower_runtime_frame", lower(true), nb::arg("hir"),
+          nb::arg("postselection_mask") = nb::none(), nb::arg("expected_detectors") = nb::none(),
+          nb::arg("expected_observables") = nb::none());
+
+    m.def("lower", lower(false), nb::arg("hir"), nb::arg("postselection_mask") = nb::none(),
+          nb::arg("expected_detectors") = nb::none(), nb::arg("expected_observables") = nb::none(),
+          "Lower a Heisenberg IR module to an executable sampling program.\n\n"
+          "Args:\n"
+          "    hir: The Heisenberg IR module to lower.\n"
+          "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
+          "        Defaults to hir.postselection_mask when None.\n"
+          "    expected_detectors: Optional noiseless reference parities for detectors.\n"
+          "        Defaults to hir.expected_detectors when None.\n"
+          "    expected_observables: Optional noiseless reference parities for observables.\n"
+          "        Defaults to hir.expected_observables when None.\n");
 
     m.def(
         "_prepare_hir_for_lowering",
