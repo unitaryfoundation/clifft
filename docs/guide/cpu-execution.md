@@ -8,7 +8,7 @@ changing the sampled distribution.
 First choose the function that returns the result you need. The four standard
 samplers share the same CPU controls:
 
-- `clifft.sample()`
+- `clifft.sample()` and its decoder helper `clifft.sample_detectors()`
 - `clifft.sample_survivors()`
 - `clifft.sample_k()`
 - `clifft.sample_k_survivors()`
@@ -338,10 +338,9 @@ workers, pin a numeric `batch_size`.
 
 Scalar and packed execution use separate random streams, and different packed
 capacities can produce different rows. Changing `keep_records` can also change
-when packed survivor lanes are compacted and therefore which random draws reach
-later measurements. These choices preserve the requested output distribution.
-Keep the complete execution configuration fixed when exact seeded replay is
-required. `bit_packed` only changes row storage and preserves the sampled bits.
+individual seeded rows while preserving the requested output distribution.
+`bit_packed` only changes array storage and preserves the sampled bits. Keep the
+complete execution configuration fixed when exact seeded replay is required.
 
 Timing-based calibration can select a different capacity on repeated calls,
 even with the same seed. For debugging, pin the reported numeric batch size

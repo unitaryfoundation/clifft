@@ -17,15 +17,24 @@ struct Program::Data {
         std::string fallback_reason = "reconstruction is disabled";
     };
 
+    struct EarlyCheckPreparations {
+        std::array<detail::LazyPrepared<SamplingPreparation>, 2> by_early_postselection;
+    };
+
+    struct SummaryPreparations {
+        std::array<EarlyCheckPreparations, 2> by_survivor_counts;
+    };
+
+    struct OutputPreparations {
+        std::array<SummaryPreparations, 2> by_fixed_faults;
+    };
+
     explicit Data(sampling::ExecutablePlan plan) : original(std::move(plan)) {}
 
     sampling::ExecutablePlan original;
     // Prepared once during compilation, then immutable for concurrent sampling.
     std::array<SamplingVariant, 2> variants;
-    // Output choice, fixed-fault plan choice, survivor summaries, and early checks.
-    std::array<
-        std::array<std::array<std::array<detail::LazyPrepared<SamplingPreparation>, 2>, 2>, 2>, 4>
-        preparations;
+    std::array<OutputPreparations, 4> preparations;
 };
 
 Program::Program(sampling::ExecutablePlan original)
@@ -131,8 +140,10 @@ const SamplingPreparation& Program::sampling_preparation(sampling::SamplingOutpu
     const bool survivor_counts =
         !outputs.rows() ||
         (outputs.records == sampling::RecordOutputs::Measurements && options.survivor_counts);
-    return data_
-        ->preparations[static_cast<size_t>(outputs.records)][fixed_faults][survivor_counts][early]
+    return data_->preparations[static_cast<size_t>(outputs.records)]
+        .by_fixed_faults[fixed_faults]
+        .by_survivor_counts[survivor_counts]
+        .by_early_postselection[early]
         .get(plan, outputs, early, survivor_counts);
 }
 

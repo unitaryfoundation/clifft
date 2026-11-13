@@ -18,7 +18,8 @@ class SampleResult:
         measurements: uint8 array, shape (shots, num_measurements)
         detectors: uint8 array, shape (shots, num_detectors)
         observables: uint8 array, shape (shots, num_observables)
-        retained_shots: number of retained rows, independent of the output selection
+        exp_vals: float64 array of expectation values, shape (shots, num_exp_vals)
+        retained_shots: number of retained rows, or zero for count-only sampling
         bit_packed: whether uint8 rows use little-endian b8 packing
         batch_tuning: calibration report when batch_size="tune", otherwise None
 
@@ -102,8 +103,12 @@ class SampleResult:
     def __repr__(self) -> str:
         parts = [
             f"shots={self.retained_shots}",
-            f"measurements={self.measurements.shape[1]}",
+            f"measurements_shape={self.measurements.shape}",
+            f"detectors_shape={self.detectors.shape}",
+            f"observables_shape={self.observables.shape}",
         ]
+        if self.exp_vals.shape[1]:
+            parts.append(f"exp_vals_shape={self.exp_vals.shape}")
         if self.bit_packed:
             parts.append("bit_packed=True")
         if self.total_shots is not None:

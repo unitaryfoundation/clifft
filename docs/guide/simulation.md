@@ -9,10 +9,12 @@ importance sampling, and leakage or loss are covered in their own guides.
 
 ## Choose sampling behavior
 
-Both sampling functions consume the reusable `Program` returned by
+These sampling functions consume the reusable `Program` returned by
 `clifft.compile()`:
 
 - Use `clifft.sample()` when every requested shot should produce one row.
+- Use `clifft.sample_detectors()` for detector arrays to pass to a decoder, with
+  optional separate observable arrays. See [Select and pack outputs](#select-and-pack-outputs).
 - Compile with a detector `postselection_mask` and use
   `clifft.sample_survivors()` when rejected shots should be discarded.
 
@@ -60,6 +62,52 @@ assert detectors.shape == (100, 0)
 assert observables.shape == (100, 0)
 ```
 
+### Post-selected survivor sampling
+
+The `postselection_mask` has one flag per detector. A `1` discards a shot when
+that detector fires; a `0` leaves the detector out of the post-selection
+condition.
+
+!!! important "Mask format"
+    The mask is a flat list of flags, not a bit-packed value. To convert a
+    bit-packed Sinter mask, use
+    `numpy.unpackbits(..., count=num_det, bitorder="little")`.
+
+```python
+import clifft
+
+program = clifft.compile(
+    "H 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
+    postselection_mask=[1],
+)
+result = clifft.sample_survivors(program, shots=10_000, seed=42)
+
+assert result.total_shots == 10_000
+assert result.passed_shots + result.discards == result.total_shots
+print(result.passed_shots / result.total_shots)
+```
+
+The result includes aggregate survivor information:
+
+- `total_shots`: shots attempted
+- `passed_shots`: shots that survived post-selection
+- `discards`: shots rejected
+- `logical_errors`: number of logical errors among survivors
+- `observable_ones`: per-observable error counts
+
+`observable_ones` always has shape `(program.num_observables,)`; a zero-shot
+run contains zero counts. Use `result.total_shots == 0` to identify an empty run.
+
+By default, survivor sampling returns only aggregate counts and skips `EXP_VAL`
+probes. To retain rows for each survivor, choose the outputs described in
+[Select and pack outputs](#select-and-pack-outputs).
+
+Marked detectors are checked during execution. Clifft discards a shot as soon
+as it can determine that the shot fails, avoiding later work that cannot
+contribute to the surviving sample. For repeated count-only runs over the same
+compiled program, see
+[`SurvivorSampler`](cpu-execution.md#sharing-trajectories-in-survivor-sampling).
+
 ### Select and pack outputs
 
 Decoder workloads usually need detector and observable rows without the full
@@ -105,54 +153,6 @@ or `(detectors, observables)` with `separate_observables=True`. It uses
 dtype `bool`; packed arrays have dtype `uint8`. The detector values follow the
 program's [syndrome normalization](#detectors-and-observables) settings.
 
-### Post-selected survivor sampling
-
-The `postselection_mask` has one flag per detector. A `1` discards a shot when
-that detector fires; a `0` leaves the detector out of the post-selection
-condition.
-
-!!! important "Mask format"
-    The mask is a flat list of flags, not a bit-packed value. To convert a
-    bit-packed Sinter mask, use
-    `numpy.unpackbits(..., count=num_det, bitorder="little")`.
-
-```python
-import clifft
-
-program = clifft.compile(
-    "H 0\nM 0\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]",
-    postselection_mask=[1],
-)
-result = clifft.sample_survivors(program, shots=10_000, seed=42)
-
-assert result.total_shots == 10_000
-assert result.passed_shots + result.discards == result.total_shots
-print(result.passed_shots / result.total_shots)
-```
-
-The result includes aggregate survivor information:
-
-- `total_shots`: shots attempted
-- `passed_shots`: shots that survived post-selection
-- `discards`: shots rejected
-- `logical_errors`: number of logical errors among survivors
-- `observable_ones`: per-observable error counts
-
-`observable_ones` always has shape `(program.num_observables,)`; a zero-shot
-run contains zero counts. Use `result.total_shots == 0` to identify an empty run.
-
-By default, the per-shot arrays are empty, and `EXP_VAL` probe values are not
-included in the aggregate statistics. CPU scalar and packed execution also skip
-evaluating these probes when `keep_records=False`, avoiding their evaluation cost
-even with an empty postselection mask. Pass `keep_records=True` to retain measurement,
-detector, observable, and expectation-value rows for each survivor.
-
-Marked detectors are checked during execution. Clifft discards a shot as soon
-as it can determine that the shot fails, avoiding later work that cannot
-contribute to the surviving sample. For repeated count-only runs over the same
-compiled program, see
-[`SurvivorSampler`](cpu-execution.md#sharing-trajectories-in-survivor-sampling).
-
 ## Understand `SampleResult`
 
 A `SampleResult` exposes four NumPy arrays:
@@ -166,11 +166,13 @@ A `SampleResult` exposes four NumPy arrays:
 
 `result.retained_shots` gives the number of retained rows: the requested shot
 count for ordinary sampling, the accepted shot count for survivor sampling with
-records, or zero for count-only sampling. A selected array has that many rows.
-An omitted array has zero rows and keeps the circuit's declared width, adjusted
-for bit packing. A result type with no declared columns has shape
-`(result.retained_shots, 0)`. `result.bit_packed` identifies packed binary arrays;
-`exp_vals` always uses unpacked `float64` values.
+records, or zero for count-only sampling. Selected binary arrays have that many
+rows and contain `uint8` values of `0` or `1`, or `b8` bytes when
+`result.bit_packed` is true. `exp_vals` contains unpacked `float64` values.
+
+Omitted arrays have zero rows and keep their declared column width, adjusted
+for bit packing. Arrays with no declared columns always have shape
+`(result.retained_shots, 0)`.
 
 ### Detectors and observables
 

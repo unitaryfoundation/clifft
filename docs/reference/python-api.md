@@ -27,6 +27,9 @@ compatibility limits.
 ::: clifft.sample
 
 ::: clifft.sample_detectors
+    options:
+      show_overloads: false
+      overloads_only: false
 
 ::: clifft.sample_survivors
 

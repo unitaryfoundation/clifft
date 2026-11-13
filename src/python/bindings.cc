@@ -1411,8 +1411,9 @@ NB_MODULE(_clifft_core, m) {
         m, "Program",
         "A reusable compiled program.\n\n"
         "peak_active_width, num_actions, and inspection describe full-output sampling, "
-        "as used by sample(). Use sampling_plan(keep_records=...) for survivor sampling "
-        "and original_plan for exact queries and fixed-fault sampling. Circuit counts "
+        "as used by sample() by default. Use sampling_plan(keep_records=...) for selective "
+        "or survivor sampling and original_plan for exact queries and fixed-fault sampling. "
+        "Circuit counts "
         "and noise-site probabilities retain their original meanings.")
         .def_prop_ro(
             "peak_active_width",
@@ -1462,7 +1463,7 @@ NB_MODULE(_clifft_core, m) {
             "inspect", [](const clifft::Program& p) { return p.sampling_plan(true).inspect(); },
             "Diagnostic text for the full-output sampling executable.\n\n"
             "The format is intended for human inspection. Use sampling_plan(keep_records=...) "
-            "to inspect survivor sampling, or original_plan for exact queries and "
+            "to inspect selective or survivor sampling, or original_plan for exact queries and "
             "fixed-fault sampling.")
         .def(
             "inspect_action",
@@ -1486,6 +1487,8 @@ NB_MODULE(_clifft_core, m) {
                                   p.reconstruction_fallback_reason(keep_records)};
             },
             nb::kw_only(), nb::arg("keep_records"), nb::keep_alive<0, 1>(),
+            nb::sig("def sampling_plan(self, *, keep_records: bool | "
+                    "typing.Literal['all', 'syndromes', 'measurements']) -> clifft.PlanView"),
             "Return a read-only view of the compiled plan selected for ordinary CPU sampling.\n\n"
             "Selection is prepared during compilation. When reconstruction is disabled or "
             "falls back, the view describes the original executable. Output preparation can "
@@ -1641,10 +1644,13 @@ NB_MODULE(_clifft_core, m) {
             }
             const auto& program = owner.original();
             if (program.has_postselection()) {
+                const auto choice = nb::repr(nb::cast(keep_records));
                 throw nb::value_error(
-                    "sample() cannot be used with post-selected programs because it "
-                    "returns a fixed number of rows and cannot discard shots. "
-                    "Use sample_survivors(program, shots, keep_records=True) instead.");
+                    (std::string("sample() cannot be used with post-selected programs because it "
+                                 "returns a fixed number of rows and cannot discard shots. "
+                                 "Use sample_survivors(program, shots, keep_records=") +
+                     choice.c_str() + ") instead.")
+                        .c_str());
             }
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
@@ -1719,10 +1725,13 @@ NB_MODULE(_clifft_core, m) {
             }
             const auto& program = owner.original();
             if (program.has_postselection()) {
+                const auto choice = nb::repr(nb::cast(keep_records));
                 throw nb::value_error(
-                    "sample_k() cannot be used with post-selected programs because it "
-                    "returns a fixed number of rows and cannot discard shots. "
-                    "Use sample_k_survivors(program, shots, k, keep_records=True) instead.");
+                    (std::string("sample_k() cannot be used with post-selected programs because it "
+                                 "returns a fixed number of rows and cannot discard shots. "
+                                 "Use sample_k_survivors(program, shots, k, keep_records=") +
+                     choice.c_str() + ") instead.")
+                        .c_str());
             }
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =

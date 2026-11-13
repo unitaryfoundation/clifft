@@ -207,11 +207,11 @@ def test_detector_convenience_shares_arrays(monkeypatch: pytest.MonkeyPatch) -> 
     detectors, observables = clifft.sample_detectors(program, 3, separate_observables=True)
     assert np.shares_memory(detectors, result.detectors)
     assert np.shares_memory(observables, result.observables)
-    detectors, observables = clifft.sample_detectors(
+    packed_detectors, packed_observables = clifft.sample_detectors(
         program, 3, separate_observables=True, bit_packed=True
     )
-    assert detectors is result.detectors
-    assert observables is result.observables
+    assert packed_detectors is result.detectors
+    assert packed_observables is result.observables
 
 
 @pytest.mark.parametrize("api", ["sample", "sample_k", "sample_survivors", "sample_k_survivors"])

@@ -86,7 +86,7 @@ output, while `sample_survivors()` defaults to `keep_records=False`.
 | Execution | Metadata and inspection |
 | --- | --- |
 | Full-output sampling | `program` or `program.sampling_plan(keep_records=True)` |
-| Syndrome rows | `program.sampling_plan(keep_records="syndromes")` |
+| Syndrome rows, including `sample_detectors()` | `program.sampling_plan(keep_records="syndromes")` |
 | Measurement rows | `program.sampling_plan(keep_records="measurements")` |
 | Survivor counts | `program.sampling_plan(keep_records=False)` |
 | Exact queries, replay, or fixed-fault sampling | `program.original_plan` |
@@ -100,10 +100,9 @@ reconstruction was selected for that output mode. An explicitly requested
 
 These views describe the selected compiled plan before output preparation
 removes unused storage and evaluations. The first sampling call for an output
-choice prepares and caches that work; survivor sampling can also prepare
-noise metadata. For workloads that compile many programs and sample only a few
-shots from each, include this first-call cost when comparing performance.
-Reusing a `Program` amortizes preparation across later calls.
+choice prepares and caches that work. Include this first-call cost when
+benchmarking workloads that compile many programs and sample only a few shots
+from each. Reusing a `Program` amortizes preparation across later calls.
 
 Without reconstruction, all views describe the original executable and the
 existing properties and inspection methods behave the same way. With
