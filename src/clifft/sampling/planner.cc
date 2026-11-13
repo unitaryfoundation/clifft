@@ -1096,9 +1096,10 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     };
 
     uint32_t active_width = plan.initial_active_width;
-    const bool use_frame =
-        options.runtime_frame && hir.instrument_sites.empty() && hir.num_exp_vals == 0;
-    FrameRegions regions(hir, plan, active_width, coordinates, symbolic_frame);
+    std::optional<FrameRegions> regions;
+    if (options.runtime_frame && hir.instrument_sites.empty() && hir.num_exp_vals == 0) {
+        regions.emplace(hir, plan, active_width, coordinates, symbolic_frame);
+    }
     uint32_t detector_index = 0;
     uint32_t next_noise_site = 0;
     uint32_t next_instrument_site = 0;
@@ -1112,8 +1113,8 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         switch (op.op_type()) {
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
-                if (use_frame) {
-                    regions.add_t_gate(i, half_turns, noise_signs.sign_for(i, next_noise_site));
+                if (regions) {
+                    regions->add_t_gate(i, half_turns, noise_signs.sign_for(i, next_noise_site));
                     break;
                 }
                 final_coordinates_changed |=
@@ -1123,12 +1124,14 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 break;
             }
             case OpType::PHASE_ROTATION: {
-                regions.flush();
-                if (regions.live()) {
-                    regions.rotate(resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
-                                                 noise_signs.sign_for(i, next_noise_site),
-                                                 coordinates, symbolic_frame),
-                                   op.alpha(), source_lines);
+                if (regions) {
+                    regions->flush();
+                }
+                if (regions && regions->live()) {
+                    regions->rotate(resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
+                                                  noise_signs.sign_for(i, next_noise_site),
+                                                  coordinates, symbolic_frame),
+                                    op.alpha(), source_lines);
                     break;
                 }
                 final_coordinates_changed |=
@@ -1140,14 +1143,16 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
             case OpType::MEASURE: {
                 const RecordSlot record{static_cast<uint32_t>(op.meas_record_idx())};
                 const SymbolId branch = reserve_symbol(plan);
-                regions.flush();
-                if (regions.live()) {
+                if (regions) {
+                    regions->flush();
+                }
+                if (regions && regions->live()) {
                     assign_record(
                         record,
-                        regions.measure(resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
-                                                      noise_signs.sign_for(i, next_noise_site),
-                                                      coordinates, symbolic_frame),
-                                        record, branch, source_lines),
+                        regions->measure(resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
+                                                       noise_signs.sign_for(i, next_noise_site),
+                                                       coordinates, symbolic_frame),
+                                         record, branch, source_lines),
                         i);
                     break;
                 }
@@ -1293,9 +1298,11 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         }
     }
 
-    regions.flush();
-    regions.finish();
-    final_coordinates_changed |= regions.promoted();
+    if (regions) {
+        regions->flush();
+        regions->finish();
+        final_coordinates_changed |= regions->promoted();
+    }
 
     if (plan.symbols.size() != requirements.symbol_count) {
         throw std::logic_error("sampling planner symbol prepass disagrees with HIR lowering");

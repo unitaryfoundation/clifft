@@ -72,7 +72,8 @@ class OnlineState {
             return p.sign() ? sampling::MeasurementProbabilities{0, 1}
                             : sampling::MeasurementProbabilities{1, 0};
         auto values = sampling::measurement_probabilities(
-            state, sampling::prepare_measurement_unchecked(a, state.active_width(), pivot(a)));
+            state, sampling::prepare_measurement_unchecked(a, state.active_width(),
+                                                           OnlineFrame::measurement_pivot(a)));
         if (p.sign())
             std::swap(values.zero, values.one);
         return values;
@@ -152,7 +153,7 @@ class OnlineState {
             return sign;
         }
         const uint32_t width = state.active_width();
-        const uint32_t removed = pivot(a);
+        const uint32_t removed = OnlineFrame::measurement_pivot(a);
         const auto measurement = sampling::prepare_measurement_unchecked(a, width, removed);
         const auto probabilities = sampling::measurement_probabilities(state, measurement);
         const double total = probabilities.total();
@@ -189,10 +190,6 @@ class OnlineState {
     double pending_zero_ = 0;
     double pending_one_ = 0;
     double pending_probability_ = 0;
-
-    static uint32_t pivot(sampling::ActivePauli p) noexcept {
-        return OnlineFrame::measurement_pivot(p);
-    }
 
     void promote(PauliStringView p, uint32_t dormant) noexcept {
         assert(state.active_width() < state.max_active_width());
