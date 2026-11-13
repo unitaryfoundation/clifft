@@ -1081,7 +1081,9 @@ inline ExactPlanDistribution evaluate_conditional_distribution(
             }
 
             const clifft::sampling::ReplayResult replay =
-                prepared.executor.replay_shot(forced, presampled);
+                prepared.executable.uses_runtime_frame()
+                    ? prepared.executor.replay_frame_shot(forced, presampled)
+                    : prepared.executor.replay_shot(forced, presampled);
             if (!replay.reachable) {
                 continue;
             }

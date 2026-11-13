@@ -789,8 +789,8 @@ TEST_CASE("Growing coefficient storage does not change a seeded frame shot",
     bool saw_one = false;
     for (uint32_t shot = 0; shot < 200; ++shot) {
         CAPTURE(shot);
-        lazy_executor.run_shot();
-        eager_executor.run_shot();
+        lazy_executor.run_frame_shot();
+        eager_executor.run_frame_shot();
         REQUIRE(
             std::ranges::equal(lazy_executor.visible_records(), eager_executor.visible_records()));
         saw_one |= std::ranges::count(lazy_executor.visible_records(), uint8_t{1}) != 0;
@@ -816,7 +816,7 @@ TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame
         sampling::Executor executor(executable, 1000 + trial);
         std::map<uint64_t, uint32_t> counts;
         for (uint32_t shot = 0; shot < kShots; ++shot) {
-            executor.run_shot();
+            executor.run_frame_shot();
             uint64_t bits = 0;
             for (size_t record = 0; record < executor.visible_records().size(); ++record) {
                 bits |= uint64_t{executor.visible_records()[record]} << record;
