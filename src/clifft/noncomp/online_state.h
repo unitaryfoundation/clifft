@@ -1,13 +1,18 @@
 #pragma once
 
-#include "clifft/noncomp/online_frame.h"
 #include "clifft/sampling/branch_choice.h"
 #include "clifft/sampling/measurement_branch.h"
+#include "clifft/sampling/online_frame.h"
 #include "clifft/util/xoshiro.h"
 
 #include <optional>
 
 namespace clifft::noncomp_detail {
+
+using sampling::copy_pauli;
+using sampling::LocalClifford;
+using sampling::LocalPauli;
+using sampling::OnlineFrame;
 
 // Prepared rotation data lets OnlineState update the frame for Clifford angles
 // and use dense kernels otherwise, without recomputing coefficients per shot.
@@ -28,7 +33,7 @@ class OnlineState {
     sampling::State state;
     uint32_t peak = 0;
 
-    explicit OnlineState(uint32_t n) : frame(n), state(0), body_(n), pending_axis_(n) {}
+    explicit OnlineState(uint32_t n) : frame(n), state(0), pending_axis_(n) {}
 
     void reset() noexcept {
         assert(!pending());
@@ -52,20 +57,11 @@ class OnlineState {
     }
 
     std::optional<uint32_t> dormant_x(PauliStringView p) const noexcept {
-        for (uint32_t w = state.active_width() / 64; w < p.x().num_words(); ++w) {
-            uint64_t bits = p.x().words[w];
-            if (w == state.active_width() / 64)
-                bits &= ~uint64_t{0} << (state.active_width() % 64);
-            if (bits)
-                return 64 * w + std::countr_zero(bits);
-        }
-        return std::nullopt;
+        return OnlineFrame::dormant_x(p, state.active_width());
     }
 
     sampling::ActivePauli active(PauliStringView p) const noexcept {
-        const uint64_t mask = (uint64_t{1} << state.active_width()) - 1;
-        return {p.x().words.empty() ? 0 : p.x().words[0] & mask,
-                p.z().words.empty() ? 0 : p.z().words[0] & mask};
+        return OnlineFrame::active(p, state.active_width());
     }
 
     sampling::MeasurementProbabilities populations(PauliStringView p) const noexcept {
@@ -181,30 +177,12 @@ class OnlineState {
         sampling::collapse_measurement(state, measurement, branch,
                                        probabilities.for_branch(branch));
 
-        body_.mut_x().zero_out();
-        body_.mut_z().zero_out();
-        if (width) {
-            body_.mut_x().words[0] = a.x;
-            body_.mut_z().words[0] = a.z;
-        }
-        body_.set_sign(false);
-        if (a.x) {
-            frame.localize_x(body_.view(), removed);
-            frame.coordinate_h(removed);
-        } else {
-            for (uint32_t q = 0; q < width; ++q)
-                if (q != removed && ((a.z >> q) & 1))
-                    frame.coordinate_cx(q, removed);
-        }
-        if (branch)
-            frame.coordinate_x(removed);
-        frame.compact(removed, width);
+        frame.finish_active_measurement(a, removed, width, branch);
         return branch ^ sign;
     }
 
   private:
     enum class PendingKind { None, Rotation, Filter };
-    PauliString body_;
     PauliString pending_axis_;
     PendingKind pending_kind_ = PendingKind::None;
     OnlineRotation pending_rotation_;
@@ -213,13 +191,12 @@ class OnlineState {
     double pending_probability_ = 0;
 
     static uint32_t pivot(sampling::ActivePauli p) noexcept {
-        return p.x ? 63 - std::countl_zero(p.x) : std::countr_zero(p.z);
+        return OnlineFrame::measurement_pivot(p);
     }
 
     void promote(PauliStringView p, uint32_t dormant) noexcept {
         assert(state.active_width() < state.max_active_width());
-        frame.localize_x(p, dormant);
-        frame.coordinate_swap(dormant, state.active_width());
+        frame.promote(p, dormant, state.active_width());
         peak = std::max(peak, state.active_width() + 1);
     }
 };

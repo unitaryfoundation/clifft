@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/circuit/gate_data.h"
+#include "clifft/sampling/plan.h"
 #include "clifft/tableau/pauli_string.h"
 #include "clifft/util/numeric.h"
 
@@ -8,8 +9,9 @@
 #include <array>
 #include <bit>
 #include <cassert>
+#include <optional>
 
-namespace clifft::noncomp_detail {
+namespace clifft::sampling {
 
 // Pauli on a gate's one or two operands, encoded as i^phase X^x Z^z. Keeping
 // these local lets the same prepared gate action apply to any physical targets.
@@ -33,18 +35,23 @@ inline void copy_pauli(PauliStringView source, PauliString& destination) noexcep
     destination.set_phase(source.phase());
 }
 
-// Maps physical Paulis into the coordinates used by OnlineState's dense active
-// state and remaining |0> qubits. Physical gates compose LocalClifford actions
-// into this inverse frame; measurements and activations change its coordinates.
+// A Clifford frame that changes during a shot. It maps Paulis on n input
+// coordinates into the coordinates of a dense active state followed by
+// remaining |0> qubits: rows[q] and rows[n + q] hold the images of X_q and Z_q.
+// Gates and Clifford rotations compose into this inverse frame; measurements
+// and activations change its output coordinates. The owner holds the dense
+// coefficients and passes their active width where a method needs it.
 class OnlineFrame {
   public:
     uint32_t n;
     std::vector<PauliString> rows;
     PauliString scratch;
+    PauliString body;
     std::array<PauliString, 4> old;
     explicit OnlineFrame(uint32_t count)
         : n(count),
           scratch(count),
+          body(count),
           old{PauliString(count), PauliString(count), PauliString(count), PauliString(count)} {
         rows.reserve(2 * static_cast<size_t>(n));
         for (uint32_t i = 0; i < 2 * n; ++i)
@@ -66,6 +73,50 @@ class OnlineFrame {
             output.right_multiply(rows[n + q].view());
             output.add_phase(1);
         }
+    }
+    // Maps the Hermitian input Pauli i^popcount(x & z) X^x Z^z into frame
+    // coordinates. Bits at or above n must be clear.
+    void map(MaskView x, MaskView z, PauliString& output) const noexcept {
+        assert(output.num_qubits() == n && x.num_words() == z.num_words());
+        output.mut_x().zero_out();
+        output.mut_z().zero_out();
+        output.set_phase(0);
+        unsigned y_count = 0;
+        for (uint32_t w = 0; w < x.num_words(); ++w) {
+            y_count += static_cast<unsigned>(std::popcount(x.words[w] & z.words[w]));
+            for (uint64_t bits = x.words[w] | z.words[w]; bits != 0; bits &= bits - 1) {
+                const uint32_t q = 64 * w + static_cast<uint32_t>(std::countr_zero(bits));
+                assert(q < n);
+                if ((x.words[w] >> (q % 64)) & 1)
+                    output.right_multiply(rows[q].view());
+                if ((z.words[w] >> (q % 64)) & 1)
+                    output.right_multiply(rows[n + q].view());
+            }
+        }
+        output.add_phase(static_cast<uint8_t>(y_count & 3U));
+    }
+    // First dormant coordinate where p has X or Y support. Such a Pauli has
+    // expectation zero, and measuring it gives an unbiased outcome.
+    static std::optional<uint32_t> dormant_x(PauliStringView p, uint32_t active_width) noexcept {
+        for (uint32_t w = active_width / 64; w < p.x().num_words(); ++w) {
+            uint64_t bits = p.x().words[w];
+            if (w == active_width / 64)
+                bits &= ~uint64_t{0} << (active_width % 64);
+            if (bits)
+                return 64 * w + std::countr_zero(bits);
+        }
+        return std::nullopt;
+    }
+    // Restriction of p to the active coordinates. Dormant Z factors act as the
+    // identity on |0>, so this is the complete action when dormant_x is empty.
+    static ActivePauli active(PauliStringView p, uint32_t active_width) noexcept {
+        const uint64_t mask = (uint64_t{1} << active_width) - 1;
+        return {p.x().words.empty() ? 0 : p.x().words[0] & mask,
+                p.z().words.empty() ? 0 : p.z().words[0] & mask};
+    }
+    // Coordinate removed by a dense measurement of an active Pauli.
+    static uint32_t measurement_pivot(ActivePauli p) noexcept {
+        return p.x ? 63 - std::countl_zero(p.x) : std::countr_zero(p.z);
     }
     void physical(GateType gate, uint32_t a, uint32_t b, const LocalClifford& inverse) noexcept {
         // Conjugate physical input by the inverse gate before the inverse frame.
@@ -187,6 +238,35 @@ class OnlineFrame {
             }
         }
     }
+    // Makes p the X generator of the next active coordinate. The owner then
+    // applies the rotation or filter that needs that coordinate.
+    void promote(PauliStringView p, uint32_t dormant, uint32_t active_width) noexcept {
+        localize_x(p, dormant);
+        coordinate_swap(dormant, active_width);
+    }
+    // Follows a dense measurement of the active Pauli a that collapsed onto
+    // branch and removed coordinate `removed` from a state of the given width.
+    void finish_active_measurement(ActivePauli a, uint32_t removed, uint32_t width,
+                                   bool branch) noexcept {
+        body.mut_x().zero_out();
+        body.mut_z().zero_out();
+        if (width) {
+            body.mut_x().words[0] = a.x;
+            body.mut_z().words[0] = a.z;
+        }
+        body.set_sign(false);
+        if (a.x) {
+            localize_x(body.view(), removed);
+            coordinate_h(removed);
+        } else {
+            for (uint32_t q = 0; q < width; ++q)
+                if (q != removed && ((a.z >> q) & 1))
+                    coordinate_cx(q, removed);
+        }
+        if (branch)
+            coordinate_x(removed);
+        compact(removed, width);
+    }
     void measure_dormant(PauliStringView p, uint32_t pivot, bool branch) noexcept {
         // Fuse U^-1, H, and the sampled X correction. The controlled-Pauli
         // commutator and product phase share the same packed-word traversal.
@@ -236,4 +316,4 @@ class OnlineFrame {
     }
 };
 
-}  // namespace clifft::noncomp_detail
+}  // namespace clifft::sampling
