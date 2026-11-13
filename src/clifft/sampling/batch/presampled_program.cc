@@ -59,7 +59,7 @@ std::optional<BatchPresampledProgram> BatchPresampledProgram::build(
     (void)executable;
     return std::nullopt;
 #else
-    if (executable.has_instruments_) {
+    if (executable.has_instruments_ || executable.frame_width_ != 0) {
         return std::nullopt;
     }
 

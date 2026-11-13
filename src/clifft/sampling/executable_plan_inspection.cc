@@ -85,8 +85,11 @@ void write_prepared_pauli(std::ostream& out, const PreparedPauli& pauli) {
 
 std::string ExecutablePlan::inspect() const {
     std::ostringstream out;
-    out << "executable_plan backend=" << backend_name(backend_) << " actions=" << actions_.size()
-        << " expression_registers=" << expression_register_constants_.size()
+    out << "executable_plan backend=" << backend_name(backend_) << " actions=" << actions_.size();
+    if (frame_width_ != 0) {
+        out << " frame_width=" << frame_width_;
+    }
+    out << " expression_registers=" << expression_register_constants_.size()
         << " fused_rotations=" << fused_rotations_.size()
         << " dynamic_fused_rotations=" << dynamic_fused_rotations_.size() << '\n';
     for (size_t i = 0; i < actions_.size(); ++i) {
@@ -229,6 +232,29 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                         },
                     },
                     typed.form);
+            },
+            [&](const ExecuteFrameClifford& typed) {
+                out << "FRAME_CLIFFORD "
+                    << format_pauli_product(frame_pauli_x(typed.pauli).words,
+                                            frame_pauli_z(typed.pauli).words)
+                    << " half_turns="
+                    << format_double_roundtrip(0.5 * static_cast<double>(typed.rotation))
+                    << " condition=e" << typed.condition.register_id;
+            },
+            [&](const ExecuteFrameRotation& typed) {
+                out << "FRAME_ROTATION "
+                    << format_pauli_product(frame_pauli_x(typed.pauli).words,
+                                            frame_pauli_z(typed.pauli).words)
+                    << " cos=" << format_double_roundtrip(typed.rotation.cosine)
+                    << " sin=" << format_double_roundtrip(typed.rotation.sine) << " sign=e"
+                    << typed.sign.register_id;
+            },
+            [&](const ExecuteFrameMeasurement& typed) {
+                out << "FRAME_MEASUREMENT "
+                    << format_pauli_product(frame_pauli_x(typed.pauli).words,
+                                            frame_pauli_z(typed.pauli).words)
+                    << " branch=s" << typed.branch << " record=r" << typed.record << " correction=e"
+                    << typed.correction.register_id;
             },
             [&](const ExecuteBoundary& typed) {
                 out << "INSTRUMENT_BOUNDARY site=" << typed.site

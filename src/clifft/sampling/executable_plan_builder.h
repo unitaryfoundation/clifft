@@ -47,6 +47,8 @@ class ExecutablePlanBuilder {
     static batch_detail::BatchWorkEstimate action_batch_lane_work(
         const ExecutablePlan& plan, const ExecutablePlan::Action& action, uint32_t width);
     void record_batch_lane_work(batch_detail::BatchWorkEstimate work);
+    // Appends one frame Pauli to the plan's packed storage and returns its index.
+    [[nodiscard]] uint32_t store_frame_pauli(const FramePauli& pauli);
     void record_action_origin(uint32_t plan_begin, uint32_t plan_end);
     static void prepare_batch_compaction_costs(ExecutablePlan& output,
                                                std::span<const batch_detail::BatchLaneWork> work);

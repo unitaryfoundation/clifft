@@ -96,6 +96,18 @@
       "detail": "A non-Clifford rotation on a coordinate that was stabilizer-only until now. The active width increases by one, doubling the coefficient state, and the promoting rotation is applied in the same pass. Later operations were already rewritten into the new basis during planning. The sign expression conditions the rotation direction per shot.",
       "operands": "half_turns, sign"
     },
+    "CONDITIONAL_CLIFFORD": {
+      "category": "Rotation",
+      "summary": "Applies a Clifford rotation to the runtime Clifford frame on shots where its condition holds.",
+      "detail": "A T-family rotation whose sign depends on the shot splits into the same rotation with a fixed sign and a Clifford correction: exp(-i*pi/8*(-1)^t*P) = exp(+i*pi/4*t*P) * exp(-i*pi/8*P). This action is that correction. When the condition expression evaluates true, the frame is composed with the named rotation (sqrt, pauli, or sqrt_dag, for half_turns of 1/2, 1, and 3/2) about the Pauli product shown over frame coordinates. The coefficient state and active width are unchanged. The first frame action starts the runtime Clifford frame; later coefficient work on frame coordinates is expressed as frame actions.",
+      "operands": "Pauli product, rotation, condition"
+    },
+    "ROTATE_FRAME": {
+      "category": "Rotation",
+      "summary": "Rotation about a Pauli product on the coordinates of the runtime Clifford frame.",
+      "detail": "Applies exp(-i*pi*half_turns/2 * P) where P is given on frame coordinates. Each shot maps P through its own frame. The result either acts on the current active coordinates, which traverses the coefficient state, or has X support on a dormant frame coordinate, which adds one active coordinate. The width shown is therefore an upper bound: it grows by one, up to the frame width. When the sign expression evaluates true the rotation direction is reversed.",
+      "operands": "Pauli product, half_turns, sign"
+    },
     "MEASURE_ACTIVE": {
       "category": "Measurement",
       "summary": "Measures a Pauli product on the active coordinates, collapsing the coefficient state.",
@@ -107,6 +119,12 @@
       "summary": "Measures a random-outcome Pauli outside the active coefficient state.",
       "detail": "The measured observable anticommutes with a dormant stabilizer, so the outcome is an unbiased coin flip handled algebraically: the branch symbol is sampled, the dormant stabilizer at the pivot is replaced, and the coefficient state is untouched. The record bit combines the branch with the outcome expression's corrections.",
       "operands": "pivot, branch, outcome, record"
+    },
+    "MEASURE_FRAME": {
+      "category": "Measurement",
+      "summary": "Measures a Pauli product on the coordinates of the runtime Clifford frame.",
+      "detail": "Each shot maps the Pauli through its own frame and then finds one of three cases: the outcome is fixed by the dormant frame coordinates, it is an unbiased coin flip that only updates the frame, or it depends on the coefficient state, which is sampled and collapsed with one active coordinate removed. The branch symbol holds the eigenvalue bit of the unsigned Pauli. The record bit combines it with the outcome expression's corrections from earlier stochastic events.",
+      "operands": "Pauli product, branch, outcome, record"
     },
     "RECORD_CLASSICAL": {
       "category": "Classical",

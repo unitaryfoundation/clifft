@@ -244,6 +244,18 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteBoundary&) noexc
     assert(false && "continuation boundaries must remain on the scalar trajectory executor");
 }
 
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameClifford&) noexcept {
+    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+}
+
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRotation&) noexcept {
+    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+}
+
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameMeasurement&) noexcept {
+    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+}
+
 bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detector) const noexcept {
     const uint64_t bit_columns = expression_registers_.num_columns() + records_.num_columns() +
                                  detectors_.num_columns() + observables_.num_columns() +

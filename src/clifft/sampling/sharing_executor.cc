@@ -673,4 +673,16 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteBoundary&) noe
     assert(false && "continuation boundaries are excluded during sharing setup");
 }
 
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameClifford&) noexcept {
+    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+}
+
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRotation&) noexcept {
+    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+}
+
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameMeasurement&) noexcept {
+    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+}
+
 }  // namespace clifft::sampling

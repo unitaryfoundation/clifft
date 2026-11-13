@@ -155,7 +155,7 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
-    if (shots == 0 || plan.has_instruments()) {
+    if (shots == 0 || plan.has_instruments() || plan.uses_runtime_frame()) {
         return {};
     }
 #if defined(__EMSCRIPTEN__)

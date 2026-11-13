@@ -78,6 +78,10 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
+    // Width of the runtime Clifford frame, or zero when the plan has none.
+    // Frame plans run on the scalar Executor only.
+    [[nodiscard]] uint32_t frame_width() const { return frame_width_; }
+    [[nodiscard]] bool uses_runtime_frame() const { return frame_width_ != 0; }
     [[nodiscard]] uint32_t num_visible_records() const { return num_visible_records_; }
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
     [[nodiscard]] uint32_t num_detectors() const { return num_detectors_; }
@@ -148,6 +152,16 @@ class ExecutablePlan {
     friend class ExecutablePlanBuilder;
 
     [[nodiscard]] std::vector<AffineBool> affine_registers() const;
+
+    [[nodiscard]] uint32_t frame_words() const noexcept { return (frame_width_ + 63) / 64; }
+    [[nodiscard]] MaskView frame_pauli_x(uint32_t pauli) const noexcept {
+        return MaskView{std::span<const uint64_t>(frame_paulis_)
+                            .subspan(size_t{2} * pauli * frame_words(), frame_words())};
+    }
+    [[nodiscard]] MaskView frame_pauli_z(uint32_t pauli) const noexcept {
+        return MaskView{std::span<const uint64_t>(frame_paulis_)
+                            .subspan((size_t{2} * pauli + 1) * frame_words(), frame_words())};
+    }
 
     // Actions retain only this index so repeated affine expressions stay in
     // shared plan storage.
@@ -237,6 +251,28 @@ class ExecutablePlan {
     struct ExecuteClassicalRecord {
         PreparedExpression outcome;
         uint32_t record = 0;
+    };
+
+    // Actions on the runtime Clifford frame. Each names its Pauli by an index
+    // into frame_paulis_; the executor maps that Pauli through the frame and
+    // then chooses the frame update or coefficient kernel for the shot.
+    struct ExecuteFrameClifford {
+        PreparedExpression condition;
+        uint32_t pauli = 0;
+        CliffordRotation rotation = CliffordRotation::IDENTITY;
+    };
+
+    struct ExecuteFrameRotation {
+        PreparedPromotion rotation;
+        PreparedExpression sign;
+        uint32_t pauli = 0;
+    };
+
+    struct ExecuteFrameMeasurement {
+        PreparedExpression correction;
+        uint32_t branch = 0;
+        uint32_t record = 0;
+        uint32_t pauli = 0;
     };
 
     struct ExecuteSymbolDefinition {
@@ -376,12 +412,14 @@ class ExecutablePlan {
                      ExecutePromotion, ExecuteActiveMeasurement, ExecuteDormantMeasurement,
                      ExecuteClassicalRecord, ExecuteSymbolDefinition, ExecuteReadoutNoise,
                      ExecuteDetector, ExecuteObservable, ExecuteExpectation, ExecuteInstrument,
-                     ExecuteBoundary>;
+                     ExecuteBoundary, ExecuteFrameClifford, ExecuteFrameRotation,
+                     ExecuteFrameMeasurement>;
 
     // Immutable plan metadata and externally visible dimensions.
     uint32_t num_qubits_ = 0;
     uint32_t initial_active_width_ = 0;
     uint32_t peak_active_width_ = 0;
+    uint32_t frame_width_ = 0;
     uint32_t num_visible_records_ = 0;
     uint32_t num_hidden_records_ = 0;
     uint32_t num_detectors_ = 0;
@@ -419,6 +457,9 @@ class ExecutablePlan {
 
     // Packed-only output parities.
     std::vector<uint32_t> record_parity_terms_;
+
+    // Frame Paulis, each stored as its X words followed by its Z words.
+    std::vector<uint64_t> frame_paulis_;
 
     // Instrument inputs and continuation offsets share the same site index.
     std::vector<InstrumentDistribution> instrument_distributions_;

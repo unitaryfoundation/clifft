@@ -392,8 +392,12 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
                 [&](auto typed) {
                     using T = std::decay_t<decltype(typed)>;
                     if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
-                                  std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
+                                  std::is_same_v<T, ExecutablePlan::ExecutePromotion> ||
+                                  std::is_same_v<T, ExecutablePlan::ExecuteFrameRotation>) {
                         typed.sign = prepare(expand(typed.sign));
+                        append(typed);
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameClifford>) {
+                        typed.condition = prepare(expand(typed.condition));
                         append(typed);
                     } else if constexpr (std::is_same_v<
                                              T, ExecutablePlan::ExecuteDynamicFusedRotation>) {
@@ -408,7 +412,9 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
                     } else if constexpr (std::is_same_v<T,
                                                         ExecutablePlan::ExecuteActiveMeasurement> ||
                                          std::is_same_v<
-                                             T, ExecutablePlan::ExecuteDormantMeasurement>) {
+                                             T, ExecutablePlan::ExecuteDormantMeasurement> ||
+                                         std::is_same_v<T,
+                                                        ExecutablePlan::ExecuteFrameMeasurement>) {
                         records[typed.record] =
                             expand(typed.correction) ^ AffineBool::symbol(SymbolId{typed.branch});
                         // Measurement records are internal scratch; requested outputs
@@ -577,10 +583,14 @@ ExecutablePlanBuilder::estimate_program_storage() const {
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, RotateActivePauli> ||
-                              std::is_same_v<T, PromoteDormantRotation>) {
+                              std::is_same_v<T, PromoteDormantRotation> ||
+                              std::is_same_v<T, RotateFramePauli>) {
                     num_terms += typed.sign.terms().size();
+                } else if constexpr (std::is_same_v<T, ApplyConditionalClifford>) {
+                    num_terms += typed.condition.terms().size();
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli> ||
-                                     std::is_same_v<T, MeasureDormantRandom>) {
+                                     std::is_same_v<T, MeasureDormantRandom> ||
+                                     std::is_same_v<T, MeasureFramePauli>) {
                     // The current branch is stored separately so replay can
                     // solve for it from the requested record.
                     num_terms += typed.outcome.terms().size() - 1;
@@ -845,6 +855,18 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                     index(typed.site), planned.active_before,
                     boundary_noise_starts_[boundary_index], noise_end, typed.symbol_prefix_size});
                 ++boundary_index;
+            } else if constexpr (std::is_same_v<T, ApplyConditionalClifford>) {
+                output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameClifford{
+                    prepare_expression(typed.condition), store_frame_pauli(typed.pauli),
+                    typed.rotation});
+            } else if constexpr (std::is_same_v<T, RotateFramePauli>) {
+                output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameRotation{
+                    prepare_promotion(typed.half_turns), prepare_expression(typed.sign),
+                    store_frame_pauli(typed.pauli)});
+            } else if constexpr (std::is_same_v<T, MeasureFramePauli>) {
+                output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameMeasurement{
+                    prepare_measurement_correction(typed.outcome, index(typed.branch)),
+                    index(typed.branch), index(typed.record), store_frame_pauli(typed.pauli)});
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }
@@ -852,6 +874,17 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
         planned.action);
     record_batch_lane_work(
         action_batch_lane_work(output_, output_.actions_.back(), planned.active_before));
+}
+
+uint32_t ExecutablePlanBuilder::store_frame_pauli(const FramePauli& pauli) {
+    const size_t stride = size_t{2} * output_.frame_words();
+    const size_t stored = output_.frame_paulis_.size() / stride;
+    if (stored >= std::numeric_limits<uint32_t>::max()) {
+        throw std::length_error("sampling executable frame Pauli count exceeds uint32 range");
+    }
+    output_.frame_paulis_.insert(output_.frame_paulis_.end(), pauli.x.begin(), pauli.x.end());
+    output_.frame_paulis_.insert(output_.frame_paulis_.end(), pauli.z.begin(), pauli.z.end());
+    return static_cast<uint32_t>(stored);
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_batch_lane_work(
@@ -1045,6 +1078,11 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
             validate_record_parity(std::get<ExecutablePlan::PreparedRecordParity>(value));
         }
     };
+    auto validate_frame_pauli = [&]([[maybe_unused]] uint32_t pauli) {
+        assert(output_.frame_width_ != 0 &&
+               (size_t{2} * pauli + 2) * output_.frame_words() <= output_.frame_paulis_.size() &&
+               "frame Pauli is out of range");
+    };
     for (const ExecutablePlan::Action& action : output_.actions_) {
         std::visit(
             [&](const auto& typed) {
@@ -1097,6 +1135,15 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
                     assert(typed.site < output_.instrument_resume_offsets_.size() &&
                            "instrument boundary site is out of range");
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameClifford>) {
+                    validate_expression(typed.condition);
+                    validate_frame_pauli(typed.pauli);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameRotation>) {
+                    validate_expression(typed.sign);
+                    validate_frame_pauli(typed.pauli);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement>) {
+                    validate_expression(typed.correction);
+                    validate_frame_pauli(typed.pauli);
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled executable action alternative");
                 }

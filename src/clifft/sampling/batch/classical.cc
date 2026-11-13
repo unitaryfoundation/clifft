@@ -17,6 +17,9 @@ namespace {
     if (plan.has_instruments()) {
         throw std::invalid_argument("packed sampling does not support instrument continuations");
     }
+    if (plan.uses_runtime_frame()) {
+        throw std::invalid_argument("packed sampling does not support runtime Clifford frames");
+    }
     if (sampling_mode != BatchSamplingMode::ExternalInputs &&
         plan.num_unbound_presampled_symbols() != 0) {
         throw std::invalid_argument(
