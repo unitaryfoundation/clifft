@@ -134,12 +134,30 @@ TEST_CASE("Shot scheduler propagates worker initialization failures") {
     REQUIRE_THROWS_AS(
         clifft::run_shot_ranges(
             8192, 4,
-            [](uint32_t index) {
-                if (index == 0) {
-                    throw std::runtime_error("worker initialization failed");
-                }
-                return std::make_unique<uint32_t>(index);
+            [](uint32_t) -> std::unique_ptr<uint32_t> {
+                throw std::runtime_error("worker initialization failed");
             },
             [](auto&, clifft::ShotRange) {}, 1, clifft::WorkerInitialization::OnWorkerThread),
         std::runtime_error);
+}
+
+TEST_CASE("Shot scheduler constructs only contexts that claim work") {
+    std::atomic<uint32_t> constructed{0};
+    std::atomic<uint32_t> visits{0};
+    const auto workers = clifft::run_shot_ranges(
+        8192, 4,
+        [&](uint32_t index) {
+            ++constructed;
+            return std::make_unique<uint32_t>(index);
+        },
+        [&](const auto& worker, clifft::ShotRange range) {
+            if (worker) {
+                visits += range.end - range.begin;
+            }
+        },
+        8192, clifft::WorkerInitialization::OnWorkerThread);
+    REQUIRE(constructed == 1);
+    REQUIRE(visits == 8192);
+    REQUIRE(std::count_if(workers.begin(), workers.end(), [](const auto& w) { return bool(w); }) ==
+            1);
 }

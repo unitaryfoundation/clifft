@@ -19,6 +19,13 @@ struct BatchTuningCandidate {
     uint32_t max_probe_shots;
 };
 
+// Calibration bounds row allocations independently of worker storage budgets.
+[[nodiscard]] inline uint32_t max_batch_probe_shots(uint32_t shots, uint64_t row_bytes) noexcept {
+    constexpr uint64_t kProbeOutputBudget = 8 * 1024 * 1024;
+    return static_cast<uint32_t>(
+        std::min<uint64_t>(shots, kProbeOutputBudget / std::max<uint64_t>(1, row_bytes)));
+}
+
 void validate_batch_tuning_options(std::optional<uint32_t> batch_size,
                                    std::optional<double> tuning_budget_seconds);
 

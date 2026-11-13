@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <chrono>
-#include <numeric>
 #include <stdexcept>
 #include <type_traits>
 
@@ -26,7 +25,6 @@ struct SharedWorker {
     uint32_t passed = 0;
     uint32_t logical_errors = 0;
     std::vector<uint64_t> observable_ones;
-    std::vector<uint32_t> rows;
 
     SharedWorker(const SamplingPreparation& preparation, const PreparedBatchNoise& noise,
                  const EarlyPostselection& checks, const SharingKey* key,
@@ -35,16 +33,14 @@ struct SharedWorker {
                    std::min(kInitialSharedStates, execution.batch_size), true, key,
                    *execution.max_worker_state_bytes,
                    outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors),
-          observable_ones(preparation.plan().num_observables()),
-          rows(outputs.rows() ? execution.batch_size : 0) {
-        std::iota(rows.begin(), rows.end(), uint32_t{0});
-    }
+          observable_ones(preparation.plan().num_observables()) {}
 };
 
 template <typename Result>
 Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
                   std::optional<uint64_t> seed, SamplingOutputs outputs,
-                  const SamplingExecution& execution) {
+                  const SamplingExecution& execution,
+                  std::vector<std::unique_ptr<SharedWorker>>& workers) {
     constexpr bool survivors = std::is_same_v<Result, SamplingSurvivorResult>;
     const auto& plan = preparation.plan();
     Result result;
@@ -65,11 +61,21 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
     const uint32_t batch_count = static_cast<uint32_t>((uint64_t{shots} + capacity - 1) / capacity);
     batch_detail::SurvivorRowCollector rows(shots, capacity, survivors && outputs.rows());
     const auto root = make_seed_root(shots, seed);
-    auto workers = run_shot_ranges(
+    for (auto& worker : workers) {
+        if (worker) {
+            worker->passed = worker->logical_errors = 0;
+            std::fill(worker->observable_ones.begin(), worker->observable_ones.end(), 0);
+        }
+    }
+    (void)run_shot_ranges(
         batch_count, execution.shot_workers,
-        [&](uint32_t) {
-            return std::make_unique<SharedWorker>(preparation, noise, checks, key, execution,
-                                                  outputs);
+        [&](uint32_t index) {
+            auto& worker = workers[index];
+            if (!worker) {
+                worker = std::make_unique<SharedWorker>(preparation, noise, checks, key, execution,
+                                                        outputs);
+            }
+            return worker.get();
         },
         [&](auto& worker, ShotRange range) {
             for (uint32_t batch = range.begin; batch < range.end; ++batch) {
@@ -84,9 +90,8 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
                         auto& batch_rows = rows.batch(first);
                         batch_detail::resize_output_rows(batch_rows, executor.surviving_shots(),
                                                          plan, outputs);
-                        batch_detail::copy_batch_rows(
-                            batch_rows, executor, plan, outputs,
-                            std::span(worker->rows).first(executor.surviving_shots()));
+                        batch_detail::copy_batch_rows(batch_rows, executor, plan, outputs,
+                                                      executor.surviving_shots());
                     }
                 } else {
                     batch_detail::copy_batch_rows(result, executor, plan, outputs);
@@ -107,7 +112,7 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
             }
         }
         if (outputs.rows()) {
-            rows.finish(result, plan, outputs);
+            rows.finish(result);
         }
     }
     return result;
@@ -137,44 +142,15 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                            options.batch_size != 1 && layout.intra_shot_workers == 1;
     if (options.sharing == true && !supported) {
         throw std::invalid_argument(
-            "shared execution requires no expectation probes or scalar override");
+            "shared execution requires no expectation probes, scalar override, or intra-shot "
+            "workers");
     }
 
     const uint32_t workers = std::max(uint32_t{1}, layout.shot_workers);
     bool shared = options.sharing.value_or(false);
     if (!options.sharing && !options.batch_size && supported && compiled.peak_active_width() != 0) {
-        // Conservative admission is based on the compiled plan, before requesting
-        // cached preparation. Numeric batches retain ordinary execution by default.
-        // Noise-heavy preparation needs enough work per worker to repay its cold
-        // cost. These call-size classes cover cultivation through its escape stage.
-        // A few selected detectors alone do not establish useful rejection.
-        constexpr uint32_t kMinSelectedDetectors = 8;
-        const uint32_t noise_symbols = compiled.num_presampled_symbols();
-        constexpr uint32_t kLargeNoiseProgram = 32768;
-        constexpr uint32_t kMinSharedShotsPerWorker = 8192;
-        const uint32_t min_call_shots = noise_symbols >= kLargeNoiseProgram ? 65536
-                                        : noise_symbols >= 8192             ? 32768
-                                        : noise_symbols >= 4096             ? 16384
-                                                                            : 8192;
-        const uint64_t required_shots =
-            noise_symbols >= kLargeNoiseProgram
-                ? uint64_t{min_call_shots} * workers
-                : std::max(uint64_t{min_call_shots}, uint64_t{kMinSharedShotsPerWorker} * workers);
-        const bool rejection_workload =
-            shots >= required_shots && noise_symbols != 0 &&
-            compiled.num_postselected_detectors() >= kMinSelectedDetectors;
-        constexpr uint32_t kMinUnitaryPrefixShots = 256;
-        // Later rotations can remain after measurement scheduling. Without new
-        // active coordinates, branching only consumes the prepared state.
-        const bool unitary_prefix =
-            !compiled.has_postselection() && noise_symbols == 0 && !compiled.has_readout_noise() &&
-            compiled.peak_active_width() >= 8 && shots >= kMinUnitaryPrefixShots &&
-            !compiled.has_promotions_after_measurement();
-        constexpr uint32_t kMinSharedStates = 64;
         shared =
-            (rejection_workload || unitary_prefix) &&
-            options.max_worker_state_bytes / State::storage_bytes(compiled.peak_active_width()) >=
-                kMinSharedStates;
+            should_share_sampling(compiled, shots, outputs, layout, options.max_worker_state_bytes);
     }
     shared &= supported && compiled.peak_active_width() != 0;
     if (shared &&
@@ -191,7 +167,14 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         const auto& preparation = program.sampling_preparation(
             outputs, {.early_postselection = false, .survivor_counts = survivors});
         const PreparedBatchNoise* noise = nullptr;
-        if (shots != 0 && options.batch_size != 1) {
+        const auto mode =
+            outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
+        const bool tuning_packed = options.tuning_budget_seconds.value_or(0) > 0 && shots > 1 &&
+                                   layout.intra_shot_workers == 1;
+        if (shots != 0 && options.batch_size != 1 &&
+            (options.batch_size || tuning_packed ||
+             automatic_batch_eligible(preparation.plan(), shots, layout.intra_shot_workers,
+                                      mode))) {
             noise = &preparation.noise(options.noise_preparation.value_or(BatchNoiseMode::Dense));
         }
         if constexpr (survivors) {
@@ -242,33 +225,92 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                            std::chrono::steady_clock::now().time_since_epoch())
                     .count();
             };
-            auto candidates = shared_tuning_candidates(safe, shots, workers);
+            const uint64_t row_bytes =
+                (outputs.measurements() ? outputs.stride(preparation.plan().num_visible_records())
+                                        : 0) +
+                (outputs.syndromes()
+                     ? uint64_t{outputs.stride(preparation.plan().num_detectors())} +
+                           outputs.stride(preparation.plan().num_observables())
+                     : 0);
+            auto candidates = shared_tuning_candidates(safe, shots, workers, row_bytes);
             // Numeric one is the scalar override in the integrated API.
             if (candidates.size() > 1) {
                 std::erase_if(candidates, [](const auto& candidate) {
                     return candidate.policy.lane_capacity == 1;
                 });
             }
-            tuning = batch_detail::sweep_batch_candidates(
-                candidates, policy, 1, *options.tuning_budget_seconds, make_seed_root(shots, seed),
-                now, [&](BatchExecutionPolicy candidate) {
-                    auto trial = execution;
-                    trial.batch_size = candidate.lane_capacity;
-                    trial.shot_workers = candidate.worker_count;
-                    return [&, trial](uint32_t count, uint64_t trial_seed) {
-                        (void)run_shared<Result>(preparation, count, trial_seed, outputs, trial);
-                    };
-                });
+            if (candidates.size() < 2) {
+                tuning->stop_reason = "single_candidate";
+            } else {
+                tuning = batch_detail::sweep_batch_candidates(
+                    candidates, policy, 1, *options.tuning_budget_seconds,
+                    make_seed_root(shots, seed), now,
+                    [&](BatchExecutionPolicy candidate) {
+                        auto trial = execution;
+                        trial.batch_size = candidate.lane_capacity;
+                        trial.shot_workers = candidate.worker_count;
+                        return [&, trial,
+                                trial_workers =
+                                    std::vector<std::unique_ptr<SharedWorker>>(trial.shot_workers)](
+                                   uint32_t count, uint64_t trial_seed) mutable {
+                            (void)run_shared<Result>(preparation, count, trial_seed, outputs, trial,
+                                                     trial_workers);
+                        };
+                    },
+                    shots);
+            }
             execution.batch_size = tuning->batch_size;
             execution.shot_workers = tuning->shot_workers;
         }
     }
-    auto result = run_shared<Result>(preparation, shots, seed, outputs, execution);
+    std::vector<std::unique_ptr<SharedWorker>> call_workers(execution.shot_workers);
+    auto result = run_shared<Result>(preparation, shots, seed, outputs, execution, call_workers);
     result.batch_tuning = std::move(tuning);
     return result;
 }
 
 }  // namespace
+
+bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t shots,
+                           sampling::SamplingOutputs outputs, sampling::ThreadLayout layout,
+                           uint64_t max_worker_state_bytes) noexcept {
+    using namespace sampling;
+    if (compiled.peak_active_width() == 0 || layout.intra_shot_workers != 1 ||
+        (outputs.expectations() && compiled.num_exp_vals() != 0)) {
+        return false;
+    }
+    const uint32_t workers = std::max(uint32_t{1}, layout.shot_workers);
+    // Noise-heavy preparation needs enough work per worker to repay its cold
+    // cost. These call-size classes cover cultivation through its escape stage.
+    // A few selected detectors alone do not establish useful rejection.
+    // Wider cultivation plans need more checks to offset divergent states.
+    // Sparse selections can keep most shots alive even at long call sizes.
+    const uint32_t min_selected_detectors = compiled.peak_active_width() >= 8 ? 32 : 8;
+    const uint32_t noise_symbols = compiled.num_presampled_symbols();
+    constexpr uint32_t kLargeNoiseProgram = 32768;
+    constexpr uint32_t kMinSharedShotsPerWorker = 8192;
+    const uint32_t min_call_shots = noise_symbols >= kLargeNoiseProgram ? 65536
+                                    : noise_symbols >= 8192             ? 32768
+                                    : noise_symbols >= 4096             ? 16384
+                                                                        : 8192;
+    const uint64_t required_shots =
+        noise_symbols >= kLargeNoiseProgram
+            ? uint64_t{min_call_shots} * workers
+            : std::max(uint64_t{min_call_shots}, uint64_t{kMinSharedShotsPerWorker} * workers);
+    const bool rejection_workload = shots >= required_shots && noise_symbols != 0 &&
+                                    compiled.num_postselected_detectors() >= min_selected_detectors;
+    constexpr uint32_t kMinUnitaryPrefixShots = 256;
+    // Measurement branches can reuse the unitary prefix. New active
+    // coordinates after measurement can erase that benefit.
+    const bool unitary_prefix =
+        !compiled.has_postselection() && noise_symbols == 0 && !compiled.has_readout_noise() &&
+        compiled.peak_active_width() >= 8 && shots >= kMinUnitaryPrefixShots &&
+        !compiled.has_promotions_after_measurement();
+    constexpr uint32_t kMinSharedStates = 64;
+    return (rejection_workload || unitary_prefix) &&
+           max_worker_state_bytes / State::storage_bytes(compiled.peak_active_width()) >=
+               kMinSharedStates;
+}
 
 sampling::SamplingResult sample(const Program& program, uint32_t shots,
                                 std::optional<uint64_t> seed, sampling::SamplingOutputs outputs,

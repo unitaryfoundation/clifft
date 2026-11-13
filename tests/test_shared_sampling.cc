@@ -580,6 +580,9 @@ TEST_CASE("Shared tuning candidates start at the baseline and stay within the sa
     bool reaches_limit = false;
     for (size_t i = 0; i < candidates.size(); ++i) {
         const auto& policy = candidates[i].policy;
+        REQUIRE(candidates[i].min_probe_shots <= candidates[i].max_probe_shots);
+        REQUIRE(candidates[i].max_probe_shots <= shots);
+        REQUIRE(candidates[i].max_probe_shots <= 65536);
         REQUIRE(policy.lane_capacity <= limit);
         REQUIRE(policy.worker_count <= workers);
         REQUIRE(uint64_t{policy.lane_capacity} * (policy.worker_count - 1) < shots);
@@ -699,4 +702,17 @@ TEST_CASE("Dense noise preparation builds the presampled program for compact pla
     }
     REQUIRE(survivors > 0);
     REQUIRE(rejected > 0);
+}
+
+TEST_CASE("Shared tuning bounds retained output allocations") {
+    constexpr uint64_t row_bytes = 4096;
+    constexpr uint64_t budget = 8 * 1024 * 1024;
+    const auto candidates = shared_tuning_candidates(1024, 65536, 2, row_bytes);
+    REQUIRE(candidates.size() > 1);
+    for (const auto& candidate : candidates) {
+        REQUIRE(candidate.min_probe_shots <= candidate.max_probe_shots);
+        REQUIRE(candidate.max_probe_shots * row_bytes <= budget);
+    }
+    REQUIRE(shared_tuning_candidates(8192, 65536, 2, row_bytes).empty());
+    REQUIRE(shared_tuning_candidates(8192, 256, 1, budget + 1).empty());
 }

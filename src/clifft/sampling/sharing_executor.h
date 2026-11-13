@@ -54,7 +54,7 @@ class SharingKey;
 // then a fixed ladder up to the safe capacity. Each candidate uses as many of
 // the requested workers as it has batches for.
 [[nodiscard]] std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
-    uint32_t safe_capacity, uint32_t shots, uint32_t workers);
+    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes = 0);
 
 // Immutable noise-sign basis shared by workers. Branches affecting this basis
 // split groups as they are sampled, keeping every later rotation sign uniform.

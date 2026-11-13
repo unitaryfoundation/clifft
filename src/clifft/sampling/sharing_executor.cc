@@ -184,12 +184,9 @@ uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatc
     // The sampler retains one observable counter per output alongside the executor.
     const uint64_t counter_bytes =
         saturating_multiply_u64(plan.num_observables(), sizeof(uint64_t));
-    while (capacity > 1 &&
-           saturating_add_u64(
-               SharingExecutor::classical_storage_bytes(plan, noise, key, capacity, output_mode),
-               counter_bytes + (output_mode == BatchOutputMode::Rows
-                                    ? uint64_t{capacity} * sizeof(uint32_t)
-                                    : 0)) > kMaxAutoSharedWorkerClassicalBytes) {
+    while (capacity > 1 && saturating_add_u64(SharingExecutor::classical_storage_bytes(
+                                                  plan, noise, key, capacity, output_mode),
+                                              counter_bytes) > kMaxAutoSharedWorkerClassicalBytes) {
         capacity /= 2;
     }
     return capacity;
@@ -211,15 +208,16 @@ BatchExecutionPolicy resolve_shared_execution_policy(uint32_t safe_capacity, uin
             .worker_count = static_cast<uint32_t>(std::min<uint64_t>(workers, batches))};
 }
 
-std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(uint32_t safe_capacity,
-                                                                         uint32_t shots,
-                                                                         uint32_t workers) {
+std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
+    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes) {
     std::vector<batch_detail::BatchTuningCandidate> candidates;
     if (shots == 0) {
         return candidates;
     }
     // Probes larger than this add calibration time without changing the ranking.
     constexpr uint32_t kMaxProbeShots = 65536;
+    const uint32_t maximum =
+        std::min(kMaxProbeShots, batch_detail::max_batch_probe_shots(shots, output_row_bytes));
     const auto append = [&](uint32_t requested) {
         const uint32_t capacity = std::min({requested, safe_capacity, shots});
         if (std::ranges::any_of(candidates, [&](const auto& candidate) {
@@ -232,12 +230,16 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(uint32_
         // One full batch per worker measures the candidate at its production
         // fill; the floor keeps single-lane probes long enough to time.
         constexpr uint64_t kMinProbeShots = 256;
-        const uint32_t probe_shots =
-            static_cast<uint32_t>(std::max(kMinProbeShots, uint64_t{capacity} * used));
-        candidates.push_back(
-            {{capacity, used}, probe_shots, std::max(kMaxProbeShots, probe_shots)});
+        const uint32_t probe_shots = static_cast<uint32_t>(
+            std::min<uint64_t>(shots, std::max(kMinProbeShots, uint64_t{capacity} * used)));
+        if (probe_shots <= maximum) {
+            candidates.push_back({{capacity, used}, probe_shots, maximum});
+        }
     };
     append(resolve_shared_execution_policy(safe_capacity, shots, workers).lane_capacity);
+    if (candidates.empty()) {
+        return candidates;
+    }
     for (const uint32_t capacity : {1u, 64u, 256u, 1024u, 4096u, kMaxAutoSharedBatchShots}) {
         append(capacity);
     }

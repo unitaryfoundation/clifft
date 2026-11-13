@@ -5,6 +5,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/batch/output.h"
 #include "clifft/sampling/planner.h"
 
 #include "dense_circuit_oracle.h"
@@ -135,10 +136,10 @@ TEST_CASE("Native shared rows preserve selective outputs and bit packing") {
         }
     }
     if (!postselect) {
-        const auto ordinary = clifft::sample(program, 1301, 7, {mode, true}, options);
-        REQUIRE(ordinary.measurements == packed.measurements);
-        REQUIRE(ordinary.detectors == packed.detectors);
-        REQUIRE(ordinary.observables == packed.observables);
+        const auto fixed = clifft::sample(program, 1301, 7, {mode, true}, options);
+        REQUIRE(fixed.measurements == packed.measurements);
+        REQUIRE(fixed.detectors == packed.detectors);
+        REQUIRE(fixed.observables == packed.observables);
     }
 }
 
@@ -250,13 +251,11 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
     REQUIRE(cold.execution.batch_size == 8192);
     REQUIRE(cold.execution.shot_workers == 2);
     REQUIRE(cold.execution.early_postselection);
-    const auto short_call = clifft::sample_survivors(program, 1024, 42, true, {.threads = 2});
-    REQUIRE(short_call.execution.executor != SamplingExecutor::Shared);
-    const auto more_workers = clifft::sample_survivors(program, 16384, 42, true, {.threads = 4});
-    REQUIRE(more_workers.execution.executor != SamplingExecutor::Shared);
-    const auto small_budget = clifft::sample_survivors(
-        program, 16384, 42, true, {.max_worker_state_bytes = State::storage_bytes(1)});
-    REQUIRE(small_budget.execution.executor != SamplingExecutor::Shared);
+    const auto& plan = program.sampling_plan(true);
+    REQUIRE_FALSE(should_share_sampling(plan, 1024, true, {2, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE_FALSE(
+        should_share_sampling(plan, 16384, true, {4, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE_FALSE(should_share_sampling(plan, 16384, true, {1, 1}, State::storage_bytes(1)));
     require_same(cold, clifft::sample_survivors(program, 16384, 42, true, {.threads = 2}));
     const Program fresh{ExecutablePlan(plan_sampling(hir))};
     auto concurrent = std::async(std::launch::async, [&] {
@@ -369,5 +368,66 @@ TEST_CASE("Native shared joint outputs match the dense circuit oracle") {
             REQUIRE(std::abs(actual[i] - shots * expected[i]) <
                     8 * std::sqrt(shots * expected[i] * (1 - expected[i])) + 8);
         }
+    }
+}
+
+TEST_CASE("Native shared calibration skips a single candidate") {
+    const auto result = clifft::sample_survivors(row_program(true), 8, 42, true,
+                                                 {.tuning_budget_seconds = 0.01, .sharing = true});
+    REQUIRE(result.batch_tuning.has_value());
+    REQUIRE(result.batch_tuning->stop_reason == "single_candidate");
+    REQUIRE(result.batch_tuning->trials.empty());
+    REQUIRE(result.batch_tuning->trial_shots == 0);
+    REQUIRE(result.execution.batch_size == 8);
+}
+
+TEST_CASE("Native automatic sharing requires more selected detectors on wider plans") {
+    const auto circuit =
+        parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/reconstruction_msc_d7.stim");
+    const auto selected = GENERATE(8u, 16u, 32u);
+    const auto placement = GENERATE(0u, 1u, 2u);
+    auto hir = trace(circuit);
+    hir.postselection.mask.assign(hir.num_detectors, 0);
+    for (uint32_t i = 0; i < selected; ++i) {
+        const uint32_t detector = placement == 0   ? i
+                                  : placement == 1 ? hir.num_detectors - 1 - i
+                                                   : i * (hir.num_detectors - 1) / (selected - 1);
+        hir.postselection.mask[detector] = 1;
+    }
+    default_hir_pass_manager().run(hir);
+    const auto program = Program::compile(circuit, hir, true);
+    const auto& plan = program.sampling_plan(false);
+    REQUIRE(plan.peak_active_width() >= 8);
+    REQUIRE(plan.num_postselected_detectors() == selected);
+    REQUIRE(should_share_sampling(plan, 65536, false, {1, 1}, kDefaultSharedWorkerStateBudget) ==
+            (selected >= 32));
+}
+
+TEST_CASE("Survivor row collection transfers a single batch and preserves batch order") {
+    const auto batches = GENERATE(1u, 3u);
+    batch_detail::SurvivorRowCollector collector(batches * 64, 64, true);
+    for (uint32_t i = 0; i < batches; ++i) {
+        auto& rows = collector.batch(i * 64);
+        rows.measurements = {static_cast<uint8_t>(i), static_cast<uint8_t>(i + 1)};
+        rows.detectors = {static_cast<uint8_t>(i + 2)};
+        rows.observables = {static_cast<uint8_t>(i + 3)};
+        rows.exp_vals = {static_cast<double>(i) / 2};
+    }
+    const auto* original = collector.batch(0).measurements.data();
+    SamplingSurvivorResult result;
+    collector.finish(result);
+    REQUIRE(result.measurements.size() == 2 * batches);
+    REQUIRE(result.detectors.size() == batches);
+    REQUIRE(result.observables.size() == batches);
+    REQUIRE(result.exp_vals.size() == batches);
+    for (uint32_t i = 0; i < batches; ++i) {
+        REQUIRE(result.measurements[2 * i] == i);
+        REQUIRE(result.measurements[2 * i + 1] == i + 1);
+        REQUIRE(result.detectors[i] == i + 2);
+        REQUIRE(result.observables[i] == i + 3);
+        REQUIRE(result.exp_vals[i] == static_cast<double>(i) / 2);
+    }
+    if (batches == 1) {
+        REQUIRE(result.measurements.data() == original);
     }
 }

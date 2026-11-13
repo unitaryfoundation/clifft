@@ -34,9 +34,9 @@ ordinary execution so every probe is retained.
 
 Shared execution supports every record choice and bit-packed output. Survivor
 collection stores only accepted rows and preserves their order and the pairing
-between measurements, detectors, and observables. Each shared call constructs its
-own workers on their execution threads; concurrent calls share only immutable
-preparation on the `Program`.
+between measurements, detectors, and observables. Calls can run concurrently on
+the same `Program` and reuse its preparation. A seeded call replays independently
+of earlier calls.
 
 ## Common controls
 

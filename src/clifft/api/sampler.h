@@ -22,6 +22,12 @@ struct SamplingOptions {
     uint64_t max_worker_state_bytes = sampling::kDefaultSharedWorkerStateBudget;
 };
 
+// Automatic admission uses only the compiled plan and resolved call settings.
+[[nodiscard]] bool should_share_sampling(const sampling::ExecutablePlan& plan, uint32_t shots,
+                                         sampling::SamplingOutputs outputs,
+                                         sampling::ThreadLayout layout,
+                                         uint64_t max_worker_state_bytes) noexcept;
+
 [[nodiscard]] sampling::SamplingResult sample(const Program& program, uint32_t shots,
                                               std::optional<uint64_t> seed = std::nullopt,
                                               sampling::SamplingOutputs outputs = {},

@@ -12,6 +12,8 @@
 #include <cstdint>
 #include <limits>
 #include <stdexcept>
+#include <type_traits>
+#include <utility>
 
 namespace clifft::sampling::batch_detail {
 
@@ -35,6 +37,14 @@ void resize_output_rows(Result& result, uint32_t shots, const ExecutablePlan& pl
         checked_output_size(shots, outputs.expectations() ? plan.num_exp_vals() : 0));
 }
 
+// Row storage without per-call execution or tuning metadata.
+struct OutputRows {
+    std::vector<uint8_t> measurements;
+    std::vector<uint8_t> detectors;
+    std::vector<uint8_t> observables;
+    std::vector<double> exp_vals;
+};
+
 // Retains only completed survivor rows. Workers write disjoint batch slots
 // after dispatch; final assembly restores shot order independently of scheduling.
 class SurvivorRowCollector {
@@ -42,37 +52,48 @@ class SurvivorRowCollector {
     SurvivorRowCollector(uint32_t shots, uint32_t capacity, bool retain)
         : batches_(retain ? (uint64_t{shots} + capacity - 1) / capacity : 0), capacity_(capacity) {}
 
-    SamplingResult& batch(uint32_t first_shot) { return batches_[first_shot / capacity_]; }
+    OutputRows& batch(uint32_t first_shot) { return batches_[first_shot / capacity_]; }
 
-    void finish(SamplingSurvivorResult& result, const ExecutablePlan& plan,
-                SamplingOutputs outputs) {
-        resize_output_rows(result, result.passed_shots, plan, outputs);
-        size_t measurements = 0, detectors = 0, observables = 0, expectations = 0;
-        for (auto& batch : batches_) {
-            std::ranges::copy(batch.measurements, result.measurements.begin() + measurements);
-            std::ranges::copy(batch.detectors, result.detectors.begin() + detectors);
-            std::ranges::copy(batch.observables, result.observables.begin() + observables);
-            std::ranges::copy(batch.exp_vals, result.exp_vals.begin() + expectations);
-            measurements += batch.measurements.size();
-            detectors += batch.detectors.size();
-            observables += batch.observables.size();
-            expectations += batch.exp_vals.size();
-            batch = {};
+    void finish(SamplingSurvivorResult& result) {
+        if (batches_.empty()) {
+            return;
         }
+        // Move single-batch outputs and assemble one field at a time, releasing
+        // its collected pieces before allocating the next result field.
+        const auto assemble = [&](auto field, auto& output) {
+            size_t size = 0;
+            for (const auto& batch : batches_) {
+                const auto count = (batch.*field).size();
+                if (count > output.max_size() - size) {
+                    throw std::length_error("sampling output exceeds vector size limit");
+                }
+                size += count;
+            }
+            output = std::move(batches_.front().*field);
+            output.reserve(size);
+            for (size_t i = 1; i < batches_.size(); ++i) {
+                auto& values = batches_[i].*field;
+                output.insert(output.end(), values.begin(), values.end());
+                std::remove_reference_t<decltype(values)>{}.swap(values);
+            }
+        };
+        assemble(&OutputRows::measurements, result.measurements);
+        assemble(&OutputRows::detectors, result.detectors);
+        assemble(&OutputRows::observables, result.observables);
+        assemble(&OutputRows::exp_vals, result.exp_vals);
     }
 
   private:
-    std::vector<SamplingResult> batches_;
+    std::vector<OutputRows> batches_;
     uint32_t capacity_;
 };
 
 // Scatters the finalized lanes of one batch into row-major result vectors, one
 // row per shot index. Transposing whole columns reads each packed word once
 // instead of once per lane.
-template <typename Output>
+template <typename Output, typename Rows>
 void copy_batch_rows(Output& output, const BatchClassicalState& executor,
-                     const ExecutablePlan& plan, SamplingOutputs outputs,
-                     std::span<const uint32_t> rows) noexcept {
+                     const ExecutablePlan& plan, SamplingOutputs outputs, Rows rows) noexcept {
     if (outputs.measurements()) {
         transpose_bit_columns_to_rows(
             executor.record_columns(), plan.num_visible_records(), rows, output.measurements,

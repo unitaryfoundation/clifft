@@ -71,8 +71,9 @@ inline uint32_t shot_chunk_size(uint32_t shots, uint32_t workers,
 }
 
 // By default make_worker(index) runs for every worker before any dispatch.
-// OnWorkerThread constructs each context on the thread that uses it, before
-// that thread claims any ranges. Factories then must allow concurrent calls.
+// OnWorkerThread constructs a context after its thread claims its first range.
+// Factories must allow concurrent calls. Entries remain default-constructed for
+// threads that claim no work or are not supplied by the OpenMP runtime.
 // run_range(worker_handle, range) may execute concurrently for different
 // handles. If it throws, remaining work is cancelled, all threads are joined,
 // and the first exception is rethrown on the calling thread.
@@ -110,13 +111,15 @@ static auto run_shot_ranges(
 
     auto worker_loop = [&](uint32_t worker) noexcept {
         try {
-            if (initialization == WorkerInitialization::OnWorkerThread) {
-                workers[worker] = std::invoke(make_worker, worker);
-            }
+            bool initialized = initialization == WorkerInitialization::BeforeDispatch;
             while (!cancelled.load(std::memory_order_relaxed)) {
                 const uint64_t begin = next_shot.fetch_add(chunk_size, std::memory_order_relaxed);
                 if (begin >= shots) {
                     return;
+                }
+                if (!initialized) {
+                    workers[worker] = std::invoke(make_worker, worker);
+                    initialized = true;
                 }
                 const uint64_t end = std::min<uint64_t>(begin + chunk_size, shots);
                 std::invoke(run_range, workers[worker],

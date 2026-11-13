@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <ranges>
 #include <stdexcept>
 #include <utility>
 
@@ -158,9 +159,9 @@ void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept {
     std::fill(output.begin() + static_cast<std::ptrdiff_t>(live_words), output.end(), uint64_t{0});
 }
 
-void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
-                                   std::span<const uint32_t> rows, std::span<uint8_t> output,
-                                   size_t stride, bool bit_packed) noexcept {
+template <typename Rows>
+static void transpose_rows(const PackedBitColumns& columns, size_t num_columns, Rows rows,
+                           std::span<uint8_t> output, size_t stride, bool bit_packed) noexcept {
     assert(num_columns <= columns.num_columns() &&
            "transposed column count must not exceed the packed columns");
     const size_t lanes = rows.size();
@@ -212,6 +213,19 @@ void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_c
             }
         }
     }
+}
+
+void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
+                                   std::span<const uint32_t> rows, std::span<uint8_t> output,
+                                   size_t stride, bool bit_packed) noexcept {
+    transpose_rows(columns, num_columns, rows, output, stride, bit_packed);
+}
+
+void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
+                                   uint32_t lanes, std::span<uint8_t> output, size_t stride,
+                                   bool bit_packed) noexcept {
+    transpose_rows(columns, num_columns, std::views::iota(uint32_t{0}, lanes), output, stride,
+                   bit_packed);
 }
 
 PackedBitColumns::PackedBitColumns(size_t columns, uint32_t lane_capacity)
