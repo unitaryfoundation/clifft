@@ -29,6 +29,7 @@ add_executable(clifft_tests
     test_sampling_planner.cc
     test_sampling_planner_frame.cc
     test_sampling_executor.cc
+    test_runtime_frame.cc
     test_fused_rotation.cc
     test_sampling_kernels.cc
     test_interleaved_batch_kernels.cc
