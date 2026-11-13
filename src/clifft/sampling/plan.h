@@ -171,6 +171,56 @@ struct MeasureDormantRandom {
     RecordSlot record{};
 };
 
+// A plan can carry a runtime Clifford frame over its first frame_width
+// stabilizer coordinates. Before the first frame action those coordinates
+// follow the static description above. From that action on, the frame holds a
+// Clifford that differs between shots, and each shot decides which of its
+// coordinates are active, so later coefficient work on them is expressed as
+// frame actions. Coordinates at or above frame_width stay dormant |0>.
+//
+// FramePauli stores the unsigned Hermitian operator i^popcount(x & z) X^x Z^z
+// on frame coordinates, one bit per coordinate in ceil(frame_width / 64) words.
+struct FramePauli {
+    std::vector<uint64_t> x;
+    std::vector<uint64_t> z;
+
+    [[nodiscard]] bool is_identity() const;
+
+    friend bool operator==(const FramePauli&, const FramePauli&) = default;
+};
+
+// Applies a Clifford rotation exp(-i * pi * half_turns * P / 2) to the frame on
+// shots where condition is true; SQRT, PAULI, and SQRT_DAG name half_turns of
+// 1/2, 1, and 3/2. A sign flip t on a T gate leaves this kind of correction:
+// exp(-i pi/8 (-1)^t P) = exp(+i pi/4 t P) exp(-i pi/8 P). Coefficients and
+// active width are unchanged.
+struct ApplyConditionalClifford {
+    FramePauli pauli;
+    CliffordRotation rotation = CliffordRotation::IDENTITY;
+    AffineBool condition;
+};
+
+// Applies exp(-i * pi * half_turns * P / 2) to a Pauli on frame coordinates.
+// The executor maps P through the frame, then rotates the active state or
+// promotes one dormant frame coordinate.
+struct RotateFramePauli {
+    FramePauli pauli;
+    double half_turns = 0.0;
+    // When true for a shot, use -P, equivalently negating half_turns.
+    AffineBool sign;
+};
+
+// Measures a Pauli on frame coordinates. The executor maps it through the
+// frame and finds a fixed, unbiased, or coefficient-dependent outcome. The
+// branch symbol holds the eigenvalue bit of the unsigned Pauli; outcome
+// combines it with symbolic corrections to produce the record bit.
+struct MeasureFramePauli {
+    FramePauli pauli;
+    SymbolId branch{};
+    AffineBool outcome;
+    RecordSlot record{};
+};
+
 // Writes a deterministic expression to visible or hidden circuit record
 // history without touching the state. Use DefineSymbol instead when an
 // internal parity needs a reusable name but no record slot.
@@ -297,14 +347,18 @@ struct InstrumentBoundary {
     uint32_t symbol_prefix_size = 0;
 };
 
-using SamplingAction = std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
-                                    MeasureDormantRandom, RecordClassical, DefineSymbol,
-                                    ApplyReadoutNoise, WriteDetector, WriteObservable,
-                                    WriteExpectationValue, ApplyInstrument, InstrumentBoundary>;
+using SamplingAction =
+    std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
+                 MeasureDormantRandom, RecordClassical, DefineSymbol, ApplyReadoutNoise,
+                 WriteDetector, WriteObservable, WriteExpectationValue, ApplyInstrument,
+                 InstrumentBoundary, ApplyConditionalClifford, RotateFramePauli, MeasureFramePauli>;
 
 struct PlannedAction {
     // Dense active-coordinate widths immediately before and after this action.
     // Validation checks that adjacent actions form one continuous width chain.
+    // From the first frame action on, each shot decides its own width and
+    // these fields hold an upper bound: a frame rotation can add one active
+    // coordinate, and no later action is assumed to remove one.
     uint32_t active_before = 0;
     uint32_t active_after = 0;
     SamplingAction action;
@@ -359,6 +413,10 @@ struct SamplingPlan {
     // can preallocate storage.
     uint32_t initial_active_width = 0;
     uint32_t peak_active_width = 0;
+
+    // Number of leading stabilizer coordinates covered by the runtime Clifford
+    // frame, or zero for a plan without frame actions.
+    uint32_t frame_width = 0;
 
     // RecordSlot values below num_visible_records are returned to callers;
     // hidden records occupy the remaining contiguous slots. Validation checks

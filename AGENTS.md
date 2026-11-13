@@ -53,16 +53,24 @@ architecture cannot support it:
 - **Deterministic RNG:** Prefer `Xoshiro256PlusPlus::next_double()` in
   `src/clifft/util/xoshiro.h` for uniform draws in `[0, 1)`. Do not use
   `std::uniform_real_distribution`; its output is implementation-defined.
-- **No runtime topology planning in compiled executors:** The compiler or planner
+- **Runtime Clifford frames are compiler-bounded:** The compiler or planner
   must precompute coordinate changes, Pauli pairings, phase behavior,
-  active-width transitions, and symbolic dependencies. The executor may apply
-  compiler-precomputed multi-coordinate active-Pauli actions directly, but
-  runtime code must not perform tableau evolution, commutation analysis,
-  localization, or dependency discovery. The explicitly selected
-  noncomputational online backend is a separate mode: it may evolve its
-  Clifford frame and active coordinates at runtime. Its ordinary dispatch
-  remains allocation-free and exception-free; coefficient storage may grow only
-  after suspension at an explicit activation boundary.
+  active-width transitions, and symbolic dependencies. A plan without frame
+  actions runs with no runtime frame: the executor applies
+  compiler-precomputed multi-coordinate active-Pauli actions directly and
+  performs no tableau evolution, commutation analysis, localization, or
+  dependency discovery. A compiled plan may instead carry a runtime Clifford
+  frame (`OnlineFrame`) over a compiler-selected set of `r` stabilizer
+  coordinates where trajectories differ by Cliffords. Tableau evolution,
+  commutation checks, and localization are allowed inside those `r`
+  coordinates, with per-action work bounded in `r` and independent of the
+  qubit count; every other coordinate stays under the static coordinate frame
+  and symbolic Pauli frame. The peak dense width of such a plan must be bounded
+  at compile time or guarded by an explicit activation boundary. The
+  explicitly selected noncomputational online backend runs its frame over
+  every qubit. In both cases ordinary dispatch remains allocation-free and
+  exception-free; coefficient storage may grow only after suspension at an
+  explicit activation boundary.
 
 ## Code Simplicity, Prose, and Test Rules
 

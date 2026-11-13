@@ -2,6 +2,7 @@
 
 #include "clifft/sampling/batch/policy.h"
 #include "clifft/sampling/executable_plan.h"
+#include "clifft/sampling/online_frame.h"
 #include "clifft/sampling/state.h"
 #include "clifft/util/config.h"
 #include "clifft/util/xoshiro.h"
@@ -48,7 +49,8 @@ struct ReadoutNoiseInput {
 // stochastic frame dependencies, visible and hidden records, measurement RNG,
 // and numerical-dust telemetry for repeated shots. The plan must outlive the
 // executor. Construction allocates all storage; run_shot only resets and
-// overwrites it.
+// overwrites it. A plan with a runtime Clifford frame also gets an OnlineFrame
+// over its frame coordinates, which each shot starts from the identity.
 class Executor {
   public:
     // Aggregate callers can omit probe evaluation and its output storage.
@@ -197,6 +199,13 @@ class Executor {
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteBoundary& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameClifford& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameRotation& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    template <ShotMode Mode>
+    void execute_action(const ExecutablePlan::ExecuteFrameMeasurement& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
 
     [[nodiscard]] bool evaluate(ExecutablePlan::PreparedExpression expression) const noexcept;
     [[nodiscard]] bool evaluate_observable(
@@ -207,6 +216,8 @@ class Executor {
     [[nodiscard]] std::optional<double> force_active_branch(MeasurementProbabilities probabilities,
                                                             bool branch) noexcept;
     [[nodiscard]] bool sample_dormant_branch() noexcept;
+    // Maps a stored frame Pauli through this shot's frame into scratch storage.
+    [[nodiscard]] PauliStringView map_frame_pauli(uint32_t pauli) noexcept;
     void trap_instrument(uint32_t site, uint8_t source, bool destination_pending) noexcept;
     void finish_instrument_fire(uint32_t site, uint32_t destination_flip, uint8_t source,
                                 const InstrumentDistribution& distribution) noexcept;
@@ -233,6 +244,16 @@ class Executor {
 
     // Capacity is allocated before ordinary dispatch and reused across shots.
     State state_;
+
+    struct RuntimeFrame {
+        explicit RuntimeFrame(uint32_t width) : frame(width), mapped(width) {}
+
+        OnlineFrame frame;
+        PauliString mapped;
+        // Lets a shot that ends before its first frame action skip the reset.
+        bool changed = false;
+    };
+    std::optional<RuntimeFrame> frame_;
     std::vector<uint8_t> symbols_;
     std::vector<uint8_t> expression_registers_;
     std::vector<uint8_t> records_;

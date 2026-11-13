@@ -96,6 +96,24 @@ void validate_pauli(const ActivePauli& pauli, uint32_t expected_width, uint32_t 
     }
 }
 
+void validate_frame_pauli(const FramePauli& pauli, uint32_t frame_width, uint32_t action_index) {
+    const size_t num_words = (static_cast<size_t>(frame_width) + 63) / 64;
+    if (pauli.x.size() != num_words || pauli.z.size() != num_words) {
+        invalid_plan("action " + std::to_string(action_index) +
+                     " frame Pauli does not match the frame width");
+    }
+    if (frame_width % 64 != 0) {
+        const uint64_t padding = ~uint64_t{0} << (frame_width % 64);
+        if (((pauli.x.back() | pauli.z.back()) & padding) != 0) {
+            invalid_plan("action " + std::to_string(action_index) +
+                         " frame Pauli has bits outside the frame width");
+        }
+    }
+    if (pauli.is_identity()) {
+        invalid_plan("action " + std::to_string(action_index) + " frame Pauli is identity");
+    }
+}
+
 void validate_measurement_pivot(const MeasureActivePauli& measurement, uint32_t action_index) {
     // Pair updates need an X-support pivot; diagonal updates remove a Z-support coordinate.
     const uint64_t pivot_bit = uint64_t{1} << measurement.active_pivot;
@@ -112,7 +130,8 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
         [](const auto& typed) -> std::optional<SymbolId> {
             using T = std::decay_t<decltype(typed)>;
             if constexpr (std::is_same_v<T, MeasureActivePauli> ||
-                          std::is_same_v<T, MeasureDormantRandom>) {
+                          std::is_same_v<T, MeasureDormantRandom> ||
+                          std::is_same_v<T, MeasureFramePauli>) {
                 return typed.branch;
             } else if constexpr (std::is_same_v<T, DefineSymbol>) {
                 return typed.symbol;
@@ -126,7 +145,9 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                                  std::is_same_v<T, WriteDetector> ||
                                  std::is_same_v<T, WriteObservable> ||
                                  std::is_same_v<T, WriteExpectationValue> ||
-                                 std::is_same_v<T, InstrumentBoundary>) {
+                                 std::is_same_v<T, InstrumentBoundary> ||
+                                 std::is_same_v<T, ApplyConditionalClifford> ||
+                                 std::is_same_v<T, RotateFramePauli>) {
                 return std::nullopt;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -357,6 +378,11 @@ bool ActivePauli::is_identity() const {
     return x == 0 && z == 0;
 }
 
+bool FramePauli::is_identity() const {
+    const auto is_zero = [](uint64_t word) { return word == 0; };
+    return std::ranges::all_of(x, is_zero) && std::ranges::all_of(z, is_zero);
+}
+
 uint32_t predicted_dense_passes(const SamplingAction& action) {
     return std::visit(
         [](const auto& typed) -> uint32_t {
@@ -382,13 +408,20 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                 return 0;
             } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
                 return typed.active.has_value() && !typed.active->projection.is_identity() ? 1 : 0;
+            } else if constexpr (std::is_same_v<T, RotateFramePauli>) {
+                return 1;
+            } else if constexpr (std::is_same_v<T, MeasureFramePauli>) {
+                // The frame decides each shot whether the outcome needs
+                // coefficient work; count the dense case.
+                return 2;
             } else if constexpr (std::is_same_v<T, MeasureDormantRandom> ||
                                  std::is_same_v<T, RecordClassical> ||
                                  std::is_same_v<T, DefineSymbol> ||
                                  std::is_same_v<T, ApplyReadoutNoise> ||
                                  std::is_same_v<T, WriteDetector> ||
                                  std::is_same_v<T, WriteObservable> ||
-                                 std::is_same_v<T, InstrumentBoundary>) {
+                                 std::is_same_v<T, InstrumentBoundary> ||
+                                 std::is_same_v<T, ApplyConditionalClifford>) {
                 return 0;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -414,6 +447,12 @@ void SamplingPlan::validate() const {
     }
     if (final_tableau.has_value() && final_tableau->num_qubits() != num_qubits) {
         invalid_plan("final tableau width does not match the qubit count");
+    }
+    if (frame_width > num_qubits) {
+        invalid_plan("frame width exceeds qubit count");
+    }
+    if (frame_width != 0 && !instrument_distributions.empty()) {
+        invalid_plan("a runtime Clifford frame cannot be combined with instruments");
     }
     if (source_map.has_value() && !source_map->is_valid_for(actions.size())) {
         invalid_plan("source map does not match the action stream");
@@ -525,7 +564,8 @@ void SamplingPlan::validate() const {
         }
         const SamplingAction& action = actions[*actual_definitions[symbol_index]].action;
         if (kind == SymbolKind::Branch && !std::holds_alternative<MeasureActivePauli>(action) &&
-            !std::holds_alternative<MeasureDormantRandom>(action)) {
+            !std::holds_alternative<MeasureDormantRandom>(action) &&
+            !std::holds_alternative<MeasureFramePauli>(action)) {
             invalid_plan("branch symbol s" + std::to_string(symbol_index) +
                          " must be defined by a measurement");
         }
@@ -555,6 +595,24 @@ void SamplingPlan::validate() const {
     uint32_t observed_instrument_boundaries = 0;
     uint32_t previous_noise_boundary = 0;
     uint32_t previous_symbol_boundary = 0;
+    // Set by the first frame action. Later actions cannot address coefficient
+    // coordinates directly, because each shot's frame decides where they are.
+    bool frame_live = false;
+    const auto require_static_coordinates = [&](uint32_t action_index) {
+        if (frame_live) {
+            invalid_plan("action " + std::to_string(action_index) +
+                         " addresses active coordinates after the runtime Clifford frame starts");
+        }
+    };
+    const auto enter_frame = [&](const FramePauli& pauli, uint32_t active_before,
+                                 uint32_t action_index) {
+        if (frame_width == 0 || active_before > frame_width) {
+            invalid_plan("action " + std::to_string(action_index) +
+                         " needs a runtime Clifford frame covering every active coordinate");
+        }
+        validate_frame_pauli(pauli, frame_width, action_index);
+        frame_live = true;
+    };
     written_records.reserve(std::min<size_t>(
         actions.size(), static_cast<uint64_t>(num_visible_records) + num_hidden_records));
     for (uint32_t action_index = 0; action_index < actions.size(); ++action_index) {
@@ -583,6 +641,7 @@ void SamplingPlan::validate() const {
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, RotateActivePauli>) {
+                    require_static_coordinates(action_index);
                     if (planned.active_after != planned.active_before) {
                         invalid_plan("active rotation changes active width");
                     }
@@ -596,6 +655,7 @@ void SamplingPlan::validate() const {
                     validate_expression(*this, actual_definitions, typed.sign, action_index,
                                         definition, false);
                 } else if constexpr (std::is_same_v<T, PromoteDormantRotation>) {
+                    require_static_coordinates(action_index);
                     if (planned.active_after != planned.active_before + 1) {
                         invalid_plan("dormant promotion has an invalid width");
                     }
@@ -605,6 +665,7 @@ void SamplingPlan::validate() const {
                     validate_expression(*this, actual_definitions, typed.sign, action_index,
                                         definition, false);
                 } else if constexpr (std::is_same_v<T, MeasureActivePauli>) {
+                    require_static_coordinates(action_index);
                     if (planned.active_before == 0 ||
                         planned.active_after + 1 != planned.active_before ||
                         typed.active_pivot >= planned.active_before) {
@@ -622,7 +683,8 @@ void SamplingPlan::validate() const {
                 } else if constexpr (std::is_same_v<T, MeasureDormantRandom>) {
                     if (planned.active_after != planned.active_before ||
                         typed.dormant_pivot < planned.active_before ||
-                        typed.dormant_pivot >= num_qubits) {
+                        typed.dormant_pivot >= num_qubits ||
+                        (frame_live && typed.dormant_pivot < frame_width)) {
                         invalid_plan("dormant measurement has an invalid width or pivot");
                     }
                     validate_measurement_outcome(*this, actual_definitions, typed.outcome,
@@ -677,6 +739,7 @@ void SamplingPlan::validate() const {
                     validate_observable_value(*this, typed.outcome, actual_definitions,
                                               action_index, written_records);
                 } else if constexpr (std::is_same_v<T, WriteExpectationValue>) {
+                    require_static_coordinates(action_index);
                     if (planned.active_after != planned.active_before ||
                         index(typed.exp_val) >= num_exp_vals ||
                         !written_exp_vals.insert(index(typed.exp_val)).second) {
@@ -748,6 +811,34 @@ void SamplingPlan::validate() const {
                     previous_noise_boundary = typed.next_noise_site;
                     previous_symbol_boundary = typed.symbol_prefix_size;
                     ++observed_instrument_boundaries;
+                } else if constexpr (std::is_same_v<T, ApplyConditionalClifford>) {
+                    enter_frame(typed.pauli, planned.active_before, action_index);
+                    if (planned.active_after != planned.active_before ||
+                        typed.rotation == CliffordRotation::IDENTITY ||
+                        static_cast<uint8_t>(typed.rotation) > 3) {
+                        invalid_plan("conditional Clifford has an invalid width or rotation");
+                    }
+                    validate_expression(*this, actual_definitions, typed.condition, action_index,
+                                        definition, false);
+                } else if constexpr (std::is_same_v<T, RotateFramePauli>) {
+                    enter_frame(typed.pauli, planned.active_before, action_index);
+                    if (planned.active_after != std::min(planned.active_before + 1, frame_width)) {
+                        invalid_plan("frame rotation has an invalid width bound");
+                    }
+                    if (!is_finite_robust(typed.half_turns)) {
+                        invalid_plan("frame rotation angle is not finite");
+                    }
+                    validate_expression(*this, actual_definitions, typed.sign, action_index,
+                                        definition, false);
+                } else if constexpr (std::is_same_v<T, MeasureFramePauli>) {
+                    enter_frame(typed.pauli, planned.active_before, action_index);
+                    if (planned.active_after != planned.active_before) {
+                        invalid_plan("frame measurement changes the active-width bound");
+                    }
+                    validate_measurement_outcome(*this, actual_definitions, typed.outcome,
+                                                 typed.branch, action_index);
+                    validate_record(*this, typed.record, action_index, written_records);
+                    record_values[index(typed.record)] = &typed.outcome;
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
                 }
@@ -759,6 +850,9 @@ void SamplingPlan::validate() const {
     }
     if (observed_peak != peak_active_width) {
         invalid_plan("declared peak active width does not match the action stream");
+    }
+    if (frame_live != (frame_width != 0)) {
+        invalid_plan("declared frame width does not match the action stream");
     }
     if (written_records.size() != total_records) {
         invalid_plan("declared record count does not match the action stream");

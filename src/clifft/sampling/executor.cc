@@ -55,6 +55,9 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
           resolve_intra_shot_workers(plan, intra_shot_workers, intra_shot_min_active_width)),
       intra_shot_min_active_width_(intra_shot_min_active_width) {
     previous_presampled_ones_.reserve(plan.presampled_symbols_.size());
+    if (plan.frame_width_ != 0) {
+        frame_.emplace(plan.frame_width_);
+    }
 }
 
 void Executor::run_shot() noexcept {
@@ -150,6 +153,10 @@ void Executor::resume(const ExecutablePlan& continuation,
         throw std::invalid_argument(
             "sampling continuation requires distributions for every presampled symbol");
     }
+    if (continuation.frame_width_ != 0) {
+        throw std::invalid_argument(
+            "sampling continuation does not support runtime Clifford frames");
+    }
 
     state_.ensure_capacity(continuation.peak_active_width_);
     symbols_.resize(std::max(symbols_.size(), static_cast<size_t>(continuation.num_symbols_)), 0);
@@ -215,6 +222,10 @@ void Executor::reset_shot() noexcept {
     std::ranges::fill(forced_record_mask_, uint8_t{0});
     discarded_ = false;
     pending_trap_.reset();
+    if (frame_.has_value() && frame_->changed) {
+        frame_->frame.reset();
+        frame_->changed = false;
+    }
 }
 
 void Executor::initialize_expression_registers(const ExecutablePlan& plan,
@@ -725,6 +736,99 @@ void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
     }
 }
 
+PauliStringView Executor::map_frame_pauli(uint32_t pauli) noexcept {
+    assert(frame_.has_value() && "frame actions require a plan with a runtime Clifford frame");
+    frame_->changed = true;
+    frame_->frame.map(plan_->frame_pauli_x(pauli), plan_->frame_pauli_z(pauli), frame_->mapped);
+    return frame_->mapped.view();
+}
+
+void Executor::execute_action(const ExecutablePlan::ExecuteFrameClifford& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    if (evaluate(action.condition)) {
+        frame_->frame.rotate_clifford(map_frame_pauli(action.pauli), action.rotation);
+    }
+}
+
+void Executor::execute_action(const ExecutablePlan::ExecuteFrameRotation& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    const PauliStringView axis = map_frame_pauli(action.pauli);
+    const bool sign = evaluate(action.sign) ^ axis.sign();
+    const uint32_t width = state_.active_width();
+    if (const auto dormant = OnlineFrame::dormant_x(axis, width)) {
+        assert(width < state_.max_active_width() &&
+               "the planned width bound must cover every frame promotion");
+        frame_->frame.promote(axis, *dormant, width);
+        apply_promotion(state_, action.rotation, sign);
+        return;
+    }
+    const ActivePauli active = OnlineFrame::active(axis, width);
+    if (!active.is_identity()) {
+        apply_rotation(
+            state_,
+            {prepare_pauli_unchecked(active, width), action.rotation.cosine, action.rotation.sine},
+            sign);
+    }
+}
+
+template <Executor::ShotMode Mode>
+void Executor::execute_action(const ExecutablePlan::ExecuteFrameMeasurement& action,
+                              std::span<const uint8_t> forced_records,
+                              ReplayResult& result) noexcept {
+    assert(forced_record_mask_[action.record] == 0 &&
+           "frame plans have no continuation that forces a record");
+    const PauliStringView axis = map_frame_pauli(action.pauli);
+    // The frame maps the plan's unsigned Pauli to a signed one. Branches below
+    // refer to the unsigned mapped Pauli; the symbol and record refer to the
+    // plan's.
+    const bool frame_sign = axis.sign();
+    const bool correction = evaluate(action.correction);
+    [[maybe_unused]] bool forced_branch = false;
+    if constexpr (Mode == ShotMode::ReplayRecords) {
+        forced_branch = (forced_records[action.record] != 0) ^ correction ^ frame_sign;
+    }
+    const uint32_t width = state_.active_width();
+    bool branch = false;
+    if (const auto dormant = OnlineFrame::dormant_x(axis, width)) {
+        if constexpr (Mode == ShotMode::ReplayRecords) {
+            branch = forced_branch;
+            result.log_probability += kLogHalf;
+        } else {
+            branch = sample_dormant_branch();
+        }
+        frame_->frame.measure_dormant(axis, *dormant, branch);
+    } else if (const ActivePauli active = OnlineFrame::active(axis, width); active.is_identity()) {
+        // Only dormant Z factors remain, so the unsigned Pauli has eigenvalue +1.
+        if constexpr (Mode == ShotMode::ReplayRecords) {
+            if (forced_branch) {
+                result.reachable = false;
+                return;
+            }
+        }
+    } else {
+        const uint32_t pivot = OnlineFrame::measurement_pivot(active);
+        const PreparedMeasurement measurement = prepare_measurement_unchecked(active, width, pivot);
+        const MeasurementProbabilities probabilities =
+            measurement_probabilities(state_, measurement);
+        if constexpr (Mode == ShotMode::ReplayRecords) {
+            branch = forced_branch;
+            const std::optional<double> log_increment = force_active_branch(probabilities, branch);
+            if (!log_increment.has_value()) {
+                result.reachable = false;
+                return;
+            }
+            result.log_probability += *log_increment;
+        } else {
+            branch = sample_active_branch(probabilities);
+        }
+        collapse_measurement(state_, measurement, branch, probabilities.for_branch(branch));
+        frame_->frame.finish_active_measurement(active, pivot, width, branch);
+    }
+    const bool eigenvalue = branch ^ frame_sign;
+    assign_symbol(action.branch, eigenvalue);
+    records_[action.record] = static_cast<uint8_t>(eigenvalue ^ correction);
+}
+
 template <ExecutorBackend Backend, Executor::ShotMode Mode, Executor::IntraShotMode IntraShot>
 ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                                        uint32_t begin) noexcept {
@@ -747,6 +851,7 @@ ReplayResult Executor::execute_actions(std::span<const uint8_t> forced_records,
                     if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteBoundary> ||
                                   std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise> ||
                                   std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
+                                  std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement> ||
                                   std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
                         execute_action<Mode>(typed, forced_records, result);
                     } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation>) {

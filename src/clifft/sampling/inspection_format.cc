@@ -2,6 +2,7 @@
 
 #include <array>
 #include <bit>
+#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -37,30 +38,32 @@ std::string format_double_roundtrip(double value) {
 }
 
 std::string format_pauli_product(uint64_t x, uint64_t z) {
-    if (x == 0 && z == 0) {
-        return "I";
-    }
+    return format_pauli_product(std::span<const uint64_t>(&x, 1), std::span<const uint64_t>(&z, 1));
+}
+
+std::string format_pauli_product(std::span<const uint64_t> x, std::span<const uint64_t> z) {
+    assert(x.size() == z.size());
     std::string out;
-    uint64_t remaining = x | z;
-    bool first = true;
-    while (remaining != 0) {
-        const int bit_index = std::countr_zero(remaining);
-        const uint64_t bit = uint64_t{1} << bit_index;
-        remaining &= remaining - 1;
-        if (!first) {
-            out += '*';
+    for (size_t word = 0; word < x.size(); ++word) {
+        uint64_t remaining = x[word] | z[word];
+        while (remaining != 0) {
+            const int bit_index = std::countr_zero(remaining);
+            const uint64_t bit = uint64_t{1} << bit_index;
+            remaining &= remaining - 1;
+            if (!out.empty()) {
+                out += '*';
+            }
+            if ((x[word] & bit) != 0 && (z[word] & bit) != 0) {
+                out += 'Y';
+            } else if ((x[word] & bit) != 0) {
+                out += 'X';
+            } else {
+                out += 'Z';
+            }
+            out += std::to_string(64 * word + static_cast<size_t>(bit_index));
         }
-        first = false;
-        if ((x & bit) != 0 && (z & bit) != 0) {
-            out += 'Y';
-        } else if ((x & bit) != 0) {
-            out += 'X';
-        } else {
-            out += 'Z';
-        }
-        out += std::to_string(bit_index);
     }
-    return out;
+    return out.empty() ? "I" : out;
 }
 
 std::string format_width_prefix(uint32_t before, uint32_t after) {
