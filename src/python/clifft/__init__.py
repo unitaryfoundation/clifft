@@ -13,7 +13,7 @@ from __future__ import annotations
 import importlib
 from collections.abc import Sequence
 from types import ModuleType
-from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast
+from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias, cast, overload
 
 import numpy as np
 import numpy.typing as npt
@@ -85,6 +85,142 @@ from clifft._sample_result import SampleResult
 
 BasisBitstrings: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
 MeasurementRecords: TypeAlias = str | Sequence[str] | npt.NDArray[np.bool_] | npt.NDArray[np.uint8]
+
+
+@overload
+def sample_detectors(
+    program: Program,
+    shots: int,
+    seed: int | None = None,
+    threads: int | Literal["auto"] = 1,
+    thread_layout: tuple[int, int] | None = None,
+    intra_shot_min_active_width: int | None = None,
+    batch_size: int | Literal["auto", "tune"] = "auto",
+    *,
+    separate_observables: Literal[False] = False,
+    bit_packed: Literal[False] = False,
+    tuning_budget_seconds: float | None = None,
+) -> npt.NDArray[np.bool_]: ...
+
+
+@overload
+def sample_detectors(
+    program: Program,
+    shots: int,
+    seed: int | None = None,
+    threads: int | Literal["auto"] = 1,
+    thread_layout: tuple[int, int] | None = None,
+    intra_shot_min_active_width: int | None = None,
+    batch_size: int | Literal["auto", "tune"] = "auto",
+    *,
+    separate_observables: Literal[True],
+    bit_packed: Literal[False] = False,
+    tuning_budget_seconds: float | None = None,
+) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]: ...
+
+
+@overload
+def sample_detectors(
+    program: Program,
+    shots: int,
+    seed: int | None = None,
+    threads: int | Literal["auto"] = 1,
+    thread_layout: tuple[int, int] | None = None,
+    intra_shot_min_active_width: int | None = None,
+    batch_size: int | Literal["auto", "tune"] = "auto",
+    *,
+    separate_observables: Literal[False] = False,
+    bit_packed: Literal[True],
+    tuning_budget_seconds: float | None = None,
+) -> npt.NDArray[np.uint8]: ...
+
+
+@overload
+def sample_detectors(
+    program: Program,
+    shots: int,
+    seed: int | None = None,
+    threads: int | Literal["auto"] = 1,
+    thread_layout: tuple[int, int] | None = None,
+    intra_shot_min_active_width: int | None = None,
+    batch_size: int | Literal["auto", "tune"] = "auto",
+    *,
+    separate_observables: Literal[True],
+    bit_packed: Literal[True],
+    tuning_budget_seconds: float | None = None,
+) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]: ...
+
+
+@overload
+def sample_detectors(
+    program: Program,
+    shots: int,
+    seed: int | None = None,
+    threads: int | Literal["auto"] = 1,
+    thread_layout: tuple[int, int] | None = None,
+    intra_shot_min_active_width: int | None = None,
+    batch_size: int | Literal["auto", "tune"] = "auto",
+    *,
+    separate_observables: bool = False,
+    bit_packed: bool = False,
+    tuning_budget_seconds: float | None = None,
+) -> (
+    npt.NDArray[np.bool_]
+    | npt.NDArray[np.uint8]
+    | tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]
+    | tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
+): ...
+
+
+def sample_detectors(
+    program: Program,
+    shots: int,
+    seed: int | None = None,
+    threads: int | Literal["auto"] = 1,
+    thread_layout: tuple[int, int] | None = None,
+    intra_shot_min_active_width: int | None = None,
+    batch_size: int | Literal["auto", "tune"] = "auto",
+    *,
+    separate_observables: bool = False,
+    bit_packed: bool = False,
+    tuning_budget_seconds: float | None = None,
+) -> (
+    npt.NDArray[np.bool_]
+    | npt.NDArray[np.uint8]
+    | tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]
+    | tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]
+):
+    """Sample detector events for decoding without retaining measurement rows.
+
+    Return a boolean detector array, or ``(detectors, observables)`` when
+    ``separate_observables=True``. With ``bit_packed=True``, return uint8 arrays
+    with eight columns per byte, least-significant bit first, and zero padding.
+    Arrays share the sampling result's storage. Values follow the program's
+    ``normalize_syndromes``, ``expected_detectors``, and ``expected_observables``
+    compilation settings; by default they are raw parities, not reference-normalized
+    detection events. Other options follow ``sample``. For postselected programs,
+    use ``sample_survivors(..., keep_records="syndromes")``.
+    """
+    result: SampleResult = sample(
+        program,
+        shots,
+        seed=seed,
+        threads=threads,
+        thread_layout=thread_layout,
+        intra_shot_min_active_width=intra_shot_min_active_width,
+        batch_size=batch_size,
+        tuning_budget_seconds=tuning_budget_seconds,
+        keep_records="syndromes",
+        bit_packed=bit_packed,
+    )
+    if bit_packed:
+        if separate_observables:
+            return result.detectors, result.observables
+        return result.detectors
+    detectors = result.detectors.view(np.bool_)
+    if separate_observables:
+        return detectors, result.observables.view(np.bool_)
+    return detectors
 
 
 class _MeasurementProgram(Protocol):
@@ -343,7 +479,8 @@ def compile(
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
         reconstruction: Opt in to bounded global reconstruction for ordinary
             CPU sampling. Compilation prepares reconstructed plans for
-            full-record sampling and survivor-count sampling. To limit cost,
+            sampling with and without measurement records, including syndrome rows
+            and survivor counts. To limit cost,
             candidates must reduce peak active width before lowering and after
             optimization. Inspect
             ``program.sampling_plan(keep_records=...)`` for details.
@@ -416,6 +553,7 @@ __all__ = [
     "sample_k",
     "sample_k_survivors",
     "sample_survivors",
+    "sample_detectors",
     "trace",
     "version",
 ]

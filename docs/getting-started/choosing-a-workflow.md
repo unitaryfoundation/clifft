@@ -35,6 +35,10 @@ path does not select the simulation workflow or execution backend.
 - **I need an output row for every requested shot.** Use `clifft.compile()` and
   `clifft.sample()` to obtain measurement, detector, observable, and expectation
   value results. Start with the [Simulation guide](../guide/simulation.md).
+- **I need detector events for a decoder.** Use `clifft.sample_detectors()`,
+  optionally with separate observable arrays. See
+  [output selection and packing](../guide/simulation.md#select-and-pack-outputs)
+  and [syndrome normalization](../guide/simulation.md#detectors-and-observables).
 - **I need samples conditioned on post-selection.** Compile with a
   `postselection_mask`, then use `clifft.sample_survivors()`. It returns survivor
   counts and can optionally retain each survivor's records. See the

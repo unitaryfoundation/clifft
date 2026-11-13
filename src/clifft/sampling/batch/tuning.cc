@@ -27,7 +27,7 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
     BatchExecutionPolicy baseline, uint64_t additional_worker_bit_columns,
-    uint64_t additional_output_row_bytes) {
+    uint64_t additional_output_row_bytes, const PreparedBatchNoise* noise) {
     std::vector<BatchTuningCandidate> candidates;
     if (shots == 0) {
         return candidates;
@@ -63,6 +63,7 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
     (void)sampling_mode;
     (void)additional_worker_bytes;
     (void)additional_worker_bit_columns;
+    (void)noise;
 #else
     if (candidates.empty() || intra_shot_workers > 1) {
         return candidates;
@@ -73,7 +74,7 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
             shot_workers, (static_cast<uint64_t>(shots) + capacity - 1) / capacity));
         if (capacity > 1) {
             const uint64_t bytes = saturating_add_u64(
-                batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode),
+                batch_worker_storage_bytes(plan, capacity, output_mode, sampling_mode, noise),
                 saturating_add_u64(
                     additional_worker_bytes,
                     packed_bit_columns_storage_bytes(additional_worker_bit_columns, capacity)));

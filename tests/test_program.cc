@@ -4,6 +4,9 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/batch/tuning.h"
+#include "clifft/sampling/sampler.h"
 
 #include <algorithm>
 #include <array>
@@ -161,6 +164,40 @@ TEST_CASE("Program shares reconstruction preparation across asymmetric output va
     }
 }
 
+TEST_CASE("Selective preparation removes unrequested storage and work") {
+    using sampling::RecordOutputs;
+    const auto program = compile_preparation_program({});
+    const auto& original = program.original();
+    const auto& syndromes = program.sampling_preparation(RecordOutputs::Syndromes).plan();
+    REQUIRE(syndromes.num_visible_records() == 0);
+    REQUIRE(syndromes.num_hidden_records() == 1);
+    const sampling::BatchExecutor compact_worker(syndromes, 65);
+    const sampling::BatchExecutor full_worker(original, 65);
+    REQUIRE(compact_worker.record_columns().num_columns() <
+            full_worker.record_columns().num_columns());
+    REQUIRE(&program.sampling_preparation({RecordOutputs::Syndromes, true}).plan() == &syndromes);
+    REQUIRE(syndromes.num_detectors() == original.num_detectors());
+    REQUIRE(syndromes.num_observables() == original.num_observables());
+    REQUIRE(syndromes.num_exp_vals() == 0);
+    REQUIRE(syndromes.estimated_batch_lane_work(BatchOutputMode::Rows) <
+            original.estimated_batch_lane_work(BatchOutputMode::Rows));
+    const auto& measurements = program.sampling_preparation(RecordOutputs::Measurements).plan();
+    REQUIRE(measurements.num_visible_records() == original.num_visible_records());
+    REQUIRE(measurements.num_detectors() == 0);
+    REQUIRE(measurements.num_observables() == 0);
+    REQUIRE(measurements.num_exp_vals() == 0);
+    REQUIRE(measurements.num_actions() < original.num_actions());
+    const auto& summaries =
+        program
+            .sampling_preparation(RecordOutputs::Measurements,
+                                  {.early_postselection = false, .survivor_counts = true})
+            .plan();
+    REQUIRE(summaries.num_observables() == original.num_observables());
+    REQUIRE(summaries.num_detectors() == 0);
+    REQUIRE(&program.sampling_preparation(RecordOutputs::Syndromes) ==
+            &Program(program).sampling_preparation(RecordOutputs::Syndromes));
+}
+
 TEST_CASE("Program prepares each sampling output once and shares it across copies") {
     const Program program = compile_preparation_program({1, 0});
     const std::string inspected = program.sampling_plan(false).inspect();
@@ -191,7 +228,7 @@ TEST_CASE("Program prepares each sampling output once and shares it across copie
     REQUIRE(&counts.checks() == &counts.checks());
     REQUIRE(&counts.sharing_key() == &counts.sharing_key());
 
-    REQUIRE(&program.sampling_preparation(false, false) != &counts);
+    REQUIRE(&program.sampling_preparation(false, {.early_postselection = false}) != &counts);
 
     const Program copy = program;
     REQUIRE(&copy.sampling_preparation(false) == &counts);
@@ -201,8 +238,8 @@ TEST_CASE("Program prepares each sampling output once and shares it across copie
     REQUIRE(&program.sampling_plan(false) == &program.original());
 
     const Program unselected = compile_preparation_program({0, 0});
-    REQUIRE(&unselected.sampling_preparation(false, true) ==
-            &unselected.sampling_preparation(false, false));
+    REQUIRE(&unselected.sampling_preparation(false, {.early_postselection = true}) ==
+            &unselected.sampling_preparation(false, {.early_postselection = false}));
 }
 
 TEST_CASE("Concurrent first use prepares one shared sampling preparation") {
@@ -230,6 +267,57 @@ TEST_CASE("Concurrent first use prepares one shared sampling preparation") {
         for (const void* address : addresses) {
             REQUIRE(address != nullptr);
         }
+    }
+}
+
+TEST_CASE("Count only sampling reuses dense noise with bounded packed storage") {
+    using namespace sampling;
+    const auto source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/msc_d3.stim");
+    auto hir = trace(source);
+    hir.postselection.mask.assign(hir.num_detectors, 1);
+    default_hir_pass_manager().run(hir);
+    const auto program = Program::compile(source, hir);
+    const auto& preparation = program.sampling_preparation(false, {.early_postselection = false});
+    const auto& plan = preparation.plan();
+    const auto& dense = preparation.noise(BatchNoiseMode::Dense);
+    REQUIRE(dense.num_carriers() > 0);
+    REQUIRE(preparation.noise(BatchNoiseMode::SiteSparse).num_carriers() == 0);
+    REQUIRE(&preparation.noise(BatchNoiseMode::Dense) == &dense);
+
+    constexpr uint32_t capacity = 256;
+    constexpr auto output = BatchOutputMode::AggregateSurvivors;
+    for (auto mode : {BatchSamplingMode::Ordinary, BatchSamplingMode::FixedFaults}) {
+        CAPTURE(mode);
+        const auto dense_bytes =
+            batch_detail::batch_worker_storage_bytes(plan, capacity, output, mode, &dense);
+        REQUIRE(dense_bytes <
+                batch_detail::batch_worker_storage_bytes(plan, capacity, output, mode));
+        const uint64_t extra = kDefaultBatchWorkerBudget - dense_bytes;
+        const auto policy = resolve_batch_execution_policy(plan, 4096, 1, 1, output, std::nullopt,
+                                                           mode, extra, 0, 0, &dense);
+        REQUIRE(policy.lane_capacity == capacity);
+        REQUIRE(resolve_batch_execution_policy(plan, 4096, 1, 1, output, std::nullopt, mode, extra)
+                    .lane_capacity < capacity);
+        const auto candidates = batch_detail::batch_tuning_candidates(
+            plan, 4096, 1, 1, output, mode, extra, {1, 1}, 0, 0, &dense);
+        REQUIRE(std::ranges::any_of(candidates, [](const auto& candidate) {
+            return candidate.policy.lane_capacity == capacity;
+        }));
+
+        const auto sample_counts = [&](const PreparedBatchNoise* noise) {
+            return mode == BatchSamplingMode::Ordinary
+                       ? sample_survivors(plan, 4096, 73, false, 1, std::nullopt, capacity,
+                                          std::nullopt, noise)
+                       : sample_k_survivors(plan, 4096, 3, 73, false, 1, std::nullopt, capacity,
+                                            std::nullopt, noise);
+        };
+        const auto expected = sample_counts(nullptr);
+        const auto actual = sample_counts(&dense);
+        REQUIRE(actual.passed_shots > 0);
+        REQUIRE(actual.passed_shots < actual.total_shots);
+        REQUIRE(actual.passed_shots == expected.passed_shots);
+        REQUIRE(actual.logical_errors == expected.logical_errors);
+        REQUIRE(actual.observable_ones == expected.observable_ones);
     }
 }
 

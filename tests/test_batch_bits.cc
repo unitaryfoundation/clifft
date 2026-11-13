@@ -137,7 +137,8 @@ constexpr uint8_t kSentinel = 0xAA;
 TEST_CASE("Transposed bit columns match per-bit reads") {
     const size_t num_columns = GENERATE(0U, 1U, 7U, 16U, 17U, 63U, 64U, 65U, 130U, 385U);
     const uint32_t lanes = GENERATE(1U, 63U, 64U, 65U, 100U, 2048U);
-    CAPTURE(num_columns, lanes);
+    const bool bit_packed = GENERATE(false, true);
+    CAPTURE(num_columns, lanes, bit_packed);
 
     PackedBitColumns columns(num_columns, lanes);
     uint64_t state = (static_cast<uint64_t>(num_columns) << 32) | lanes;
@@ -154,17 +155,23 @@ TEST_CASE("Transposed bit columns match per-bit reads") {
     for (uint32_t lane = 0; lane < lanes; ++lane) {
         rows[lane] = (lane * 37) % lanes;
     }
-    const size_t stride = num_columns + 3;
+    const size_t bytes = bit_packed ? (num_columns + 7) / 8 : num_columns;
+    const size_t stride = bytes + 3;
     std::vector<uint8_t> output(static_cast<size_t>(lanes) * stride, kSentinel);
 
-    transpose_bit_columns_to_rows(columns, num_columns, rows, output, stride);
+    transpose_bit_columns_to_rows(columns, num_columns, rows, output, stride, bit_packed);
 
     for (uint32_t lane = 0; lane < lanes; ++lane) {
         const size_t row_start = static_cast<size_t>(rows[lane]) * stride;
         for (size_t column = 0; column < num_columns; ++column) {
-            REQUIRE(output[row_start + column] == static_cast<uint8_t>(columns.bit(column, lane)));
+            const auto value = bit_packed ? (output[row_start + column / 8] >> (column % 8)) & 1
+                                          : output[row_start + column];
+            REQUIRE(value == static_cast<uint8_t>(columns.bit(column, lane)));
         }
-        for (size_t padding = num_columns; padding < stride; ++padding) {
+        if (bit_packed && num_columns % 8 != 0) {
+            REQUIRE((output[row_start + bytes - 1] >> (num_columns % 8)) == 0);
+        }
+        for (size_t padding = bytes; padding < stride; ++padding) {
             REQUIRE(output[row_start + padding] == kSentinel);
         }
     }

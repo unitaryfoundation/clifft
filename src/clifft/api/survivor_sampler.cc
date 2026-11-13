@@ -70,7 +70,8 @@ SurvivorSampler::SurvivorSampler(const Program& program, std::optional<uint32_t>
     if (width != 0 && worker_state_bytes_ < sampling::State::storage_bytes(width)) {
         throw std::invalid_argument("max_worker_state_bytes cannot hold one shared state");
     }
-    const auto& preparation = program_.sampling_preparation(false, early_postselection);
+    const auto& preparation =
+        program_.sampling_preparation(false, {.early_postselection = early_postselection});
     plan_ = &preparation.plan();
     assert(plan_->peak_active_width() == width &&
            "count-only preparation must keep the compiled peak active width");

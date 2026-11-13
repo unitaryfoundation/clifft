@@ -1,12 +1,9 @@
 #pragma once
 
-// Immutable sampling preparation for one requested-output choice of a compiled
-// plan. Aggregate survivor counts run a count-only plan that expands record
-// snapshots and omits records, unselected detectors, and expectation probes.
-// Retained rows keep the compiled plan and all of its outputs. Early checks,
-// the noise metadata of each mode, and the noise grouping key are built on
-// first request and then shared by concurrent readers. The compiled plan
-// outlives this object.
+// Immutable preparation for one requested-output choice of a compiled plan.
+// Record snapshots expand into affine expressions when their rows are omitted.
+// Early checks and noise metadata are built on first request and shared by
+// concurrent readers. The compiled plan outlives this object.
 
 #include "clifft/sampling/batch/classical.h"
 #include "clifft/sampling/early_postselection.h"
@@ -45,10 +42,10 @@ class LazyPrepared {
 
 class SamplingPreparation {
   public:
-    SamplingPreparation(const sampling::ExecutablePlan& compiled, bool keep_records,
-                        bool early_postselection);
+    SamplingPreparation(const sampling::ExecutablePlan& compiled, sampling::SamplingOutputs outputs,
+                        bool early_postselection, bool survivor_counts);
 
-    // The plan executors run: count-only for aggregate output, otherwise the compiled plan.
+    // The plan executors run, with unused output actions removed.
     [[nodiscard]] const sampling::ExecutablePlan& plan() const noexcept { return *plan_; }
     [[nodiscard]] const sampling::EarlyPostselection& checks() const;
     [[nodiscard]] const sampling::PreparedBatchNoise& noise(sampling::BatchNoiseMode mode) const;

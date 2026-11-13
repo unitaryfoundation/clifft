@@ -293,143 +293,207 @@ batch_detail::BatchWorkEstimate ExecutablePlanBuilder::action_batch_lane_work(
 }
 
 ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& input,
-                                                      bool early_postselection) {
+                                                      SamplingOutputs outputs,
+                                                      bool early_postselection,
+                                                      bool survivor_counts) {
     if (input.has_instruments()) {
         throw std::invalid_argument("compact outputs require a fixed sampling plan");
     }
     ExecutablePlan output(input);
     const auto order = EarlyPostselection::schedule(input, early_postselection);
-    const auto expressions = input.affine_registers();
-    std::vector<AffineBool> symbols;
-    symbols.reserve(input.num_symbols_);
-    for (uint32_t symbol = 0; symbol < input.num_symbols_; ++symbol) {
-        symbols.push_back(AffineBool::symbol(SymbolId{symbol}));
-    }
-    std::vector<AffineBool> records(size_t{input.num_visible_records_} + input.num_hidden_records_);
-    const auto expand = [&](ExecutablePlan::PreparedExpression expression) {
-        const auto& original = expressions[expression.register_id];
-        AffineBool result(original.constant());
-        for (SymbolId symbol : original.terms()) {
-            result ^= symbols[index(symbol)];
-        }
-        return result;
-    };
-    const auto parity = [&](ExecutablePlan::PreparedRecordParity value) {
-        AffineBool result(value.constant);
-        for (uint32_t term = 0; term < value.count; ++term) {
-            result ^= records[input.record_parity_terms_[value.begin + term]];
-        }
-        return result;
-    };
-
-    // Intern only expressions consumed by the compact program. Record snapshots
-    // and derived symbols are expanded at their original write positions.
-    std::vector<uint32_t> first_actions;
-    if (!output.noise_action_deadlines_.empty()) {
-        first_actions.assign(input.num_symbols_, std::numeric_limits<uint32_t>::max());
-    }
     output.actions_.clear();
     output.action_plan_ranges_.clear();
-    output.expression_register_constants_.clear();
-    output.record_parity_terms_.clear();
-    output.dynamic_fused_rotations_.clear();
-    ExpressionInterner expressions_out(output.expression_register_constants_);
-    expressions_out.reserve(input.num_expression_registers(),
-                            input.expression_dependencies_.targets_.size());
-    const auto prepare = [&](const AffineBool& expression) -> ExecutablePlan::PreparedExpression {
-        return {expressions_out.prepare(expression, static_cast<uint32_t>(output.actions_.size()),
-                                        first_actions)};
-    };
-    const auto zero = ExecutablePlan::PreparedExpression{expressions_out.prepare_constant(false)};
-    uint32_t next_record = 1;
-    for (size_t source_index : order) {
-        const auto append = [&](ExecutablePlan::Action action) {
-            if (output.actions_.size() >= std::numeric_limits<uint32_t>::max()) {
-                throw std::length_error("compact action storage exceeds uint32 range");
-            }
-            output.actions_.push_back(std::move(action));
-            if (!input.action_plan_ranges_.empty()) {
-                output.action_plan_ranges_.push_back(input.action_plan_ranges_[source_index]);
-            }
-        };
-        std::visit(
-            [&](auto typed) {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
-                              std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
-                    typed.sign = prepare(expand(typed.sign));
-                    append(typed);
-                } else if constexpr (std::is_same_v<T,
-                                                    ExecutablePlan::ExecuteDynamicFusedRotation>) {
-                    auto rotation = input.dynamic_fused_rotations_[typed.rotation_index];
-                    for (auto& sign : rotation.sign_basis) {
-                        sign = prepare(expand(sign));
+    std::vector<uint32_t> action_positions(input.actions_.size() + 1);
+    const bool keep_observables =
+        outputs.syndromes() || survivor_counts || input.has_postselection_;
+    if (outputs.measurements()) {
+        // Measurement rows already preserve the snapshots needed by feedback
+        // and postselection. Keep their prepared expressions and noise program.
+        for (size_t source_index : order) {
+            action_positions[source_index] = static_cast<uint32_t>(output.actions_.size());
+            const auto& action = input.actions_[source_index];
+            const bool keep = std::visit(
+                [&](const auto& typed) {
+                    using T = std::decay_t<decltype(typed)>;
+                    if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
+                        return outputs.syndromes() || typed.postselected;
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
+                        return keep_observables;
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
+                        return outputs.expectations();
+                    } else {
+                        return true;
                     }
-                    typed.rotation_index =
-                        static_cast<uint32_t>(output.dynamic_fused_rotations_.size());
-                    output.dynamic_fused_rotations_.push_back(std::move(rotation));
-                    append(typed);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
-                                     std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement>) {
-                    records[typed.record] =
-                        expand(typed.correction) ^ AffineBool::symbol(SymbolId{typed.branch});
-                    // Measurement records are internal scratch; requested outputs
-                    // retain the original correction through their expanded parity.
-                    typed.correction = zero;
-                    typed.record = 0;
-                    append(typed);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {
-                    records[typed.record] = expand(typed.outcome);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteSymbolDefinition>) {
-                    symbols[typed.symbol] = expand(typed.value);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
-                    records[typed.record] ^= AffineBool::symbol(SymbolId{typed.flip});
-                    typed.source = prepare(expand(typed.source));
-                    typed.record = 0;
-                    append(typed);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
-                    if (!typed.postselected) {
-                        return;
-                    }
-                    const auto value = prepare(parity(typed.outcome));
-                    append(ExecutablePlan::ExecuteClassicalRecord{value, next_record});
-                    typed.outcome = {static_cast<uint32_t>(output.record_parity_terms_.size()), 1,
-                                     false};
-                    output.record_parity_terms_.push_back(next_record++);
-                    append(typed);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
-                    const auto* expression =
-                        std::get_if<ExecutablePlan::PreparedExpression>(&typed.outcome);
-                    typed.outcome =
-                        prepare(expression ? expand(*expression)
-                                           : parity(std::get<ExecutablePlan::PreparedRecordParity>(
-                                                 typed.outcome)));
-                    append(typed);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
-                    // Aggregate sampling does not produce expectation values.
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation>) {
-                    append(typed);
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument> ||
-                                     std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
-                    throw std::logic_error("fixed compact program contains a continuation");
-                } else {
-                    static_assert(kAlwaysFalse<T>, "Unhandled compact action alternative");
+                },
+                action);
+            if (keep) {
+                output.actions_.push_back(action);
+                if (!input.action_plan_ranges_.empty()) {
+                    output.action_plan_ranges_.push_back(input.action_plan_ranges_[source_index]);
                 }
-            },
-            input.actions_[source_index]);
-    }
-    output.num_visible_records_ = 0;
-    output.num_hidden_records_ = next_record;
-    output.expression_dependencies_ = ExecutablePlan::ExpressionDependencies::build(
-        output.num_symbols_, expressions_out.terms(), expressions_out.term_begins());
-    output.expression_dependencies_.validate(output.num_symbols_,
-                                             output.num_expression_registers());
-    prepare_noise_schedule(output, first_actions);
-    // The copied program describes the input's expression registers. Dense
-    // noise preparation builds one for the compact registers on request.
-    output.batch_presampled_program_.reset();
+            }
+        }
+    } else {
+        const auto expressions = input.affine_registers();
+        std::vector<AffineBool> symbols;
+        symbols.reserve(input.num_symbols_);
+        for (uint32_t symbol = 0; symbol < input.num_symbols_; ++symbol) {
+            symbols.push_back(AffineBool::symbol(SymbolId{symbol}));
+        }
+        std::vector<AffineBool> records(size_t{input.num_visible_records_} +
+                                        input.num_hidden_records_);
+        const auto expand = [&](ExecutablePlan::PreparedExpression expression) {
+            const auto& original = expressions[expression.register_id];
+            AffineBool result(original.constant());
+            for (SymbolId symbol : original.terms()) {
+                result ^= symbols[index(symbol)];
+            }
+            return result;
+        };
+        const auto parity = [&](ExecutablePlan::PreparedRecordParity value) {
+            AffineBool result(value.constant);
+            for (uint32_t term = 0; term < value.count; ++term) {
+                result ^= records[input.record_parity_terms_[value.begin + term]];
+            }
+            return result;
+        };
 
-    // Count-only output omits expectation work and moves detector checks.
+        // Intern only expressions consumed by the compact program. Record snapshots
+        // and derived symbols are expanded at their original write positions.
+        std::vector<uint32_t> first_actions;
+        if (!output.noise_action_deadlines_.empty()) {
+            first_actions.assign(input.num_symbols_, std::numeric_limits<uint32_t>::max());
+        }
+        output.expression_register_constants_.clear();
+        output.record_parity_terms_.clear();
+        output.dynamic_fused_rotations_.clear();
+        ExpressionInterner expressions_out(output.expression_register_constants_);
+        expressions_out.reserve(input.num_expression_registers(),
+                                input.expression_dependencies_.targets_.size());
+        const auto prepare =
+            [&](const AffineBool& expression) -> ExecutablePlan::PreparedExpression {
+            return {expressions_out.prepare(
+                expression, static_cast<uint32_t>(output.actions_.size()), first_actions)};
+        };
+        const auto zero =
+            ExecutablePlan::PreparedExpression{expressions_out.prepare_constant(false)};
+        for (size_t source_index : order) {
+            action_positions[source_index] = static_cast<uint32_t>(output.actions_.size());
+            const auto append = [&](ExecutablePlan::Action action) {
+                if (output.actions_.size() >= std::numeric_limits<uint32_t>::max()) {
+                    throw std::length_error("compact action storage exceeds uint32 range");
+                }
+                output.actions_.push_back(std::move(action));
+                if (!input.action_plan_ranges_.empty()) {
+                    output.action_plan_ranges_.push_back(input.action_plan_ranges_[source_index]);
+                }
+            };
+            std::visit(
+                [&](auto typed) {
+                    using T = std::decay_t<decltype(typed)>;
+                    if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
+                                  std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
+                        typed.sign = prepare(expand(typed.sign));
+                        append(typed);
+                    } else if constexpr (std::is_same_v<
+                                             T, ExecutablePlan::ExecuteDynamicFusedRotation>) {
+                        auto rotation = input.dynamic_fused_rotations_[typed.rotation_index];
+                        for (auto& sign : rotation.sign_basis) {
+                            sign = prepare(expand(sign));
+                        }
+                        typed.rotation_index =
+                            static_cast<uint32_t>(output.dynamic_fused_rotations_.size());
+                        output.dynamic_fused_rotations_.push_back(std::move(rotation));
+                        append(typed);
+                    } else if constexpr (std::is_same_v<T,
+                                                        ExecutablePlan::ExecuteActiveMeasurement> ||
+                                         std::is_same_v<
+                                             T, ExecutablePlan::ExecuteDormantMeasurement>) {
+                        records[typed.record] =
+                            expand(typed.correction) ^ AffineBool::symbol(SymbolId{typed.branch});
+                        // Measurement records are internal scratch; requested outputs
+                        // retain the original correction through their expanded parity.
+                        typed.correction = zero;
+                        typed.record = 0;
+                        append(typed);
+                    } else if constexpr (std::is_same_v<T,
+                                                        ExecutablePlan::ExecuteClassicalRecord>) {
+                        records[typed.record] = expand(typed.outcome);
+                    } else if constexpr (std::is_same_v<T,
+                                                        ExecutablePlan::ExecuteSymbolDefinition>) {
+                        symbols[typed.symbol] = expand(typed.value);
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
+                        records[typed.record] ^= AffineBool::symbol(SymbolId{typed.flip});
+                        typed.source = prepare(expand(typed.source));
+                        typed.record = 0;
+                        append(typed);
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteDetector>) {
+                        if (!outputs.syndromes() && !typed.postselected) {
+                            return;
+                        }
+                        const auto value = prepare(parity(typed.outcome));
+                        append(ExecutablePlan::ExecuteClassicalRecord{value, 0});
+                        typed.outcome = {static_cast<uint32_t>(output.record_parity_terms_.size()),
+                                         1, false};
+                        output.record_parity_terms_.push_back(0);
+                        append(typed);
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteObservable>) {
+                        const auto* expression =
+                            std::get_if<ExecutablePlan::PreparedExpression>(&typed.outcome);
+                        typed.outcome = prepare(
+                            expression ? expand(*expression)
+                                       : parity(std::get<ExecutablePlan::PreparedRecordParity>(
+                                             typed.outcome)));
+                        append(typed);
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
+                        // Selective and count-only sampling omit expectation probes.
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation>) {
+                        append(typed);
+                    } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument> ||
+                                         std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
+                        throw std::logic_error("fixed compact program contains a continuation");
+                    } else {
+                        static_assert(kAlwaysFalse<T>, "Unhandled compact action alternative");
+                    }
+                },
+                input.actions_[source_index]);
+        }
+        output.num_visible_records_ = 0;
+        output.num_hidden_records_ = 1;
+        output.expression_dependencies_ = ExecutablePlan::ExpressionDependencies::build(
+            output.num_symbols_, expressions_out.terms(), expressions_out.term_begins());
+        output.expression_dependencies_.validate(output.num_symbols_,
+                                                 output.num_expression_registers());
+        if (early_postselection) {
+            prepare_noise_schedule(output, first_actions);
+        }
+        // Row-producing packed execution uses the factorized dense noise program.
+        // Count-only sharing prepares its chosen noise strategy lazily.
+        output.batch_presampled_program_ =
+            outputs.rows() ? BatchPresampledProgram::build(output) : std::nullopt;
+    }
+    if (!outputs.syndromes() && !input.has_postselection_) {
+        output.num_detectors_ = 0;
+    }
+    if (!keep_observables) {
+        output.num_observables_ = 0;
+    }
+    if (!outputs.expectations()) {
+        output.num_exp_vals_ = 0;
+    }
+    if (!early_postselection || outputs.measurements()) {
+        // Keep noise draws before the same stochastic actions when only output
+        // materialization changes. Early checks may move a use earlier.
+        action_positions.back() = static_cast<uint32_t>(output.actions_.size());
+        for (size_t i = action_positions.size() - 1; i > 0; --i) {
+            action_positions[i - 1] = std::min(action_positions[i - 1], action_positions[i]);
+        }
+        for (auto& deadline : output.noise_action_deadlines_) {
+            deadline = action_positions[deadline];
+        }
+    }
+
+    // Output selection and early checks change the estimated batch work.
     output.estimated_batch_lane_work_ = {};
     uint32_t width = output.initial_active_width_;
     std::vector<batch_detail::BatchLaneWork> work;

@@ -4,6 +4,7 @@
 #include "clifft/sampling/batch/presampled_program.h"
 #include "clifft/sampling/kernel_dispatch.h"
 #include "clifft/sampling/kernels.h"
+#include "clifft/sampling/outputs.h"
 #include "clifft/sampling/plan.h"
 
 #include <cassert>
@@ -68,9 +69,11 @@ class ExecutablePlan {
 
     explicit ExecutablePlan(const SamplingPlan& plan);
 
-    // Builds a separate count-only plan with expanded record snapshots. The
+    // Builds a plan for the requested outputs with expanded record snapshots. The
     // plan has no presampled program; dense PreparedBatchNoise builds one.
-    [[nodiscard]] ExecutablePlan compact_outputs(bool early_postselection = true) const;
+    [[nodiscard]] ExecutablePlan compact_outputs(SamplingOutputs outputs = false,
+                                                 bool early_postselection = true,
+                                                 bool survivor_counts = true) const;
 
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }

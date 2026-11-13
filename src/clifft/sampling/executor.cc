@@ -477,8 +477,6 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
         result.reachable = false;
     } else {
         const bool source = evaluate(action.source);
-        assert(records_[action.record] == static_cast<uint8_t>(source) &&
-               "readout source must match the current record value");
         bool flip = false;
         if constexpr (Mode == ShotMode::UseExternalInputs) {
             const ReadoutNoiseInput& input = readout_inputs_[action.site];
@@ -504,7 +502,9 @@ void Executor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& action,
                        }) != 0;
         }
         assign_symbol(action.flip, flip);
-        records_[action.record] ^= static_cast<uint8_t>(flip);
+        // The prepared source preserves the corrected outcome even when record
+        // output is omitted and measurements share one scratch slot.
+        records_[action.record] = static_cast<uint8_t>(source ^ flip);
     }
 }
 

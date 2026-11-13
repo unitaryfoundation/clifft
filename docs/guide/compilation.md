@@ -62,7 +62,7 @@ fixed execution or trajectories; see [Leakage and Loss](leakage-and-loss.md).
 Active width and action count help explain sampling cost and compare compiler
 options. `program.peak_active_width`, `program.num_actions`, `program.inspect()`,
 and `program.inspect_action(i)` describe full-output sampling, as used by
-`sample()` and `sample_survivors(keep_records=True)`.
+`sample()` by default and calls with `keep_records=True` or `"all"`.
 
 For survivor counts, select the matching executable once and use its metrics
 and inspection methods together:
@@ -80,13 +80,15 @@ result = clifft.sample_survivors(program, shots=1_000, seed=42, keep_records=kee
 ```
 
 `sampling_plan()` requires an explicit `keep_records` keyword. Match it to the
-sampling call: `sample()` retains records, while `sample_survivors()` defaults
-to `keep_records=False`.
+sampling call, including selective output choices. `sample()` defaults to full
+output, while `sample_survivors()` defaults to `keep_records=False`.
 
 | Execution | Metadata and inspection |
 | --- | --- |
-| Full-output ordinary sampling | `program` or `program.sampling_plan(keep_records=True)` |
-| Ordinary survivor counts | `program.sampling_plan(keep_records=False)` |
+| Full-output sampling | `program` or `program.sampling_plan(keep_records=True)` |
+| Syndrome rows, including `sample_detectors()` | `program.sampling_plan(keep_records="syndromes")` |
+| Measurement rows | `program.sampling_plan(keep_records="measurements")` |
+| Survivor counts | `program.sampling_plan(keep_records=False)` |
 | Exact queries, replay, or fixed-fault sampling | `program.original_plan` |
 
 Each [PlanView](../reference/python-api.md#clifft.PlanView) is read-only and
@@ -95,6 +97,12 @@ executable; pass the `Program` itself to sampling and exact-query functions.
 The view's `reconstruction_selected` and `fallback_reason` explain whether
 reconstruction was selected for that output mode. An explicitly requested
 `original_plan` has no fallback reason.
+
+These views describe the selected compiled plan before output preparation
+removes unused storage and evaluations. The first sampling call for an output
+choice prepares and caches that work. Include this first-call cost when
+benchmarking workloads that compile many programs and sample only a few shots
+from each. Reusing a `Program` amortizes preparation across later calls.
 
 Without reconstruction, all views describe the original executable and the
 existing properties and inspection methods behave the same way. With
@@ -160,8 +168,8 @@ print(program)
 result = clifft.sample(program, shots=100, seed=42)
 ```
 
-`sample()` uses the plan retaining all records; `sample_survivors()` selects a
-plan according to `keep_records`. Use `sampling_plan(keep_records=...)`
+Ordinary and survivor sampling select a plan according to `keep_records`.
+Use `sampling_plan(keep_records=...)`
 to inspect the selected executable, as described in
 [Inspect sampling cost](#inspect-sampling-cost). Unsupported
 circuits, resource limits, or insufficient width reduction retain the original

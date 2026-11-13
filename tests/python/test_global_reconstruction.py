@@ -230,6 +230,22 @@ def test_inverted_padding_preserves_feedback_and_postselection(sampling_mode):
                 assert result.observables.all()
 
 
+@pytest.mark.parametrize("batch_size", [1, 65])
+def test_syndrome_rows_preserve_analytic_joint_distribution(batch_size):
+    program = compile_selected()
+    assert program.sampling_plan(keep_records="syndromes").reconstruction_selected
+    shots = 20000
+    result = clifft.sample(program, shots, seed=73, batch_size=batch_size, keep_records="syndromes")
+    # Independent H T H rotations give P(m_i=1)=sin(pi/8)^2.
+    # The joint output is D=m0 XOR m1 and O=m0, indexed by D + 2*O.
+    p = np.sin(np.pi / 8) ** 2
+    expected = np.array([(1 - p) ** 2, p * (1 - p), p**2, p * (1 - p)])
+    joint = result.detectors[:, 0] + 2 * result.observables[:, 0]
+    actual = np.bincount(joint, minlength=4) / shots
+    tolerance = 6 * np.sqrt(expected * (1 - expected) / shots) + 1 / shots
+    assert np.all(np.abs(actual - expected) < tolerance), (actual, expected)
+
+
 @pytest.mark.parametrize("keep_records", [False, True])
 def test_reference_parities_and_postselection_preserve_joint_law(keep_records):
     source = (

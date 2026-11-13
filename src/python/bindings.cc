@@ -1,5 +1,6 @@
 #include "clifft/api/program.h"
 #include "clifft/api/reference_syndrome.h"
+#include "clifft/api/sampling_preparation.h"
 #include "clifft/api/survivor_sampler.h"
 #include "clifft/circuit/circuit.h"
 #include "clifft/circuit/gate_data.h"
@@ -56,6 +57,27 @@ namespace {
 
 using ThreadOption = std::variant<int64_t, std::string>;
 using BatchOption = ThreadOption;
+using RecordOption = std::variant<bool, std::string>;
+
+clifft::sampling::SamplingOutputs parse_record_option(const RecordOption& option,
+                                                      bool bit_packed = false) {
+    using clifft::sampling::RecordOutputs;
+    if (const auto* keep = std::get_if<bool>(&option)) {
+        return {*keep ? RecordOutputs::All : RecordOutputs::None, bit_packed};
+    }
+    const auto& name = std::get<std::string>(option);
+    if (name == "all") {
+        return {RecordOutputs::All, bit_packed};
+    }
+    if (name == "syndromes") {
+        return {RecordOutputs::Syndromes, bit_packed};
+    }
+    if (name == "measurements") {
+        return {RecordOutputs::Measurements, bit_packed};
+    }
+    throw std::invalid_argument(
+        "keep_records must be a bool, 'all', 'syndromes', or 'measurements'");
+}
 
 // Inspection view of an immutable executable. Python bindings keep the owning
 // Program alive while the view refers to its plan and selection diagnostics.
@@ -241,6 +263,40 @@ const char* width_effect_to_str(clifft::WidthEffect effect) {
             return "instrument_dormant_trap";
     }
     return "unknown";
+}
+
+// All retained arrays own their native vectors; omitted arrays retain the
+// circuit's declared column width and zero-column outputs retain the row count.
+template <typename Result>
+nb::object sampling_result_to_python(Result result, const clifft::sampling::ExecutablePlan& program,
+                                     size_t rows, clifft::sampling::SamplingOutputs outputs) {
+    warn_if_batch_tuning_inconclusive(result.batch_tuning);
+    const auto bits = [&](std::vector<uint8_t> values, size_t columns, bool retained) {
+        return vec_to_numpy(std::move(values),
+                            {retained || columns == 0 ? rows : 0, outputs.stride(columns)});
+    };
+    auto measurements =
+        bits(std::move(result.measurements), program.num_visible_records(), outputs.measurements());
+    auto detectors =
+        bits(std::move(result.detectors), program.num_detectors(), outputs.syndromes());
+    auto observables =
+        bits(std::move(result.observables), program.num_observables(), outputs.syndromes());
+    auto expectations = vec_to_numpy(
+        std::move(result.exp_vals),
+        {outputs.expectations() || program.num_exp_vals() == 0 ? rows : 0, program.num_exp_vals()});
+    nb::object total = nb::none(), passed = nb::none(), errors = nb::none(), ones = nb::none();
+    if constexpr (std::is_same_v<Result, clifft::sampling::SamplingSurvivorResult>) {
+        total = nb::cast(result.total_shots);
+        passed = nb::cast(result.passed_shots);
+        errors = nb::cast(result.logical_errors);
+        const size_t columns = result.observable_ones.size();
+        ones = nb::cast(vec_to_numpy(std::move(result.observable_ones), {columns}));
+    }
+    return nb::module_::import_("clifft._sample_result")
+        .attr("SampleResult")(measurements, detectors, observables, total, passed, errors, ones,
+                              expectations, nb::cast(std::move(result.batch_tuning)),
+                              nb::arg("retained_shots") = rows,
+                              nb::arg("bit_packed") = outputs.bit_packed);
 }
 
 }  // namespace
@@ -1355,8 +1411,9 @@ NB_MODULE(_clifft_core, m) {
         m, "Program",
         "A reusable compiled program.\n\n"
         "peak_active_width, num_actions, and inspection describe full-output sampling, "
-        "as used by sample(). Use sampling_plan(keep_records=...) for survivor sampling "
-        "and original_plan for exact queries and fixed-fault sampling. Circuit counts "
+        "as used by sample() by default. Use sampling_plan(keep_records=...) for selective "
+        "or survivor sampling and original_plan for exact queries and fixed-fault sampling. "
+        "Circuit counts "
         "and noise-site probabilities retain their original meanings.")
         .def_prop_ro(
             "peak_active_width",
@@ -1406,7 +1463,7 @@ NB_MODULE(_clifft_core, m) {
             "inspect", [](const clifft::Program& p) { return p.sampling_plan(true).inspect(); },
             "Diagnostic text for the full-output sampling executable.\n\n"
             "The format is intended for human inspection. Use sampling_plan(keep_records=...) "
-            "to inspect survivor sampling, or original_plan for exact queries and "
+            "to inspect selective or survivor sampling, or original_plan for exact queries and "
             "fixed-fault sampling.")
         .def(
             "inspect_action",
@@ -1423,18 +1480,22 @@ NB_MODULE(_clifft_core, m) {
             "and fixed-fault sampling.")
         .def(
             "sampling_plan",
-            [](const clifft::Program& p, bool keep_records) {
+            [](const clifft::Program& p, const RecordOption& option) {
+                const bool keep_records = parse_record_option(option).measurements();
                 return PyPlanView{&p.sampling_plan(keep_records),
                                   p.uses_reconstruction(keep_records),
                                   p.reconstruction_fallback_reason(keep_records)};
             },
             nb::kw_only(), nb::arg("keep_records"), nb::keep_alive<0, 1>(),
-            "Return a read-only view of the executable selected for ordinary CPU sampling.\n\n"
+            nb::sig("def sampling_plan(self, *, keep_records: bool | "
+                    "typing.Literal['all', 'syndromes', 'measurements']) -> clifft.PlanView"),
+            "Return a read-only view of the compiled plan selected for ordinary CPU sampling.\n\n"
             "Selection is prepared during compilation. When reconstruction is disabled or "
-            "falls back, the view describes the original executable.\n\n"
+            "falls back, the view describes the original executable. Output preparation can "
+            "remove actions before execution; the view retains the compiled action count.\n\n"
             "Args:\n"
-            "    keep_records: Required output choice. Use True for sample(). For "
-            "sample_survivors(), match its keep_records argument (False by default).\n\n"
+            "    keep_records: Required output choice. Match the sampling call's keep_records "
+            "argument (True by default for sample(), False for sample_survivors()).\n\n"
             "Returns:\n"
             "    A PlanView with metrics, inspection methods, and reconstruction diagnostics.")
         .def("__repr__", [](const clifft::Program& p) {
@@ -1575,13 +1636,21 @@ NB_MODULE(_clifft_core, m) {
            const ThreadOption& thread_option,
            const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
-           std::optional<double> tuning_budget_seconds) {
+           std::optional<double> tuning_budget_seconds, const RecordOption& keep_records,
+           bool bit_packed) {
+            const auto outputs = parse_record_option(keep_records, bit_packed);
+            if (!outputs.rows()) {
+                throw std::invalid_argument("keep_records=False requires a survivor sampling API");
+            }
             const auto& program = owner.original();
             if (program.has_postselection()) {
+                const auto choice = nb::repr(nb::cast(keep_records));
                 throw nb::value_error(
-                    "sample() cannot be used with post-selected programs because it "
-                    "returns a fixed number of rows and cannot discard shots. "
-                    "Use sample_survivors(program, shots, keep_records=True) instead.");
+                    (std::string("sample() cannot be used with post-selected programs because it "
+                                 "returns a fixed number of rows and cannot discard shots. "
+                                 "Use sample_survivors(program, shots, keep_records=") +
+                     choice.c_str() + ") instead.")
+                        .c_str());
             }
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
@@ -1591,38 +1660,30 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample(owner.sampling_plan(true), shots, seed, threads,
-                                                  thread_layout, batch_size, tuning_budget);
+                result = clifft::sampling::sample(
+                    owner.sampling_preparation(outputs, {.early_postselection = false}).plan(),
+                    shots, seed, threads, thread_layout, batch_size, tuning_budget, outputs);
             }
-            warn_if_batch_tuning_inconclusive(result.batch_tuning);
-
-            auto meas_arr = vec_to_numpy(std::move(result.measurements),
-                                         {shots, program.num_visible_records()});
-            auto det_arr =
-                vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors()});
-            auto obs_arr =
-                vec_to_numpy(std::move(result.observables), {shots, program.num_observables()});
-            auto ev_arr = vec_to_numpy(std::move(result.exp_vals), {shots, program.num_exp_vals()});
-
-            nb::object mod = nb::module_::import_("clifft._sample_result");
-            return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr, nb::none(), nb::none(),
-                                            nb::none(), nb::none(), ev_arr,
-                                            nb::cast(std::move(result.batch_tuning)));
+            return sampling_result_to_python(std::move(result), program, shots, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
         nb::arg("intra_shot_min_active_width") = nb::none(),
         nb::arg("batch_size") = BatchOption{std::string{"auto"}}, nb::kw_only(),
-        nb::arg("tuning_budget_seconds") = nb::none(),
+        nb::arg("tuning_budget_seconds") = nb::none(), nb::arg("keep_records") = RecordOption{true},
+        nb::arg("bit_packed") = false,
         nb::sig("def sample(program: Program, shots: int, seed: int | None = None, "
                 "threads: int | typing.Literal['auto'] = 1, "
                 "thread_layout: tuple[int, int] | None = None, "
                 "intra_shot_min_active_width: int | None = None, "
                 "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
-                "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"),
+                "tuning_budget_seconds: float | None = None, "
+                "keep_records: bool | typing.Literal['all', 'syndromes', 'measurements'] = True, "
+                "bit_packed: bool = False) -> clifft.SampleResult"),
         "Run a compiled program and return a SampleResult.\n\n"
-        "Use program.sampling_plan(keep_records=True) to inspect this call's selected "
-        "executable width and action count.\n\n"
+        "Use program.sampling_plan(keep_records=keep_records) to inspect the selected "
+        "compiled plan and its active width. Output preparation can remove actions "
+        "from that plan before execution.\n\n"
         "Raises ValueError for post-selected programs because fixed-row output\n"
         "cannot represent discarded shots. Use sample_survivors() instead.\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
@@ -1643,6 +1704,10 @@ NB_MODULE(_clifft_core, m) {
         "The selected configuration and timings are in result.batch_tuning. "
         "Timing-based selection need not replay for a fixed seed; pin a numeric batch_size "
         "for debugging.\n\n"
+        "keep_records=True or 'all' retains all outputs; 'syndromes' retains detectors "
+        "and observables; 'measurements' retains measurements. False is rejected. "
+        "bit_packed=True returns uint8 b8 rows with little-endian bits and zero padding. "
+        "Omitted arrays have zero rows and preserve their declared column width.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample(prog, shots)");
 
@@ -1652,13 +1717,21 @@ NB_MODULE(_clifft_core, m) {
            const ThreadOption& thread_option,
            const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
-           std::optional<double> tuning_budget_seconds) {
+           std::optional<double> tuning_budget_seconds, const RecordOption& keep_records,
+           bool bit_packed) {
+            const auto outputs = parse_record_option(keep_records, bit_packed);
+            if (!outputs.rows()) {
+                throw std::invalid_argument("keep_records=False requires a survivor sampling API");
+            }
             const auto& program = owner.original();
             if (program.has_postselection()) {
+                const auto choice = nb::repr(nb::cast(keep_records));
                 throw nb::value_error(
-                    "sample_k() cannot be used with post-selected programs because it "
-                    "returns a fixed number of rows and cannot discard shots. "
-                    "Use sample_k_survivors(program, shots, k, keep_records=True) instead.");
+                    (std::string("sample_k() cannot be used with post-selected programs because it "
+                                 "returns a fixed number of rows and cannot discard shots. "
+                                 "Use sample_k_survivors(program, shots, k, keep_records=") +
+                     choice.c_str() + ") instead.")
+                        .c_str());
             }
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
@@ -1668,35 +1741,29 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample_k(program, shots, k, seed, threads, thread_layout,
-                                                    batch_size, tuning_budget);
+                result = clifft::sampling::sample_k(
+                    owner
+                        .sampling_preparation(outputs,
+                                              {.early_postselection = false, .fixed_faults = true})
+                        .plan(),
+                    shots, k, seed, threads, thread_layout, batch_size, tuning_budget, outputs);
             }
-            warn_if_batch_tuning_inconclusive(result.batch_tuning);
-
-            auto meas_arr = vec_to_numpy(std::move(result.measurements),
-                                         {shots, program.num_visible_records()});
-            auto det_arr =
-                vec_to_numpy(std::move(result.detectors), {shots, program.num_detectors()});
-            auto obs_arr =
-                vec_to_numpy(std::move(result.observables), {shots, program.num_observables()});
-            auto ev_arr = vec_to_numpy(std::move(result.exp_vals), {shots, program.num_exp_vals()});
-
-            nb::object mod = nb::module_::import_("clifft._sample_result");
-            return mod.attr("SampleResult")(meas_arr, det_arr, obs_arr, nb::none(), nb::none(),
-                                            nb::none(), nb::none(), ev_arr,
-                                            nb::cast(std::move(result.batch_tuning)));
+            return sampling_result_to_python(std::move(result), program, shots, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
         nb::arg("intra_shot_min_active_width") = nb::none(),
         nb::arg("batch_size") = BatchOption{std::string{"auto"}}, nb::kw_only(),
-        nb::arg("tuning_budget_seconds") = nb::none(),
+        nb::arg("tuning_budget_seconds") = nb::none(), nb::arg("keep_records") = RecordOption{true},
+        nb::arg("bit_packed") = false,
         nb::sig("def sample_k(program: Program, shots: int, k: int, seed: int | None = None, "
                 "threads: int | typing.Literal['auto'] = 1, "
                 "thread_layout: tuple[int, int] | None = None, "
                 "intra_shot_min_active_width: int | None = None, "
                 "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
-                "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"),
+                "tuning_budget_seconds: float | None = None, "
+                "keep_records: bool | typing.Literal['all', 'syndromes', 'measurements'] = True, "
+                "bit_packed: bool = False) -> clifft.SampleResult"),
         "Sample with exactly k forced faults per shot (importance sampling).\n\n"
         "Sites are drawn from the exact conditional Poisson-Binomial\n"
         "distribution. Results are conditioned on K=k and must be combined\n"
@@ -1723,38 +1790,12 @@ NB_MODULE(_clifft_core, m) {
         "The selected configuration and timings are in result.batch_tuning. "
         "Timing-based selection need not replay for a fixed seed; pin a numeric batch_size "
         "for debugging.\n\n"
+        "keep_records=True or 'all' retains all outputs; 'syndromes' retains detectors "
+        "and observables; 'measurements' retains measurements. False is rejected. "
+        "bit_packed=True returns uint8 b8 rows with little-endian bits and zero padding. "
+        "Omitted arrays have zero rows and preserve their declared column width.\n\n"
         "Returns a SampleResult with .measurements, .detectors, .observables attributes.\n"
         "Supports tuple unpacking: m, d, o = clifft.sample_k(prog, shots, k)");
-
-    auto make_survivor_result = [](clifft::sampling::SamplingSurvivorResult result,
-                                   const clifft::sampling::ExecutablePlan& program,
-                                   bool keep_records) -> nb::object {
-        warn_if_batch_tuning_inconclusive(result.batch_tuning);
-        size_t num_obs = result.observable_ones.size();
-        auto obs_ones_arr = vec_to_numpy(std::move(result.observable_ones), {num_obs});
-
-        nb::object mod = nb::module_::import_("clifft._sample_result");
-        nb::object cls = mod.attr("SampleResult");
-
-        std::vector<uint8_t> meas_storage =
-            keep_records ? std::move(result.measurements) : std::vector<uint8_t>{};
-        std::vector<uint8_t> det_storage =
-            keep_records ? std::move(result.detectors) : std::vector<uint8_t>{};
-        std::vector<uint8_t> obs_storage =
-            keep_records ? std::move(result.observables) : std::vector<uint8_t>{};
-        std::vector<double> ev_storage =
-            keep_records ? std::move(result.exp_vals) : std::vector<double>{};
-
-        size_t rows = keep_records ? result.passed_shots : 0;
-        auto meas_arr =
-            vec_to_numpy(std::move(meas_storage), {rows, program.num_visible_records()});
-        auto det_arr = vec_to_numpy(std::move(det_storage), {rows, program.num_detectors()});
-        auto obs_arr = vec_to_numpy(std::move(obs_storage), {rows, program.num_observables()});
-        auto ev_arr = vec_to_numpy(std::move(ev_storage), {rows, program.num_exp_vals()});
-        return cls(meas_arr, det_arr, obs_arr, result.total_shots, result.passed_shots,
-                   result.logical_errors, obs_ones_arr, ev_arr,
-                   nb::cast(std::move(result.batch_tuning)));
-    };
 
     nb::enum_<clifft::sampling::BatchNoiseMode>(
         m, "NoisePreparation", "Classical noise preparation strategy for SurvivorSampler.")
@@ -1832,14 +1873,14 @@ NB_MODULE(_clifft_core, m) {
                     "tuning_budget_seconds: float | None = None) -> None"))
         .def(
             "sample",
-            [make_survivor_result](clifft::SurvivorSampler& sampler, uint32_t shots,
-                                   std::optional<uint64_t> seed) {
+            [](clifft::SurvivorSampler& sampler, uint32_t shots, std::optional<uint64_t> seed) {
                 clifft::sampling::SamplingSurvivorResult result;
                 {
                     nb::gil_scoped_release release;
                     result = sampler.sample(shots, seed);
                 }
-                return make_survivor_result(std::move(result), sampler.program().original(), false);
+                return sampling_result_to_python(std::move(result), sampler.program().original(), 0,
+                                                 false);
             },
             nb::arg("shots"), nb::arg("seed") = nb::none(),
             nb::sig("def sample(self, shots: int, seed: int | None = None) -> clifft.SampleResult"),
@@ -1851,12 +1892,12 @@ NB_MODULE(_clifft_core, m) {
 
     m.def(
         "sample_k_survivors",
-        [make_survivor_result](
-            const clifft::Program& owner, uint32_t shots, uint32_t k, std::optional<uint64_t> seed,
-            bool keep_records, const ThreadOption& thread_option,
-            const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
-            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
-            std::optional<double> tuning_budget_seconds) {
+        [](const clifft::Program& owner, uint32_t shots, uint32_t k, std::optional<uint64_t> seed,
+           const RecordOption& keep_records, const ThreadOption& thread_option,
+           const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
+           std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
+           std::optional<double> tuning_budget_seconds, bool bit_packed) {
+            const auto outputs = parse_record_option(keep_records, bit_packed);
             const auto& program = owner.original();
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
@@ -1866,24 +1907,34 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample_k_survivors(program, shots, k, seed, keep_records,
-                                                              threads, thread_layout, batch_size,
-                                                              tuning_budget);
+                const auto& preparation = owner.sampling_preparation(
+                    outputs,
+                    {.early_postselection = false, .fixed_faults = true, .survivor_counts = true});
+                const auto* noise =
+                    batch_size == 1 || shots == 0
+                        ? nullptr
+                        : &preparation.noise(clifft::sampling::BatchNoiseMode::Dense);
+                result = clifft::sampling::sample_k_survivors(preparation.plan(), shots, k, seed,
+                                                              outputs, threads, thread_layout,
+                                                              batch_size, tuning_budget, noise);
             }
-            return make_survivor_result(std::move(result), program, keep_records);
+            const size_t rows = outputs.rows() ? result.passed_shots : 0;
+            return sampling_result_to_python(std::move(result), program, rows, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
-        nb::arg("keep_records") = false, nb::arg("threads") = int64_t{1},
+        nb::arg("keep_records") = RecordOption{false}, nb::arg("threads") = int64_t{1},
         nb::arg("thread_layout") = nb::none(), nb::arg("intra_shot_min_active_width") = nb::none(),
         nb::arg("batch_size") = BatchOption{std::string{"auto"}}, nb::kw_only(),
-        nb::arg("tuning_budget_seconds") = nb::none(),
+        nb::arg("tuning_budget_seconds") = nb::none(), nb::arg("bit_packed") = false,
         nb::sig("def sample_k_survivors(program: Program, shots: int, k: int, "
-                "seed: int | None = None, keep_records: bool = False, "
+                "seed: int | None = None, keep_records: bool | typing.Literal['all', 'syndromes', "
+                "'measurements'] = False, "
                 "threads: int | typing.Literal['auto'] = 1, "
                 "thread_layout: tuple[int, int] | None = None, "
                 "intra_shot_min_active_width: int | None = None, "
                 "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
-                "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"),
+                "tuning_budget_seconds: float | None = None, bit_packed: bool = False) -> "
+                "clifft.SampleResult"),
         "Sample survivors with exactly k forced faults per shot.\n\n"
         "Results are conditioned on K=k. To estimate the overall logical\n"
         "error rate across strata, weight numerator and denominator\n"
@@ -1909,16 +1960,20 @@ NB_MODULE(_clifft_core, m) {
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
         ".observable_ones. Per-shot record arrays\n"
         "(.measurements, .detectors, .observables, .exp_vals) are only\n"
-        "filled when keep_records=True; otherwise they are empty (rows=0).");
+        "selected by keep_records: True or 'all' retains all outputs; 'syndromes' "
+        "retains detectors and observables; 'measurements' retains measurements; "
+        "False retains no rows. EXP_VAL probes are retained only with all outputs. "
+        "bit_packed=True stores uint8 arrays as little-endian b8 rows with zero padding. "
+        "Omitted arrays have zero rows and preserve their declared column width.");
 
     m.def(
         "sample_survivors",
-        [make_survivor_result](
-            const clifft::Program& owner, uint32_t shots, std::optional<uint64_t> seed,
-            bool keep_records, const ThreadOption& thread_option,
-            const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
-            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
-            std::optional<double> tuning_budget_seconds) {
+        [](const clifft::Program& owner, uint32_t shots, std::optional<uint64_t> seed,
+           const RecordOption& keep_records, const ThreadOption& thread_option,
+           const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
+           std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
+           std::optional<double> tuning_budget_seconds, bool bit_packed) {
+            const auto outputs = parse_record_option(keep_records, bit_packed);
             const auto& program = owner.original();
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
@@ -1928,26 +1983,36 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample_survivors(
-                    owner.sampling_plan(keep_records), shots, seed, keep_records, threads,
-                    thread_layout, batch_size, tuning_budget);
+                const auto& preparation = owner.sampling_preparation(
+                    outputs, {.early_postselection = false, .survivor_counts = true});
+                const auto* noise =
+                    batch_size == 1 || shots == 0
+                        ? nullptr
+                        : &preparation.noise(clifft::sampling::BatchNoiseMode::Dense);
+                result = clifft::sampling::sample_survivors(preparation.plan(), shots, seed,
+                                                            outputs, threads, thread_layout,
+                                                            batch_size, tuning_budget, noise);
             }
-            return make_survivor_result(std::move(result), program, keep_records);
+            const size_t rows = outputs.rows() ? result.passed_shots : 0;
+            return sampling_result_to_python(std::move(result), program, rows, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
-        nb::arg("keep_records") = false, nb::arg("threads") = int64_t{1},
+        nb::arg("keep_records") = RecordOption{false}, nb::arg("threads") = int64_t{1},
         nb::arg("thread_layout") = nb::none(), nb::arg("intra_shot_min_active_width") = nb::none(),
         nb::arg("batch_size") = BatchOption{std::string{"auto"}}, nb::kw_only(),
-        nb::arg("tuning_budget_seconds") = nb::none(),
+        nb::arg("tuning_budget_seconds") = nb::none(), nb::arg("bit_packed") = false,
         nb::sig("def sample_survivors(program: Program, shots: int, seed: int | None = None, "
-                "keep_records: bool = False, threads: int | typing.Literal['auto'] = 1, "
+                "keep_records: bool | typing.Literal['all', 'syndromes', 'measurements'] = False, "
+                "threads: int | typing.Literal['auto'] = 1, "
                 "thread_layout: tuple[int, int] | None = None, "
                 "intra_shot_min_active_width: int | None = None, "
                 "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
-                "tuning_budget_seconds: float | None = None) -> clifft.SampleResult"),
+                "tuning_budget_seconds: float | None = None, bit_packed: bool = False) -> "
+                "clifft.SampleResult"),
         "Sample shots and return results only for surviving (non-discarded) shots.\n\n"
-        "Use program.sampling_plan(keep_records=keep_records) to inspect this call's selected "
-        "executable width and action count. Match keep_records to this call (False by default).\n\n"
+        "Use program.sampling_plan(keep_records=keep_records) to inspect the selected "
+        "compiled plan and its active width. Output preparation can remove actions "
+        "from that plan before execution. Match keep_records to this call (False by default).\n\n"
         "If seed is None (default), uses hardware entropy. threads is a positive\n"
         "total worker budget or 'auto' to use the implementation-reported hardware\n"
         "concurrency; it defaults to 1. thread_layout=(shot_workers,\n"
@@ -1967,7 +2032,11 @@ NB_MODULE(_clifft_core, m) {
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
         ".observable_ones. Per-shot record arrays\n"
         "(.measurements, .detectors, .observables, .exp_vals) are only\n"
-        "filled when keep_records=True; otherwise they are empty (rows=0).");
+        "selected by keep_records: True or 'all' retains all outputs; 'syndromes' "
+        "retains detectors and observables; 'measurements' retains measurements; "
+        "False retains no rows. EXP_VAL probes are retained only with all outputs. "
+        "bit_packed=True stores uint8 arrays as little-endian b8 rows with zero padding. "
+        "Omitted arrays have zero rows and preserve their declared column width.");
 
     m.def(
         "get_statevector",

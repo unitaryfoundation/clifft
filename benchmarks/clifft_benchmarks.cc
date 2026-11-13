@@ -42,6 +42,10 @@
 #include "clifft/api/sampling_preparation.h"
 #endif
 
+#if __has_include("clifft/sampling/outputs.h")
+#define CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
+#endif
+
 #include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
@@ -509,17 +513,64 @@ const Program& shared_cultivation_program() {
     return program;
 }
 
+// Count-only calls use the public API's selected preparation before worker setup.
+// The older API samples the selected compiled plan directly.
+void sample_count_only_msc(benchmark::State& state, bool fixed_faults,
+                           std::optional<uint32_t> batch_size) {
+    const auto& program = shared_cultivation_program<3>();
+#ifdef CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
+    const auto& preparation = program.sampling_preparation(
+        false,
+        {.early_postselection = false, .fixed_faults = fixed_faults, .survivor_counts = true});
+    const auto& plan = preparation.plan();
+    const auto* noise = &preparation.noise(sampling::BatchNoiseMode::Dense);
+#else
+    const auto& plan = fixed_faults ? program.original() : program.sampling_plan(false);
+#endif
+    constexpr uint32_t shots = 200'000;
+    for ([[maybe_unused]] auto _ : state) {
+#ifdef CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
+        auto result = fixed_faults
+                          ? sampling::sample_k_survivors(plan, shots, 3, 73, false, 1, std::nullopt,
+                                                         batch_size, std::nullopt, noise)
+                          : sampling::sample_survivors(plan, shots, 73, false, 1, std::nullopt,
+                                                       batch_size, std::nullopt, noise);
+#else
+        auto result = fixed_faults ? sampling::sample_k_survivors(plan, shots, 3, 73, false, 1,
+                                                                  std::nullopt, batch_size)
+                                   : sampling::sample_survivors(plan, shots, 73, false, 1,
+                                                                std::nullopt, batch_size);
+#endif
+        benchmark::DoNotOptimize(result);
+    }
+    state.SetItemsProcessed(state.iterations() * shots);
+}
+
+BENCHMARK_CAPTURE(sample_count_only_msc, ordinary_auto, false, std::nullopt)
+    ->Name("sample_count_only_msc_d3_auto");
+BENCHMARK_CAPTURE(sample_count_only_msc, ordinary_packed, false, uint32_t{256})
+    ->Name("sample_count_only_msc_d3_packed");
+BENCHMARK_CAPTURE(sample_count_only_msc, fixed_faults_auto, true, std::nullopt)
+    ->Name("sample_k_count_only_msc_d3_auto");
+BENCHMARK_CAPTURE(sample_count_only_msc, fixed_faults_packed, true, uint32_t{256})
+    ->Name("sample_k_count_only_msc_d3_packed");
+
 // One independently built copy of the immutable preparation shared execution
 // reads: count-only plan, noise metadata, early checks, and optional grouping key.
 class SharedPreparation {
   public:
 #ifdef CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
     SharedPreparation(const Program& program, sampling::BatchNoiseMode mode, bool group)
+#ifdef CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
+        : preparation_(program.sampling_plan(false), false, true, true),
+#else
         : preparation_(program.sampling_plan(false), false, true),
+#endif
           plan_(preparation_.plan()),
           noise_(preparation_.noise(mode)),
           checks_(preparation_.checks()),
-          key_(group ? &preparation_.sharing_key() : nullptr) {}
+          key_(group ? &preparation_.sharing_key() : nullptr) {
+    }
 #else
     SharedPreparation(const Program& program, sampling::BatchNoiseMode mode, bool group)
         : compact_(program.sampling_plan(false).compact_outputs(true, mode)),

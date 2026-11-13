@@ -12,6 +12,8 @@
 
 namespace clifft::sampling {
 
+class PreparedBatchNoise;
+
 inline constexpr double kDefaultBatchTuningBudgetSeconds = 0.25;
 
 // Sampling pipeline:
@@ -65,27 +67,33 @@ struct ThreadLayout {
                                     uint32_t threads = 1,
                                     std::optional<ThreadLayout> thread_layout = std::nullopt,
                                     std::optional<uint32_t> batch_size = std::nullopt,
-                                    std::optional<double> tuning_budget_seconds = std::nullopt);
+                                    std::optional<double> tuning_budget_seconds = std::nullopt,
+                                    SamplingOutputs outputs = {});
 
+// Optional noise preparation belongs to plan and outlives this call. The same
+// preparation is reused by calibration and production workers.
 [[nodiscard]] SamplingSurvivorResult sample_survivors(
     const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed = std::nullopt,
-    bool keep_records = false, uint32_t threads = 1,
+    SamplingOutputs outputs = false, uint32_t threads = 1,
     std::optional<ThreadLayout> thread_layout = std::nullopt,
     std::optional<uint32_t> batch_size = std::nullopt,
-    std::optional<double> tuning_budget_seconds = std::nullopt);
+    std::optional<double> tuning_budget_seconds = std::nullopt,
+    const PreparedBatchNoise* noise = nullptr);
 
 [[nodiscard]] SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
                                       std::optional<uint64_t> seed = std::nullopt,
                                       uint32_t threads = 1,
                                       std::optional<ThreadLayout> thread_layout = std::nullopt,
                                       std::optional<uint32_t> batch_size = std::nullopt,
-                                      std::optional<double> tuning_budget_seconds = std::nullopt);
+                                      std::optional<double> tuning_budget_seconds = std::nullopt,
+                                      SamplingOutputs outputs = {});
 
 [[nodiscard]] SamplingSurvivorResult sample_k_survivors(
     const ExecutablePlan& plan, uint32_t shots, uint32_t k,
-    std::optional<uint64_t> seed = std::nullopt, bool keep_records = false, uint32_t threads = 1,
-    std::optional<ThreadLayout> thread_layout = std::nullopt,
+    std::optional<uint64_t> seed = std::nullopt, SamplingOutputs outputs = false,
+    uint32_t threads = 1, std::optional<ThreadLayout> thread_layout = std::nullopt,
     std::optional<uint32_t> batch_size = std::nullopt,
-    std::optional<double> tuning_budget_seconds = std::nullopt);
+    std::optional<double> tuning_budget_seconds = std::nullopt,
+    const PreparedBatchNoise* noise = nullptr);
 
 }  // namespace clifft::sampling

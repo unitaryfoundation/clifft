@@ -9,10 +9,12 @@ importance sampling, and leakage or loss are covered in their own guides.
 
 ## Choose sampling behavior
 
-Both sampling functions consume the reusable `Program` returned by
+These sampling functions consume the reusable `Program` returned by
 `clifft.compile()`:
 
 - Use `clifft.sample()` when every requested shot should produce one row.
+- Use `clifft.sample_detectors()` for detector arrays to pass to a decoder, with
+  optional separate observable arrays. See [Select and pack outputs](#select-and-pack-outputs).
 - Compile with a detector `postselection_mask` and use
   `clifft.sample_survivors()` when rejected shots should be discarded.
 
@@ -96,17 +98,60 @@ The result includes aggregate survivor information:
 `observable_ones` always has shape `(program.num_observables,)`; a zero-shot
 run contains zero counts. Use `result.total_shots == 0` to identify an empty run.
 
-By default, the per-shot arrays are empty, and `EXP_VAL` probe values are not
-included in the aggregate statistics. CPU scalar and packed execution also skip
-evaluating these probes when `keep_records=False`, avoiding their evaluation cost
-even with an empty postselection mask. Pass `keep_records=True` to retain measurement,
-detector, observable, and expectation-value rows for each survivor.
+By default, survivor sampling returns only aggregate counts and skips `EXP_VAL`
+probes. To retain rows for each survivor, choose the outputs described in
+[Select and pack outputs](#select-and-pack-outputs).
 
 Marked detectors are checked during execution. Clifft discards a shot as soon
 as it can determine that the shot fails, avoiding later work that cannot
 contribute to the surviving sample. For repeated count-only runs over the same
 compiled program, see
 [`SurvivorSampler`](cpu-execution.md#sharing-trajectories-in-survivor-sampling).
+
+### Select and pack outputs
+
+Decoder workloads usually need detector and observable rows without the full
+measurement history. Select the outputs you use to reduce both execution work
+and result memory; these options also apply to `sample_k()` and the survivor APIs.
+
+| `keep_records` | Retained rows |
+|---|---|
+| `True` or `"all"` | Measurements, detectors, observables, and `EXP_VAL` probes |
+| `"syndromes"` | Detectors and observables |
+| `"measurements"` | Measurements |
+| `False` | Aggregate counts only; accepted by survivor APIs |
+
+Ordinary sampling defaults to `True`; survivor sampling defaults to `False`.
+Survivor counts, including `logical_errors` and `observable_ones`, remain
+available with every output choice. Feedback and postselection still consume
+the internal records they need.
+
+Set `bit_packed=True` to store eight binary columns per byte in Stim's `b8`
+format: column `j` occupies bit `j % 8` of byte `j // 8`. Unused high bits in the
+last byte are zero. The shape is `(rows, (columns + 7) // 8)` and the dtype is
+`uint8`. This option changes result storage independently of `batch_size`,
+which controls how many trajectories execute together.
+
+```python
+import clifft
+import numpy as np
+
+program = clifft.compile("H 0\nM 0\nDETECTOR rec[-1]")
+result = clifft.sample(program, 100, keep_records="syndromes", bit_packed=True)
+assert result.measurements.shape == (0, 1)
+assert result.detectors.shape == (100, 1)
+assert result.retained_shots == 100
+assert result.bit_packed
+bits = np.unpackbits(result.detectors, axis=1, count=program.num_detectors,
+                     bitorder="little")
+assert bits.shape == (100, 1)
+```
+
+For a decoder-facing array, `clifft.sample_detectors()` returns just detectors,
+or `(detectors, observables)` with `separate_observables=True`. It uses
+`keep_records="syndromes"` and shares the result storage. Unpacked arrays have
+dtype `bool`; packed arrays have dtype `uint8`. The detector values follow the
+program's [syndrome normalization](#detectors-and-observables) settings.
 
 ## Understand `SampleResult`
 
@@ -119,9 +164,15 @@ A `SampleResult` exposes four NumPy arrays:
 | `observables` | Logical parities declared by `OBSERVABLE_INCLUDE`. |
 | `exp_vals` | Values produced by non-destructive `EXP_VAL` probes. |
 
-For ordinary sampling, every array has one row per shot. An array has zero
-columns when the circuit does not declare that result type. Survivor sampling
-retains rows only when `keep_records=True`.
+`result.retained_shots` gives the number of retained rows: the requested shot
+count for ordinary sampling, the accepted shot count for survivor sampling with
+records, or zero for count-only sampling. Selected binary arrays have that many
+rows and contain `uint8` values of `0` or `1`, or `b8` bytes when
+`result.bit_packed` is true. `exp_vals` contains unpacked `float64` values.
+
+Omitted arrays have zero rows and keep their declared column width, adjusted
+for bit packing. Arrays with no declared columns always have shape
+`(result.retained_shots, 0)`.
 
 ### Detectors and observables
 

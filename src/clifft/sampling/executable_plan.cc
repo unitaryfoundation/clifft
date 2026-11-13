@@ -53,8 +53,10 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
     ExecutablePlanBuilder::build(*this, plan);
 }
 
-ExecutablePlan ExecutablePlan::compact_outputs(bool early_postselection) const {
-    return ExecutablePlanBuilder::compact_outputs(*this, early_postselection);
+ExecutablePlan ExecutablePlan::compact_outputs(SamplingOutputs outputs, bool early_postselection,
+                                               bool survivor_counts) const {
+    return ExecutablePlanBuilder::compact_outputs(*this, outputs, early_postselection,
+                                                  survivor_counts);
 }
 
 std::vector<AffineBool> ExecutablePlan::affine_registers() const {

@@ -20,11 +20,16 @@
 
 ## Sampling
 
-The four sampling functions below share CPU batching and threading arguments. See
+The sampling functions below share CPU batching and threading arguments. See
 [CPU Execution and Tuning](../guide/cpu-execution.md) for their interaction and
 compatibility limits.
 
 ::: clifft.sample
+
+::: clifft.sample_detectors
+    options:
+      show_overloads: false
+      overloads_only: false
 
 ::: clifft.sample_survivors
 

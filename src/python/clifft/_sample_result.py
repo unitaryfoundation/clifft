@@ -18,7 +18,14 @@ class SampleResult:
         measurements: uint8 array, shape (shots, num_measurements)
         detectors: uint8 array, shape (shots, num_detectors)
         observables: uint8 array, shape (shots, num_observables)
+        exp_vals: float64 array of expectation values, shape (shots, num_exp_vals)
+        retained_shots: number of retained rows, or zero for count-only sampling
+        bit_packed: whether uint8 rows use little-endian b8 packing
         batch_tuning: calibration report when batch_size="tune", otherwise None
+
+    Omitted outputs have zero rows and keep their declared column width. Outputs
+    with no declared columns have shape (retained_shots, 0). Bit packing changes
+    each uint8 width to ceil(columns / 8); expectation values remain float64.
 
     Survivor-only attributes:
         total_shots: total number of shots attempted
@@ -45,6 +52,8 @@ class SampleResult:
         "logical_errors",
         "observable_ones",
         "batch_tuning",
+        "retained_shots",
+        "bit_packed",
     )
 
     def __init__(
@@ -58,7 +67,16 @@ class SampleResult:
         observable_ones: npt.NDArray[np.uint64] | None = None,
         exp_vals: npt.NDArray[np.float64] | None = None,
         batch_tuning: BatchTuningReport | None = None,
+        *,
+        retained_shots: int | None = None,
+        bit_packed: bool = False,
     ) -> None:
+        self.retained_shots = (
+            max(measurements.shape[0], detectors.shape[0], observables.shape[0])
+            if retained_shots is None
+            else retained_shots
+        )
+        self.bit_packed = bit_packed
         self.batch_tuning = batch_tuning
         self.measurements = measurements
         self.detectors = detectors
@@ -66,7 +84,7 @@ class SampleResult:
         self.exp_vals = (
             exp_vals
             if exp_vals is not None
-            else np.empty((measurements.shape[0], 0), dtype=np.float64)
+            else np.empty((self.retained_shots, 0), dtype=np.float64)
         )
         self.total_shots = total_shots
         self.passed_shots = passed_shots
@@ -84,9 +102,15 @@ class SampleResult:
 
     def __repr__(self) -> str:
         parts = [
-            f"shots={self.measurements.shape[0]}",
-            f"measurements={self.measurements.shape[1]}",
+            f"shots={self.retained_shots}",
+            f"measurements_shape={self.measurements.shape}",
+            f"detectors_shape={self.detectors.shape}",
+            f"observables_shape={self.observables.shape}",
         ]
+        if self.exp_vals.shape[1]:
+            parts.append(f"exp_vals_shape={self.exp_vals.shape}")
+        if self.bit_packed:
+            parts.append("bit_packed=True")
         if self.total_shots is not None:
             parts.append(f"total_shots={self.total_shots}")
         if self.passed_shots is not None:

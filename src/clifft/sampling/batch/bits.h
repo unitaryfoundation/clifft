@@ -125,10 +125,11 @@ void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept;
 // [0, rows.size()) to output[rows[lane] * stride + column] as a 0 or 1 byte.
 // rows holds one output row index per lane. Works in 64-lane by 64-column
 // tiles so each packed word is read once and each row segment is written
-// contiguously; never allocates.
+// contiguously; never allocates. With bit_packed, each row uses little-endian
+// b8 bytes, including zero high-bit padding in its final byte.
 void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
                                    std::span<const uint32_t> rows, std::span<uint8_t> output,
-                                   size_t stride) noexcept;
+                                   size_t stride, bool bit_packed = false) noexcept;
 
 // XORs a lane-major packed matrix into the matching bit columns. Padding lanes
 // and bits beyond the destination column count are ignored.

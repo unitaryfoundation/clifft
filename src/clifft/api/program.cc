@@ -17,13 +17,24 @@ struct Program::Data {
         std::string fallback_reason = "reconstruction is disabled";
     };
 
+    struct EarlyCheckPreparations {
+        std::array<detail::LazyPrepared<SamplingPreparation>, 2> by_early_postselection;
+    };
+
+    struct SummaryPreparations {
+        std::array<EarlyCheckPreparations, 2> by_survivor_counts;
+    };
+
+    struct OutputPreparations {
+        std::array<SummaryPreparations, 2> by_fixed_faults;
+    };
+
     explicit Data(sampling::ExecutablePlan plan) : original(std::move(plan)) {}
 
     sampling::ExecutablePlan original;
     // Prepared once during compilation, then immutable for concurrent sampling.
     std::array<SamplingVariant, 2> variants;
-    // Indexed by keep_records, then by whether early checks apply.
-    std::array<std::array<detail::LazyPrepared<SamplingPreparation>, 2>, 2> preparations;
+    std::array<OutputPreparations, 4> preparations;
 };
 
 Program::Program(sampling::ExecutablePlan original)
@@ -121,11 +132,19 @@ const std::string& Program::reconstruction_fallback_reason(bool keep_records) co
     return data_->variants[keep_records].fallback_reason;
 }
 
-const SamplingPreparation& Program::sampling_preparation(bool keep_records,
-                                                         bool early_postselection) const {
-    const auto& plan = sampling_plan(keep_records);
-    const bool early = early_postselection && plan.has_postselection();
-    return data_->preparations[keep_records][early].get(plan, keep_records, early);
+const SamplingPreparation& Program::sampling_preparation(sampling::SamplingOutputs outputs,
+                                                         SamplingPreparationOptions options) const {
+    const bool fixed_faults = options.fixed_faults && uses_reconstruction(outputs.measurements());
+    const auto& plan = fixed_faults ? original() : sampling_plan(outputs.measurements());
+    const bool early = options.early_postselection && plan.has_postselection();
+    const bool survivor_counts =
+        !outputs.rows() ||
+        (outputs.records == sampling::RecordOutputs::Measurements && options.survivor_counts);
+    return data_->preparations[static_cast<size_t>(outputs.records)]
+        .by_fixed_faults[fixed_faults]
+        .by_survivor_counts[survivor_counts]
+        .by_early_postselection[early]
+        .get(plan, outputs, early, survivor_counts);
 }
 
 }  // namespace clifft
