@@ -4,19 +4,13 @@
 #include "clifft/util/symplectic.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <limits>
 #include <utility>
 
 namespace clifft {
 namespace {
-
-using optimizer_detail::body_bit;
-using optimizer_detail::pivot_of;
-
-bool identity(const PauliString& axis) {
-    return axis.x().is_zero() && axis.z().is_zero();
-}
 
 using optimizer_detail::copy_axis;
 
@@ -137,46 +131,27 @@ SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, SymbolicStabilize
 
 SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, size_t end,
                                          SymbolicStabilizerOptions options)
-    : options_(options), postselected_records_(collect_postselected_records(hir)) {
+    : options_(options),
+      num_qubits_(hir.num_qubits),
+      domain_(((hir.num_qubits + 63) / 64) * 64),
+      basis_(hir.num_qubits),
+      postselected_records_(collect_postselected_records(hir)) {
     assert(end <= hir.ops.size());
     for (size_t i = 0; i < end; ++i) {
         if (hir.ops[i].op_type() == OpType::CONDITIONAL_PAULI) {
             ++remaining_uses_[static_cast<uint32_t>(hir.ops[i].controlling_meas())];
         }
     }
-    rows_.reserve(hir.num_qubits);
-    for (uint32_t q = 0; q < hir.num_qubits; ++q) {
-        PauliString axis(hir.num_qubits);
-        axis.set_pauli(q, false, true);
-        const auto pivot = pivot_of(axis);
-        add_row(pivot, Row{std::move(axis), {}, q / 64, q / 64 + 1});
-    }
-}
-
-SymbolicStabilizers::Rows::const_iterator SymbolicStabilizers::first_row_from(
-    uint32_t pivot) const {
-    return std::ranges::lower_bound(rows_, pivot, {}, &Rows::value_type::first);
-}
-
-void SymbolicStabilizers::add_row(uint32_t pivot, Row row) {
-    const auto at = first_row_from(pivot);
-    assert(at == rows_.end() || at->first != pivot);
-    rows_.emplace(at, pivot, std::move(row));
 }
 
 bool SymbolicStabilizers::multiply(Row& left, const Row& right, size_t& products) const {
-    if (products == options_.max_row_products) {
-        return false;
-    }
-    ++products;
-    left.sign ^= right.sign;
-    if (left.sign.terms().size() > options_.max_expression_terms) {
-        return false;
-    }
-    left.axis.right_multiply(right.axis.view());
-    left.begin = std::min(left.begin, right.begin);
-    left.end = std::max(left.end, right.end);
-    return true;
+    return basis_.multiply_row(left, right, products, options_.max_row_products,
+                               options_.max_expression_terms);
+}
+
+bool SymbolicStabilizers::reduce_row(Row& target, size_t& products) const {
+    return basis_.reduce(target, products, options_.max_row_products,
+                         options_.max_expression_terms);
 }
 
 const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
@@ -184,18 +159,25 @@ const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
     if (fixed_valid_) {
         return fixed_;
     }
-    fixed_.rows_.clear();
+    fixed_.basis_.reset_unit_z_from(basis_);
+    const auto& rows = basis_.rows();
+    if (rows.empty()) {
+        fixed_valid_ = true;
+        return fixed_;
+    }
+
     // Preserve known fixed-sign constraints even when symbolic elimination is capped.
-    for (const auto& [pivot, row] : rows_) {
+    for (const Row& row : rows) {
         if (row.sign.terms().empty()) {
             auto axis = row.axis;
             axis.set_sign(axis.sign() ^ row.sign.constant());
-            fixed_.rows_.emplace(pivot, std::move(axis));
+            fixed_.basis_.insert_reduced(KnownStabilizers::Basis::Row{0, std::move(axis), {}});
         }
     }
+
     std::map<sampling::SymbolId, Row> signs;
     size_t products = 0;
-    for (const auto& [pivot, original] : rows_) {
+    for (const Row& original : rows) {
         if (original.sign.terms().empty()) {
             continue;
         }
@@ -226,24 +208,9 @@ const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
             continue;
         }
         row.axis.set_sign(row.axis.sign() ^ row.sign.constant());
-        for (auto it = fixed_.rows_.lower_bound(pivot_of(row.axis)); it != fixed_.rows_.end();
-             ++it) {
-            if (body_bit(row.axis, it->first)) {
-                if (products == options_.max_row_products) {
-                    capped = true;
-                    break;
-                }
-                ++products;
-                row.axis.right_multiply(it->second.view());
-            }
-        }
-        if (capped) {
+        if (!fixed_.reduce_and_insert_bounded(std::move(row.axis), products,
+                                              options_.max_row_products)) {
             break;
-        }
-        if (!identity(row.axis)) {
-            fixed_.rows_.emplace(pivot_of(row.axis), std::move(row.axis));
-        } else {
-            assert(!row.axis.sign());
         }
     }
     fixed_valid_ = true;
@@ -252,18 +219,13 @@ const KnownStabilizers& SymbolicStabilizers::fixed_constraints() {
 
 std::optional<SymbolicStabilizers::AffineBool> SymbolicStabilizers::affine_eigenvalue(
     PauliString axis, bool& capped) const {
-    Row reduced{std::move(axis), {}};
+    Row reduced{0, std::move(axis), {}};
     size_t products = 0;
-    for (auto it = first_row_from(pivot_of(reduced.axis)); it != rows_.end(); ++it) {
-        if (body_bit(reduced.axis, it->first) && !multiply(reduced, it->second, products)) {
-            capped = true;
-            return std::nullopt;
-        }
-        if (identity(reduced.axis)) {
-            break;
-        }
+    if (!reduce_row(reduced, products)) {
+        capped = true;
+        return std::nullopt;
     }
-    if (!identity(reduced.axis)) {
+    if (!Basis::identity_axis(reduced.axis)) {
         return std::nullopt;
     }
     assert(reduced.axis.is_hermitian());
@@ -275,69 +237,110 @@ bool SymbolicStabilizers::insert_row(Row row) {
     fixed_valid_ = false;
     assert(row.axis.is_hermitian());
     size_t products = 0;
-    for (auto it = first_row_from(pivot_of(row.axis)); it != rows_.end(); ++it) {
-        if (body_bit(row.axis, it->first) && !multiply(row, it->second, products)) {
-            return false;
-        }
+    if (!reduce_row(row, products)) {
+        return false;
     }
-    if (identity(row.axis)) {
+    if (Basis::identity_axis(row.axis)) {
         assert(row.sign.terms().empty() && row.axis.sign() == row.sign.constant());
-    } else {
-        const PauliCommutation range(row.axis.x(), row.axis.z());
-        row.begin = range.begin_word();
-        row.end = range.end_word();
-        const auto pivot = pivot_of(row.axis);
-        add_row(pivot, std::move(row));
-    }
-    return true;
-}
-
-bool SymbolicStabilizers::intersect_rows(PauliStringView axis) {
-    const PauliCommutation commutation(axis.x(), axis.z());
-    auto pivot = rows_.end();
-    for (auto it = rows_.begin(); it != rows_.end(); ++it) {
-        if (!it->second.misses(commutation) &&
-            commutation.anti_commutes(it->second.axis.x(), it->second.axis.z())) {
-            pivot = it;
-        }
-    }
-    if (pivot == rows_.end()) {
         return true;
     }
-    fixed_valid_ = false;
-    // The largest pivot preserves the earlier rows' leading bits.
-    size_t products = 0;
-    for (auto it = rows_.begin(); it != pivot; ++it) {
-        if (!it->second.misses(commutation) &&
-            commutation.anti_commutes(it->second.axis.x(), it->second.axis.z()) &&
-            !multiply(it->second, pivot->second, products)) {
-            return false;
-        }
-    }
-    rows_.erase(pivot);
+    basis_.insert_reduced(std::move(row));
     return true;
 }
 
-void SymbolicStabilizers::intersect(PauliStringView axis) {
-    if (!intersect_rows(axis)) {
+void SymbolicStabilizers::intersect(MaskView ax, MaskView az) {
+    bool modified = false;
+    if (!basis_.intersect(ax, az, options_.max_row_products, options_.max_expression_terms,
+                          &modified)) {
         forget();
+        return;
+    }
+    if (modified) {
+        fixed_valid_ = false;
     }
 }
 
-void SymbolicStabilizers::apply_pauli(PauliStringView axis, const AffineBool& condition) {
-    if (condition.terms().empty() && !condition.constant()) {
+void SymbolicStabilizers::apply_pauli(MaskView ax, MaskView az, const AffineBool& condition) {
+    if ((condition.terms().empty() && !condition.constant()) || empty_rows()) {
         return;
     }
-    const PauliCommutation commutation(axis.x(), axis.z());
-    for (auto& [pivot, row] : rows_) {
-        if (!row.misses(commutation) && commutation.anti_commutes(row.axis.x(), row.axis.z())) {
+    const PauliCommutation comm(ax, az);
+    if (comm.begin_word() == comm.end_word()) {
+        return;
+    }
+
+    struct DemotedUnitZ {
+        uint32_t word;
+        uint64_t bit;
+        bool negative;
+    };
+    std::vector<DemotedUnitZ> demoted;
+    auto& rows = basis_.mut_rows();
+    size_t write = 0;
+    for (size_t read = 0; read < rows.size(); ++read) {
+        Row& row = rows[read];
+        if (!row.misses(comm) && comm.anti_commutes(row.axis.x(), row.axis.z())) {
             fixed_valid_ = false;
             row.sign ^= condition;
             if (row.sign.terms().size() > options_.max_expression_terms) {
                 forget();
                 return;
             }
+            if (row.sign.terms().empty() && row.pivot >= domain_) {
+                const PauliCommutation range(row.axis.x(), row.axis.z());
+                const uint32_t w = range.begin_word();
+                if (range.end_word() == w + 1 && std::has_single_bit(row.axis.z().words[w])) {
+                    demoted.push_back(DemotedUnitZ{w, row.axis.z().words[w],
+                                                   row.axis.sign() != row.sign.constant()});
+                    continue;
+                }
+            }
         }
+        if (write != read) {
+            rows[write] = std::move(row);
+        }
+        ++write;
+    }
+    rows.resize(write);
+
+    if (basis_.unit_z_count() != 0) {
+        if (condition.terms().empty()) {
+            for (uint32_t w = comm.begin_word(); w < comm.end_word(); ++w) {
+                if (basis_.flip_unit_z_signs(w, ax.words[w]) != 0) {
+                    fixed_valid_ = false;
+                }
+            }
+        } else {
+            for (uint32_t w = comm.begin_word(); w < comm.end_word(); ++w) {
+                if ((ax.words[w] & basis_.unit_z_mask()[w]) == 0) {
+                    continue;
+                }
+                fixed_valid_ = false;
+                if (condition.terms().size() > options_.max_expression_terms) {
+                    forget();
+                    return;
+                }
+                uint64_t signs = 0;
+                uint64_t hits = basis_.take_unit_z_hits(w, ax.words[w], signs);
+                while (hits != 0) {
+                    const uint32_t b = static_cast<uint32_t>(std::countr_zero(hits));
+                    const uint32_t q = w * 64U + b;
+                    const bool s_q = ((signs >> b) & 1U) != 0;
+                    PauliString axis(num_qubits_);
+                    axis.set_pauli(q, false, true);
+                    if (s_q) {
+                        axis.set_sign(true);
+                    }
+                    basis_.insert_row_at_pivot(
+                        Row{domain_ + q, std::move(axis), condition, w, w + 1});
+                    hits &= hits - 1;
+                }
+            }
+        }
+    }
+
+    for (const DemotedUnitZ& item : demoted) {
+        basis_.set_unit_z(item.word, item.bit, item.negative);
     }
 }
 
@@ -363,9 +366,9 @@ void SymbolicStabilizers::assign_record(uint32_t record, AffineBool value) {
 }
 
 void SymbolicStabilizers::forget() {
-    rows_.clear();
+    basis_.clear();
     records_.clear();
-    fixed_.rows_.clear();
+    fixed_.clear();
     fixed_valid_ = false;
 }
 
@@ -376,9 +379,9 @@ void SymbolicStabilizers::flush_feedback() {
     auto feedback = std::move(*feedback_);
     feedback_.reset();
     if (feedback.condition) {
-        apply_pauli(feedback.axis.view(), *feedback.condition);
+        apply_pauli(feedback.axis.x(), feedback.axis.z(), *feedback.condition);
     } else {
-        intersect(feedback.axis.view());
+        intersect(feedback.axis.x(), feedback.axis.z());
     }
 }
 
@@ -390,8 +393,9 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
     switch (op.op_type()) {
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION:
-            if (!rows_.empty()) {
-                intersect(copy_axis(hir.mask_view(op), hir.num_qubits).view());
+            if (!empty_rows()) {
+                const auto mask = hir.mask_view(op);
+                intersect(mask.x(), mask.z());
             }
             break;
         case OpType::MEASURE: {
@@ -402,8 +406,9 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
             if (!remaining_uses_.contains(record) && postselected == postselected_records_.end()) {
                 // An outcome never used for feedback is a private sign, just
                 // like a fault event. Keep only its commuting subgroup.
-                if (!rows_.empty()) {
-                    intersect(copy_axis(hir.mask_view(op), hir.num_qubits).view());
+                if (!empty_rows()) {
+                    const auto mask = hir.mask_view(op);
+                    intersect(mask.x(), mask.z());
                 }
                 break;
             }
@@ -413,17 +418,15 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
             // Anticommutation proves this outcome is not in the known group.
             // Even if reduction hit a limit, intersection can retain spectators.
             // Only capped queries need this scan; deterministic queries stay cheap.
-            if (capped && std::ranges::all_of(rows_, [&](const auto& entry) {
-                    return axis.view().commutes(entry.second.axis.view());
-                })) {
+            if (capped && basis_.commutes(axis.x(), axis.z())) {
                 forget();
             }
             if (!outcome) {
                 outcome = postselected != postselected_records_.end()
                               ? std::optional{AffineBool(postselected->second)}
                               : fresh_symbol();
-                intersect(axis.view());
-                if (outcome && !insert_row(Row{std::move(axis), *outcome})) {
+                intersect(axis.x(), axis.z());
+                if (outcome && !insert_row(Row{0, std::move(axis), *outcome})) {
                     forget();
                 }
             } else if (postselected != postselected_records_.end()) {
@@ -436,7 +439,7 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
         }
         case OpType::CONDITIONAL_PAULI: {
             const auto id = static_cast<uint32_t>(op.controlling_meas());
-            if (!rows_.empty()) {
+            if (!empty_rows()) {
                 if (feedback_) {
                     // Consecutive Paulis with the same classical control act
                     // as their product, up to an irrelevant branch phase.
@@ -462,19 +465,18 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
             const auto& channels =
                 hir.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
             for (const auto& channel : channels) {
-                if (rows_.empty()) {
+                if (empty_rows()) {
                     break;
                 }
                 if (channel.prob == 0) {
                     continue;
                 }
-                const auto axis =
-                    copy_axis(hir.noise_channel_masks.at(channel.mask), hir.num_qubits);
+                const auto mask = hir.noise_channel_masks.at(channel.mask);
                 // Fault events are never feedback controls. Eliminate their
                 // private signs now by retaining the commuting subgroup, whose
                 // products preserve shared-fault correlations. Include the
                 // no-fault path even at probability one for reference syndromes.
-                intersect(axis.view());
+                intersect(mask.x(), mask.z());
             }
             break;
         }

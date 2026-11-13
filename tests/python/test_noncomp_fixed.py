@@ -592,7 +592,7 @@ def test_fixed_rejects_invalid_batch_options_before_sampling(batch_size, shots):
 
 def test_fixed_automatic_batching_counts_retained_external_buffers():
     model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
-    program = prepare("LOSS(0.1) 0\nREPEAT 6000 {\nM 0\n}", model)
+    program = prepare("LOSS(0.1) 0\nREPEAT 9000 {\nM 0\n}", model)
     result = sample(program, shots=2049, threads=16)
     stats = result.stats
     assert stats["packed_shots"] == 2049

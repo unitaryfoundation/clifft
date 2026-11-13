@@ -4,6 +4,7 @@
 #include <bit>
 #include <cassert>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <utility>
 
@@ -63,46 +64,93 @@ void for_each_set_bit(MaskView mask, uint32_t end, Callback&& callback) {
     }
 }
 
-size_t validated_words_per_row(uint32_t num_qubits, uint32_t num_symbols) {
-    static_cast<void>(SymbolicPauliFrame::estimated_workspace_bytes(num_qubits, num_symbols));
-    return (static_cast<size_t>(num_symbols) + 63) / 64;
+uint8_t mask_y_phase(MaskView x, MaskView z, uint32_t num_qubits) {
+    assert(x.num_words() == z.num_words());
+    const uint32_t num_words = (num_qubits + 63) / 64;
+    assert(x.num_words() == num_words);
+    const uint64_t last_mask =
+        num_qubits % 64 == 0 ? ~uint64_t{0} : (uint64_t{1} << (num_qubits % 64)) - 1;
+    uint32_t count = 0;
+    for (uint32_t w = 0; w < num_words; ++w) {
+        uint64_t overlap = x.words[w] & z.words[w];
+        if (w + 1 == num_words) {
+            overlap &= last_mask;
+        }
+        count += std::popcount(overlap);
+    }
+    return static_cast<uint8_t>(count & 3U);
 }
 
 }  // namespace
 
-CoordinateFrame::CoordinateFrame(uint32_t num_qubits) : current_to_initial_(num_qubits) {}
+CoordinateFrame::CoordinateFrame(uint32_t num_qubits)
+    : num_qubits_(num_qubits),
+      num_words_((num_qubits + 63) / 64),
+      current_to_initial_(num_qubits),
+      ix_to_cx_(static_cast<size_t>(num_qubits) * num_words_, 0),
+      ix_to_cz_(ix_to_cx_.size(), 0),
+      iz_to_cx_(ix_to_cx_.size(), 0),
+      iz_to_cz_(ix_to_cx_.size(), 0),
+      round_trip_z_(num_words_, 0) {
+    for (uint32_t p = 0; p < num_qubits_; ++p) {
+        const size_t entry = static_cast<size_t>(p) * num_words_ + p / 64;
+        const uint64_t bit = uint64_t{1} << (p % 64);
+        ix_to_cx_[entry] = bit;
+        iz_to_cz_[entry] = bit;
+    }
+}
 
 PlannerPauli CoordinateFrame::to_current(const PlannerPauli& initial) {
-    if (initial_to_current_.has_value()) {
-        return initial_to_current_->apply(initial.view());
-    }
+    assert(initial.num_qubits() == num_qubits_);
+    return to_current(initial.x(), initial.z(), initial.sign());
+}
 
-    // Inverting an n-qubit tableau evaluates 2n generator rows. Use the same
-    // number of direct lookups as a conservative structural break-even before
-    // materializing the inverse for a lookup-heavy basis interval.
-    const uint64_t direct_lookup_limit =
-        std::max<uint64_t>(1, 2 * static_cast<uint64_t>(initial.num_qubits()));
-    if (direct_reverse_lookups_ >= direct_lookup_limit) {
-        initial_to_current_.emplace(current_to_initial_.inverse());
-        return initial_to_current_->apply(initial.view());
-    }
-    ++direct_reverse_lookups_;
-
-    PlannerPauli current(initial.num_qubits());
-    for (uint32_t q = 0; q < initial.num_qubits(); ++q) {
-        // Coordinates in a symplectic basis are selected by commuting with its
-        // opposite generator: Z generators select X and vice versa.
-        current.set_pauli(q, !initial.view().commutes(current_to_initial_.z_output(q)),
-                          !initial.view().commutes(current_to_initial_.x_output(q)));
-    }
+PlannerPauli CoordinateFrame::to_current(MaskView initial_x, MaskView initial_z, bool negative) {
+    assert(initial_x.num_words() == num_words_ && initial_z.num_words() == num_words_);
+    PlannerPauli current(num_qubits_);
+    MutableMaskView cx = current.mut_x();
+    MutableMaskView cz = current.mut_z();
+    for_each_set_bit(initial_x, num_qubits_, [&](uint32_t p) {
+        const size_t offset = static_cast<size_t>(p) * num_words_;
+        cx.xor_with(MaskView{std::span<const uint64_t>(ix_to_cx_).subspan(offset, num_words_)});
+        cz.xor_with(MaskView{std::span<const uint64_t>(ix_to_cz_).subspan(offset, num_words_)});
+    });
+    for_each_set_bit(initial_z, num_qubits_, [&](uint32_t p) {
+        const size_t offset = static_cast<size_t>(p) * num_words_;
+        cx.xor_with(MaskView{std::span<const uint64_t>(iz_to_cx_).subspan(offset, num_words_)});
+        cz.xor_with(MaskView{std::span<const uint64_t>(iz_to_cz_).subspan(offset, num_words_)});
+    });
     current.set_sign(false);
 
-    // Generator signs affect the sign, but not the symplectic coordinates. A
-    // forward evaluation recovers that phase without materializing an inverse.
-    const PlannerPauli round_trip = current_to_initial_.apply(current.view());
-    assert(round_trip.x().words == initial.x().words);
-    assert(round_trip.z().words == initial.z().words);
-    current.set_sign(round_trip.sign() ^ initial.sign());
+    // Generator signs affect the sign, not the symplectic coordinates. Forward
+    // evaluation recovers the phase difference against the input Hermitian Pauli
+    // without allocating a round-trip PauliString.
+    uint8_t round_trip_phase = current.phase();
+    bool touched = false;
+    auto accumulate_generator = [&](PauliStringView generator) {
+        touched = true;
+        bool crossing = false;
+        for (uint32_t w = 0; w < num_words_; ++w) {
+            crossing ^= (std::popcount(round_trip_z_[w] & generator.x().words[w]) & 1U) != 0;
+            round_trip_z_[w] ^= generator.z().words[w];
+        }
+        round_trip_phase = (round_trip_phase + generator.phase() + (crossing ? 2U : 0U)) & 3U;
+    };
+    for_each_set_bit(current.x(), num_qubits_,
+                     [&](uint32_t q) { accumulate_generator(current_to_initial_.x_output(q)); });
+    for_each_set_bit(current.z(), num_qubits_,
+                     [&](uint32_t q) { accumulate_generator(current_to_initial_.z_output(q)); });
+    if (touched) {
+        std::ranges::fill(round_trip_z_, uint64_t{0});
+    }
+
+    const uint8_t initial_phase =
+        (mask_y_phase(initial_x, initial_z, num_qubits_) + (negative ? 2U : 0U)) & 3U;
+    const uint8_t delta = (round_trip_phase - initial_phase) & 3U;
+    assert(delta == 0 || delta == 2);
+    if (delta == 2) {
+        current.negate();
+    }
     return current;
 }
 
@@ -110,8 +158,66 @@ PlannerPauli CoordinateFrame::to_initial(const PlannerPauli& current) const {
     return current_to_initial_.apply(current.view());
 }
 
+void CoordinateFrame::rebuild_transpose() {
+    std::ranges::fill(ix_to_cx_, uint64_t{0});
+    std::ranges::fill(ix_to_cz_, uint64_t{0});
+    std::ranges::fill(iz_to_cx_, uint64_t{0});
+    std::ranges::fill(iz_to_cz_, uint64_t{0});
+    for (uint32_t q = 0; q < num_qubits_; ++q) {
+        const PauliStringView x_gen = current_to_initial_.x_output(q);
+        const PauliStringView z_gen = current_to_initial_.z_output(q);
+        xor_x_generator_delta(q, x_gen.x(), x_gen.z());
+        xor_z_generator_delta(q, z_gen.x(), z_gen.z());
+    }
+}
+
+void CoordinateFrame::xor_x_generator_delta(uint32_t q, MaskView dx, MaskView dz) {
+    const uint32_t w = q / 64;
+    const uint64_t bit = uint64_t{1} << (q % 64);
+    for_each_set_bit(dx, num_qubits_, [&](uint32_t p) {
+        iz_to_cz_[static_cast<size_t>(p) * num_words_ + w] ^= bit;
+    });
+    for_each_set_bit(dz, num_qubits_, [&](uint32_t p) {
+        ix_to_cz_[static_cast<size_t>(p) * num_words_ + w] ^= bit;
+    });
+}
+
+void CoordinateFrame::xor_z_generator_delta(uint32_t q, MaskView dx, MaskView dz) {
+    const uint32_t w = q / 64;
+    const uint64_t bit = uint64_t{1} << (q % 64);
+    for_each_set_bit(dx, num_qubits_, [&](uint32_t p) {
+        iz_to_cx_[static_cast<size_t>(p) * num_words_ + w] ^= bit;
+    });
+    for_each_set_bit(dz, num_qubits_, [&](uint32_t p) {
+        ix_to_cx_[static_cast<size_t>(p) * num_words_ + w] ^= bit;
+    });
+}
+
+void CoordinateFrame::set_x_generator(uint32_t q, PauliStringView next) {
+    const PauliStringView prev = current_to_initial_.x_output(q);
+    xor_x_generator_delta(q, prev.x(), prev.z());
+    xor_x_generator_delta(q, next.x(), next.z());
+    current_to_initial_.set_x_output(q, next);
+}
+
+void CoordinateFrame::set_z_generator(uint32_t q, PauliStringView next) {
+    const PauliStringView prev = current_to_initial_.z_output(q);
+    xor_z_generator_delta(q, prev.x(), prev.z());
+    xor_z_generator_delta(q, next.x(), next.z());
+    current_to_initial_.set_z_output(q, next);
+}
+
+void CoordinateFrame::multiply_x_generator(uint32_t q, PauliStringView rhs) {
+    xor_x_generator_delta(q, rhs.x(), rhs.z());
+    current_to_initial_.right_multiply_x_output(q, rhs);
+}
+
+void CoordinateFrame::multiply_z_generator(uint32_t q, PauliStringView rhs) {
+    xor_z_generator_delta(q, rhs.x(), rhs.z());
+    current_to_initial_.right_multiply_z_output(q, rhs);
+}
+
 void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordinates) {
-    invalidate_reverse_cache();
     PlannerTableau previous(std::move(current_to_initial_));
     assert(new_basis_in_old_coordinates.num_qubits() == previous.num_qubits());
     current_to_initial_ = PlannerTableau(new_basis_in_old_coordinates.num_qubits());
@@ -121,6 +227,7 @@ void CoordinateFrame::change_basis(const PlannerTableau& new_basis_in_old_coordi
         current_to_initial_.set_x_output(q, x.view());
         current_to_initial_.set_z_output(q, z.view());
     }
+    rebuild_transpose();
     assert(current_to_initial_.satisfies_invariants());
 }
 
@@ -135,30 +242,28 @@ void CoordinateFrame::promote_dormant(const PlannerPauli& promoted, uint32_t act
 
     PlannerPauli mapped_promoted = to_initial(promoted);
     PlannerPauli pivot_stabilizer(current_to_initial_.z_output(dormant_pivot));
-    invalidate_reverse_cache();
 
     // The new promoted pair replaces the selected dormant pair. Every other
     // generator that anticommutes with the promoted Pauli acquires the old
     // pivot stabilizer, preserving the same symplectic basis as the generic
     // frame composition without materializing its identity rows.
     for_each_set_bit(promoted.z(), n, [&](uint32_t q) {
-        if (q == dormant_pivot) {
-            return;
+        if (q != dormant_pivot) {
+            multiply_x_generator(q, pivot_stabilizer.view());
         }
-        current_to_initial_.right_multiply_x_output(q, pivot_stabilizer.view());
     });
     for_each_set_bit(promoted.x(), n, [&](uint32_t q) {
         if (q != dormant_pivot) {
-            current_to_initial_.right_multiply_z_output(q, pivot_stabilizer.view());
+            multiply_z_generator(q, pivot_stabilizer.view());
         }
     });
 
-    for (uint32_t q = dormant_pivot; q > active_width; --q) {
-        current_to_initial_.set_x_output(q, current_to_initial_.x_output(q - 1));
-        current_to_initial_.set_z_output(q, current_to_initial_.z_output(q - 1));
+    if (dormant_pivot != active_width) {
+        set_x_generator(dormant_pivot, current_to_initial_.x_output(active_width));
+        set_z_generator(dormant_pivot, current_to_initial_.z_output(active_width));
     }
-    current_to_initial_.set_x_output(active_width, mapped_promoted.view());
-    current_to_initial_.set_z_output(active_width, pivot_stabilizer.view());
+    set_x_generator(active_width, mapped_promoted.view());
+    set_z_generator(active_width, pivot_stabilizer.view());
 }
 
 void CoordinateFrame::measure_dormant(const PlannerPauli& measured, uint32_t dormant_pivot) {
@@ -166,24 +271,22 @@ void CoordinateFrame::measure_dormant(const PlannerPauli& measured, uint32_t dor
     assert(measured.num_qubits() == n && dormant_pivot < n);
 
     PlannerPauli mapped_measured = to_initial(measured);
-    // Avoid an allocation per measurement: updates skip the pivot Z row, which is copied into X
-    // before the final write overwrites that source row.
+    // Avoid an allocation per measurement: updates skip the pivot Z row, which
+    // is copied into X before the final write overwrites that source row.
     const PauliStringView pivot_stabilizer = current_to_initial_.z_output(dormant_pivot);
-    invalidate_reverse_cache();
 
     for_each_set_bit(measured.z(), n, [&](uint32_t q) {
-        if (q == dormant_pivot) {
-            return;
+        if (q != dormant_pivot) {
+            multiply_x_generator(q, pivot_stabilizer);
         }
-        current_to_initial_.right_multiply_x_output(q, pivot_stabilizer);
     });
     for_each_set_bit(measured.x(), n, [&](uint32_t q) {
         if (q != dormant_pivot) {
-            current_to_initial_.right_multiply_z_output(q, pivot_stabilizer);
+            multiply_z_generator(q, pivot_stabilizer);
         }
     });
-    current_to_initial_.set_x_output(dormant_pivot, pivot_stabilizer);
-    current_to_initial_.set_z_output(dormant_pivot, mapped_measured.view());
+    set_x_generator(dormant_pivot, pivot_stabilizer);
+    set_z_generator(dormant_pivot, mapped_measured.view());
 }
 
 void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t active_width,
@@ -195,77 +298,82 @@ void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t acti
     PlannerPauli mapped_measured = to_initial(measured);
     PlannerPauli pivot_conjugate(diagonal ? current_to_initial_.x_output(pivot)
                                           : current_to_initial_.z_output(pivot));
-    invalidate_reverse_cache();
 
     if (!diagonal) {
         for_each_set_bit(measured.x(), active_width, [&](uint32_t q) {
             if (q != pivot) {
-                current_to_initial_.right_multiply_z_output(q, pivot_conjugate.view());
+                multiply_z_generator(q, pivot_conjugate.view());
             }
         });
     }
     for_each_set_bit(measured.z(), active_width, [&](uint32_t q) {
         if (q != pivot) {
-            current_to_initial_.right_multiply_x_output(q, pivot_conjugate.view());
+            multiply_x_generator(q, pivot_conjugate.view());
         }
     });
 
     for (uint32_t q = pivot; q + 1 < active_width; ++q) {
-        current_to_initial_.set_x_output(q, current_to_initial_.x_output(q + 1));
-        current_to_initial_.set_z_output(q, current_to_initial_.z_output(q + 1));
+        set_x_generator(q, current_to_initial_.x_output(q + 1));
+        set_z_generator(q, current_to_initial_.z_output(q + 1));
     }
-    current_to_initial_.set_x_output(active_width - 1, pivot_conjugate.view());
-    current_to_initial_.set_z_output(active_width - 1, mapped_measured.view());
-}
-
-void CoordinateFrame::invalidate_reverse_cache() {
-    initial_to_current_.reset();
-    direct_reverse_lookups_ = 0;
-}
-
-size_t SymbolicPauliFrame::estimated_workspace_bytes(uint32_t num_qubits, uint32_t num_symbols) {
-    const size_t words_per_row = (static_cast<size_t>(num_symbols) + 63) / 64;
-    constexpr size_t kMax = std::numeric_limits<size_t>::max();
-    const size_t qubits = num_qubits;
-    if (qubits > (kMax - 1) / 2) {
-        throw std::length_error("sampling symbolic Pauli frame is too large");
-    }
-    const size_t packed_rows = 2 * qubits + 1;
-    if (words_per_row != 0 && packed_rows > kMax / words_per_row) {
-        throw std::length_error("sampling symbolic Pauli frame is too large");
-    }
-    const size_t packed_words = packed_rows * words_per_row;
-    const size_t constant_bytes = 2 * qubits * sizeof(uint8_t);
-    if (packed_words > (kMax - constant_bytes) / sizeof(uint64_t)) {
-        throw std::length_error("sampling symbolic Pauli frame is too large");
-    }
-    return packed_words * sizeof(uint64_t) + constant_bytes;
+    set_x_generator(active_width - 1, pivot_conjugate.view());
+    set_z_generator(active_width - 1, mapped_measured.view());
 }
 
 SymbolicPauliFrame::SymbolicPauliFrame(uint32_t num_qubits, uint32_t num_symbols)
     : num_qubits_(num_qubits),
       num_symbols_(num_symbols),
-      words_per_row_(validated_words_per_row(num_qubits, num_symbols)),
+      x_rows_(num_qubits),
+      z_rows_(num_qubits),
       x_constants_(num_qubits, 0),
       z_constants_(num_qubits, 0),
-      scratch_(words_per_row_, 0) {
-    const size_t storage_words = static_cast<size_t>(num_qubits) * words_per_row_;
-    x_terms_.assign(storage_words, 0);
-    z_terms_.assign(storage_words, 0);
-}
+      scratch_blocks_(((static_cast<size_t>(num_symbols) + 63) / 64 + kBlockWords - 1) /
+                      kBlockWords),
+      dirty_groups_((scratch_blocks_.size() + 63) / 64, 0) {}
 
 void SymbolicPauliFrame::apply(const PlannerPauli& correction, const AffineBool& condition) {
     assert(correction.num_qubits() == num_qubits_ &&
            "symbolic Pauli correction width must match the planner frame");
+    apply(correction.x(), correction.z(), condition);
+}
+
+void SymbolicPauliFrame::apply(MaskView correction_x, MaskView correction_z,
+                               const AffineBool& condition) {
+    const size_t num_words = (static_cast<size_t>(num_qubits_) + 63) / 64;
+    assert(correction_x.num_words() == num_words && correction_z.num_words() == num_words &&
+           "symbolic Pauli correction width must match the planner frame");
+
+    const auto& terms = condition.terms();
+    const bool cond_constant = condition.constant();
+    if (terms.empty() && !cond_constant) {
+        return;
+    }
+    cond_blocks_.clear();
+    if (!terms.empty()) {
+        assert(condition.is_canonical());
+        if (index(terms.back()) >= num_symbols_) {
+            throw std::logic_error(
+                "sampling symbolic Pauli condition contains an out-of-range symbol");
+        }
+        for (size_t i = 0; i < terms.size();) {
+            const uint32_t blk_idx = index(terms[i]) / (64 * kBlockWords);
+            BlockEntry entry{blk_idx, {}};
+            while (i < terms.size() && index(terms[i]) / (64 * kBlockWords) == blk_idx) {
+                const uint32_t sym = index(terms[i]);
+                entry.words[(sym / 64) & (kBlockWords - 1)] |= uint64_t{1} << (sym % 64);
+                ++i;
+            }
+            cond_blocks_.push_back(entry);
+        }
+    }
 
     // Noise corrections are usually one- or two-qubit Paulis. Iterating their
     // packed support avoids testing every physical qubit for each noise term.
-    const size_t num_words = (static_cast<size_t>(num_qubits_) + 63) / 64;
     const uint32_t tail_bits = num_qubits_ % 64;
     const uint64_t last_word_mask = tail_bits == 0 ? ~uint64_t{0} : (uint64_t{1} << tail_bits) - 1;
     for (size_t word = 0; word < num_words; ++word) {
-        const uint64_t x_bits = correction.x().words[word];
-        const uint64_t z_bits = correction.z().words[word];
+        const uint64_t x_bits = correction_x.words[word];
+        const uint64_t z_bits = correction_z.words[word];
         uint64_t support = x_bits | z_bits;
         if (word + 1 == num_words) {
             support &= last_word_mask;
@@ -275,10 +383,10 @@ void SymbolicPauliFrame::apply(const PlannerPauli& correction, const AffineBool&
             const uint32_t qubit = static_cast<uint32_t>(64 * word + bit);
             const uint64_t mask = uint64_t{1} << bit;
             if ((x_bits & mask) != 0) {
-                xor_condition(x_row(qubit), x_constants_[qubit], condition);
+                xor_packed_condition(x_rows_[qubit], x_constants_[qubit], cond_constant);
             }
             if ((z_bits & mask) != 0) {
-                xor_condition(z_row(qubit), z_constants_[qubit], condition);
+                xor_packed_condition(z_rows_[qubit], z_constants_[qubit], cond_constant);
             }
             support &= support - 1;
         }
@@ -288,78 +396,170 @@ void SymbolicPauliFrame::apply(const PlannerPauli& correction, const AffineBool&
 AffineBool SymbolicPauliFrame::sign_for(const PlannerPauli& observable) {
     assert(observable.num_qubits() == num_qubits_ &&
            "symbolic Pauli observable width must match the planner frame");
-    std::ranges::fill(scratch_, uint64_t{0});
+    return sign_for(observable.x(), observable.z());
+}
+
+AffineBool SymbolicPauliFrame::sign_for(MaskView observable_x, MaskView observable_z) {
+    const size_t num_words = (static_cast<size_t>(num_qubits_) + 63) / 64;
+    assert(observable_x.num_words() == num_words && observable_z.num_words() == num_words &&
+           "symbolic Pauli observable width must match the planner frame");
+
     bool constant = false;
-    for (uint32_t q = 0; q < num_qubits_; ++q) {
-        if (observable.x().bit_get(q)) {
-            xor_row(scratch_, z_row(q));
-            constant ^= z_constants_[q] != 0;
+    hit_rows_.clear();
+    const uint32_t tail_bits = num_qubits_ % 64;
+    const uint64_t last_word_mask = tail_bits == 0 ? ~uint64_t{0} : (uint64_t{1} << tail_bits) - 1;
+    for (size_t word = 0; word < num_words; ++word) {
+        const uint64_t x_bits = observable_x.words[word];
+        const uint64_t z_bits = observable_z.words[word];
+        uint64_t support = x_bits | z_bits;
+        if (word + 1 == num_words) {
+            support &= last_word_mask;
         }
-        if (observable.z().bit_get(q)) {
-            xor_row(scratch_, x_row(q));
-            constant ^= x_constants_[q] != 0;
+        while (support != 0) {
+            const uint32_t bit = std::countr_zero(support);
+            const uint32_t q = static_cast<uint32_t>(64 * word + bit);
+            const uint64_t mask = uint64_t{1} << bit;
+            if ((x_bits & mask) != 0) {
+                constant ^= z_constants_[q] != 0;
+                if (!z_rows_[q].empty()) {
+                    hit_rows_.push_back(&z_rows_[q]);
+                }
+            }
+            if ((z_bits & mask) != 0) {
+                constant ^= x_constants_[q] != 0;
+                if (!x_rows_[q].empty()) {
+                    hit_rows_.push_back(&x_rows_[q]);
+                }
+            }
+            support &= support - 1;
+        }
+    }
+
+    if (hit_rows_.empty()) {
+        return AffineBool(constant);
+    }
+
+    if (hit_rows_.size() == 1) {
+        const auto& single = *hit_rows_[0];
+        size_t term_count = 0;
+        for (const BlockEntry& entry : single) {
+            for (uint64_t w : entry.words) {
+                term_count += std::popcount(w);
+            }
+        }
+        std::vector<SymbolId> terms;
+        terms.reserve(term_count);
+        for (const BlockEntry& entry : single) {
+            const size_t base_word = static_cast<size_t>(entry.block) * kBlockWords;
+            for (uint32_t lane = 0; lane < kBlockWords; ++lane) {
+                uint64_t word = entry.words[lane];
+                while (word != 0) {
+                    const uint32_t bit = std::countr_zero(word);
+                    const size_t symbol = (base_word + lane) * 64 + bit;
+                    assert(symbol < num_symbols_ &&
+                           "symbolic Pauli frame contains an out-of-range term");
+                    terms.push_back(SymbolId{static_cast<uint32_t>(symbol)});
+                    word &= word - 1;
+                }
+            }
+        }
+        return AffineBool::from_canonical_terms(constant, std::move(terms));
+    }
+
+    uint32_t min_group = std::numeric_limits<uint32_t>::max();
+    uint32_t max_group = 0;
+    for (const auto* row : hit_rows_) {
+        for (const BlockEntry& entry : *row) {
+            const uint32_t group = entry.block >> 6U;
+            dirty_groups_[group] |= uint64_t{1} << (entry.block & 63U);
+            min_group = std::min(min_group, group);
+            max_group = std::max(max_group, group);
+            WordBlock& dst = scratch_blocks_[entry.block];
+            for (uint32_t lane = 0; lane < kBlockWords; ++lane) {
+                dst[lane] ^= entry.words[lane];
+            }
         }
     }
 
     size_t term_count = 0;
-    for (uint64_t word : scratch_) {
-        term_count += std::popcount(word);
+    for (uint32_t group = min_group; group <= max_group; ++group) {
+        uint64_t dirty = dirty_groups_[group];
+        while (dirty != 0) {
+            const uint32_t b = (group << 6U) + static_cast<uint32_t>(std::countr_zero(dirty));
+            for (uint64_t w : scratch_blocks_[b]) {
+                term_count += std::popcount(w);
+            }
+            dirty &= dirty - 1;
+        }
     }
     std::vector<SymbolId> terms;
     terms.reserve(term_count);
-    for (size_t w = 0; w < scratch_.size(); ++w) {
-        uint64_t word = scratch_[w];
-        while (word != 0) {
-            const uint32_t bit = std::countr_zero(word);
-            const size_t symbol = 64 * w + bit;
-            assert(symbol < num_symbols_ && "symbolic Pauli frame contains an out-of-range term");
-            terms.push_back(SymbolId{static_cast<uint32_t>(symbol)});
-            word &= word - 1;
+    for (uint32_t group = min_group; group <= max_group; ++group) {
+        uint64_t dirty = std::exchange(dirty_groups_[group], uint64_t{0});
+        while (dirty != 0) {
+            const uint32_t b = (group << 6U) + static_cast<uint32_t>(std::countr_zero(dirty));
+            const size_t base_word = static_cast<size_t>(b) * kBlockWords;
+            WordBlock& blk = scratch_blocks_[b];
+            for (uint32_t lane = 0; lane < kBlockWords; ++lane) {
+                uint64_t word = std::exchange(blk[lane], uint64_t{0});
+                while (word != 0) {
+                    const uint32_t bit = std::countr_zero(word);
+                    const size_t symbol = (base_word + lane) * 64 + bit;
+                    assert(symbol < num_symbols_ &&
+                           "symbolic Pauli frame contains an out-of-range term");
+                    terms.push_back(SymbolId{static_cast<uint32_t>(symbol)});
+                    word &= word - 1;
+                }
+            }
+            dirty &= dirty - 1;
         }
     }
-    // Packed words are scanned from low to high and each set bit is visited
-    // once, so this list already satisfies AffineBool's canonical invariant.
     return AffineBool::from_canonical_terms(constant, std::move(terms));
 }
 
-std::span<uint64_t> SymbolicPauliFrame::x_row(uint32_t q) {
-    return std::span<uint64_t>{x_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
-                                                 words_per_row_);
-}
-
-std::span<const uint64_t> SymbolicPauliFrame::x_row(uint32_t q) const {
-    return std::span<const uint64_t>{x_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
-                                                       words_per_row_);
-}
-
-std::span<uint64_t> SymbolicPauliFrame::z_row(uint32_t q) {
-    return std::span<uint64_t>{z_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
-                                                 words_per_row_);
-}
-
-std::span<const uint64_t> SymbolicPauliFrame::z_row(uint32_t q) const {
-    return std::span<const uint64_t>{z_terms_}.subspan(static_cast<size_t>(q) * words_per_row_,
-                                                       words_per_row_);
-}
-
-void SymbolicPauliFrame::xor_row(std::span<uint64_t> destination,
-                                 std::span<const uint64_t> source) {
-    assert(destination.size() == source.size());
-    for (size_t w = 0; w < destination.size(); ++w) {
-        destination[w] ^= source[w];
+void SymbolicPauliFrame::xor_packed_condition(std::vector<BlockEntry>& row, uint8_t& constant,
+                                              bool cond_constant) {
+    constant ^= static_cast<uint8_t>(cond_constant);
+    if (cond_blocks_.empty()) {
+        return;
     }
-}
 
-void SymbolicPauliFrame::xor_condition(std::span<uint64_t> row, uint8_t& constant,
-                                       const AffineBool& condition) const {
-    constant ^= static_cast<uint8_t>(condition.constant());
-    for (SymbolId term : condition.terms()) {
-        const uint32_t symbol = index(term);
-        if (symbol >= num_symbols_) {
-            throw std::logic_error(
-                "sampling symbolic Pauli condition contains an out-of-range symbol");
+    auto xor_into_block = [](WordBlock& dst, const WordBlock& src) noexcept {
+        uint64_t any = 0;
+        for (uint32_t lane = 0; lane < kBlockWords; ++lane) {
+            dst[lane] ^= src[lane];
+            any |= dst[lane];
         }
-        row[symbol / 64] ^= uint64_t{1} << (symbol % 64);
+        return any != 0;
+    };
+
+    size_t search_from = 0;
+    for (const BlockEntry& cb : cond_blocks_) {
+        if (row.empty() || cb.block > row.back().block) {
+            row.push_back(cb);
+            search_from = row.size();
+            continue;
+        }
+        if (cb.block == row.back().block) {
+            if (!xor_into_block(row.back().words, cb.words)) {
+                row.pop_back();
+            }
+            search_from = row.size();
+            continue;
+        }
+        auto it = std::ranges::lower_bound(row.begin() + static_cast<std::ptrdiff_t>(search_from),
+                                           row.end(), cb.block, {}, &BlockEntry::block);
+        if (it != row.end() && it->block == cb.block) {
+            if (xor_into_block(it->words, cb.words)) {
+                search_from = static_cast<size_t>(it - row.begin()) + 1;
+            } else {
+                const auto next_it = row.erase(it);
+                search_from = static_cast<size_t>(next_it - row.begin());
+            }
+        } else {
+            const auto inserted_it = row.insert(it, cb);
+            search_from = static_cast<size_t>(inserted_it - row.begin()) + 1;
+        }
     }
 }
 
@@ -393,7 +593,6 @@ PlannerTableau dormant_promotion_frame(const PlannerPauli& promoted, uint32_t ac
     frame.set_x_output(active_width, promoted.view());
     frame.set_z_output(active_width, old_stabilizer.view());
 
-    uint32_t new_q = active_width + 1;
     for (uint32_t old_q = active_width; old_q < n; ++old_q) {
         if (old_q == dormant_pivot) {
             continue;
@@ -406,9 +605,9 @@ PlannerTableau dormant_promotion_frame(const PlannerPauli& promoted, uint32_t ac
         if (anticommutes(z, promoted)) {
             z = positive_body_xor(z, old_stabilizer);
         }
+        const uint32_t new_q = old_q == active_width ? dormant_pivot : old_q;
         frame.set_x_output(new_q, x.view());
         frame.set_z_output(new_q, z.view());
-        ++new_q;
     }
 
     if (!frame.satisfies_invariants()) {

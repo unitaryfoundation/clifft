@@ -1,14 +1,14 @@
 #pragma once
 
 #include "clifft/optimizer/known_stabilizers.h"
+#include "clifft/optimizer/stabilizer_basis.h"
 #include "clifft/sampling/plan.h"
 #include "clifft/util/symplectic.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <optional>
-#include <utility>
-#include <vector>
 
 namespace clifft {
 
@@ -47,21 +47,9 @@ class SymbolicStabilizers {
 
   private:
     using AffineBool = sampling::AffineBool;
-    struct Row {
-        PauliString axis;
-        AffineBool sign;
-        // Half-open mask word range that contains every nonzero word of the
-        // axis. Products widen it without rescanning, so it can be wider than
-        // the exact nonzero range.
-        uint32_t begin = 0;
-        uint32_t end = 0;
+    using Basis = optimizer_detail::StabilizerBasis<AffineBool>;
+    using Row = Basis::Row;
 
-        // True when no word of the range is in the query's nonzero word range,
-        // so the axis commutes with the query.
-        [[nodiscard]] bool misses(const PauliCommutation& query) const {
-            return end <= query.begin_word() || query.end_word() <= begin;
-        }
-    };
     struct Record {
         AffineBool value;
         size_t age;
@@ -72,26 +60,26 @@ class SymbolicStabilizers {
         std::optional<AffineBool> condition;
     };
 
+    [[nodiscard]] bool empty_rows() const noexcept { return basis_.empty(); }
+    bool reduce_row(Row& target, size_t& products) const;
     [[nodiscard]] std::optional<AffineBool> affine_eigenvalue(PauliString axis, bool& capped) const;
     [[nodiscard]] std::optional<AffineBool> fresh_symbol();
     bool multiply(Row& left, const Row& right, size_t& products) const;
     bool insert_row(Row row);
-    bool intersect_rows(PauliStringView axis);
-    void intersect(PauliStringView axis);
-    void apply_pauli(PauliStringView axis, const AffineBool& condition);
+    void intersect(MaskView ax, MaskView az);
+    void apply_pauli(MaskView ax, MaskView az, const AffineBool& condition);
     void assign_record(uint32_t record, AffineBool value);
     void flush_feedback();
     void forget();
 
     SymbolicStabilizerOptions options_;
+    uint32_t num_qubits_ = 0;
+    uint32_t domain_ = 0;
     uint64_t next_symbol_ = 0;
     size_t next_record_age_ = 0;
-    // Rows sorted by pivot. Each fault channel, measurement, and feedback Pauli
-    // visits every row, so the rows are stored contiguously.
-    using Rows = std::vector<std::pair<uint32_t, Row>>;
-    [[nodiscard]] Rows::const_iterator first_row_from(uint32_t pivot) const;
-    void add_row(uint32_t pivot, Row row);
-    Rows rows_;
+
+    Basis basis_;
+
     std::map<uint32_t, Record> records_;
     // Uses follow emitted classical operations even when rotations are moved.
     // This schedule survives discarded constraints and uses O(feedback records) storage.

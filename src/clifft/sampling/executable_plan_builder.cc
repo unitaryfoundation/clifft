@@ -5,10 +5,10 @@
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <bit>
 #include <cassert>
 #include <cmath>
 #include <limits>
-#include <map>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -39,6 +39,11 @@ bool activates_new_x(const ApplyInstrument& instrument, uint32_t active_after) {
 }
 
 inline constexpr double kMaxSparseBatchReadoutProbability = 0.05;
+
+// 64-bit FNV-1a seeds and multiplier for affine-expression register interning.
+inline constexpr uint64_t kExpressionHashSeedFalse = 0xcbf29ce484222325ULL;
+inline constexpr uint64_t kExpressionHashSeedTrue = 0x9e3779b97f4a7c15ULL;
+inline constexpr uint64_t kExpressionHashPrime = 0x100000001b3ULL;
 
 [[nodiscard]] uint64_t coefficient_size(uint32_t active_width) noexcept {
     assert(active_width < kDenseActiveWidthLimit &&
@@ -119,6 +124,142 @@ ExecutablePlan::ExpressionDependencies::build(uint32_t num_symbols,
     return result;
 }
 
+ExecutablePlanBuilder::ExpressionInterner::ExpressionInterner(std::vector<uint8_t>& constants)
+    : constants_(constants) {}
+
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::ExpressionInterner::reserve(
+    size_t expected_expressions, size_t expected_terms) {
+    constants_.reserve(expected_expressions);
+    terms_.reserve(expected_terms);
+    term_begins_.reserve(expected_expressions);
+    initial_table_hint_ = std::bit_ceil(std::clamp<size_t>(expected_expressions / 2, 16, 1024));
+}
+
+CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::ExpressionInterner::ensure_term_capacity(
+    size_t additional_terms) const {
+    constexpr size_t kMaxExpressionTerms = std::numeric_limits<uint32_t>::max();
+    // Dynamic fusion can replace source signs with denser basis expressions,
+    // so the source-plan count is only a reserve estimate after lowering.
+    if (additional_terms > kMaxExpressionTerms - terms_.size()) {
+        throw std::length_error("sampling executable expression storage exceeds uint32 range");
+    }
+}
+
+CLIFFT_BUILDER_FORCE_INLINE uint32_t
+ExecutablePlanBuilder::ExpressionInterner::prepare_constant(bool constant) {
+    uint32_t& slot = constant_registers_[static_cast<size_t>(constant)];
+    if (slot != kNoRegister) {
+        return slot;
+    }
+    if (constants_.size() >= kNoRegister) {
+        throw std::length_error("sampling executable expression count exceeds uint32 range");
+    }
+    slot = static_cast<uint32_t>(constants_.size());
+    term_begins_.push_back(static_cast<uint32_t>(terms_.size()));
+    constants_.push_back(static_cast<uint8_t>(constant));
+    return slot;
+}
+
+CLIFFT_BUILDER_FORCE_INLINE uint32_t ExecutablePlanBuilder::ExpressionInterner::intern_appended(
+    bool constant, uint32_t tentative_begin, uint64_t hash) {
+    const auto tentative_terms = std::span<const uint32_t>(terms_).subspan(tentative_begin);
+    if ((num_interned_ + 1) * 2 > table_.size()) {
+        const size_t next_capacity = table_.empty() ? initial_table_hint_ : table_.size() * 2;
+        std::vector<Slot> next_table(next_capacity);
+        const size_t mask = next_capacity - 1;
+        for (const Slot& existing : table_) {
+            if (existing.register_id == kNoRegister) {
+                continue;
+            }
+            size_t bucket = existing.hash & mask;
+            while (next_table[bucket].register_id != kNoRegister) {
+                bucket = (bucket + 1) & mask;
+            }
+            next_table[bucket] = existing;
+        }
+        table_ = std::move(next_table);
+    }
+
+    const size_t mask = table_.size() - 1;
+    size_t bucket = hash & mask;
+    while (table_[bucket].register_id != kNoRegister) {
+        if (table_[bucket].hash == hash) {
+            const uint32_t candidate_id = table_[bucket].register_id;
+            if ((constants_[candidate_id] != 0) == constant) {
+                const uint32_t candidate_begin = term_begins_[candidate_id];
+                const uint32_t candidate_end = candidate_id + 1 < term_begins_.size()
+                                                   ? term_begins_[candidate_id + 1]
+                                                   : tentative_begin;
+                const auto candidate_terms = std::span<const uint32_t>(terms_).subspan(
+                    candidate_begin, candidate_end - candidate_begin);
+                if (std::ranges::equal(candidate_terms, tentative_terms)) {
+                    terms_.resize(tentative_begin);
+                    return candidate_id;
+                }
+            }
+        }
+        bucket = (bucket + 1) & mask;
+    }
+
+    if (constants_.size() >= kNoRegister) {
+        throw std::length_error("sampling executable expression count exceeds uint32 range");
+    }
+    const uint32_t register_id = static_cast<uint32_t>(constants_.size());
+    term_begins_.push_back(tentative_begin);
+    constants_.push_back(static_cast<uint8_t>(constant));
+    table_[bucket] = {hash, register_id};
+    ++num_interned_;
+    return register_id;
+}
+
+CLIFFT_BUILDER_FORCE_INLINE uint32_t ExecutablePlanBuilder::ExpressionInterner::prepare(
+    const AffineBool& expression, uint32_t action_index, std::span<uint32_t> symbol_first_actions) {
+    if (expression.terms().empty()) {
+        return prepare_constant(expression.constant());
+    }
+    ensure_term_capacity(expression.terms().size());
+    const uint32_t tentative_begin = static_cast<uint32_t>(terms_.size());
+    uint64_t hash = expression.constant() ? kExpressionHashSeedTrue : kExpressionHashSeedFalse;
+    for (SymbolId term : expression.terms()) {
+        const uint32_t sym = index(term);
+        terms_.push_back(sym);
+        hash ^= sym;
+        hash *= kExpressionHashPrime;
+        if (!symbol_first_actions.empty()) {
+            symbol_first_actions[sym] = std::min(symbol_first_actions[sym], action_index);
+        }
+    }
+    return intern_appended(expression.constant(), tentative_begin, hash);
+}
+
+CLIFFT_BUILDER_FORCE_INLINE uint32_t
+ExecutablePlanBuilder::ExpressionInterner::prepare_measurement_correction(
+    const AffineBool& outcome, uint32_t branch, uint32_t action_index,
+    std::span<uint32_t> symbol_first_actions) {
+    if (outcome.terms().size() <= 1) {
+        assert(!outcome.terms().empty() && index(outcome.terms().front()) == branch &&
+               "validated measurement outcome must contain its branch");
+        return prepare_constant(outcome.constant());
+    }
+    ensure_term_capacity(outcome.terms().size() - 1);
+    const uint32_t tentative_begin = static_cast<uint32_t>(terms_.size());
+    uint64_t hash = outcome.constant() ? kExpressionHashSeedTrue : kExpressionHashSeedFalse;
+    for (SymbolId term : outcome.terms()) {
+        const uint32_t sym = index(term);
+        if (sym != branch) {
+            terms_.push_back(sym);
+            hash ^= sym;
+            hash *= kExpressionHashPrime;
+            if (!symbol_first_actions.empty()) {
+                symbol_first_actions[sym] = std::min(symbol_first_actions[sym], action_index);
+            }
+        }
+    }
+    assert(terms_.size() == static_cast<size_t>(tentative_begin) + outcome.terms().size() - 1 &&
+           "validated measurement outcome must contain its branch exactly once");
+    return intern_appended(outcome.constant(), tentative_begin, hash);
+}
+
 batch_detail::BatchWorkEstimate ExecutablePlanBuilder::action_batch_lane_work(
     const ExecutablePlan& plan, const ExecutablePlan::Action& action, uint32_t width) {
     return std::visit(
@@ -183,36 +324,23 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
 
     // Intern only expressions consumed by the compact program. Record snapshots
     // and derived symbols are expanded at their original write positions.
-    std::map<std::pair<bool, std::vector<SymbolId>>, uint32_t> interned;
-    std::vector<uint32_t> terms, begins;
-    std::vector<uint32_t> first_actions(input.num_symbols_, std::numeric_limits<uint32_t>::max());
+    std::vector<uint32_t> first_actions;
+    if (!output.noise_action_deadlines_.empty()) {
+        first_actions.assign(input.num_symbols_, std::numeric_limits<uint32_t>::max());
+    }
     output.actions_.clear();
     output.action_plan_ranges_.clear();
     output.expression_register_constants_.clear();
     output.record_parity_terms_.clear();
     output.dynamic_fused_rotations_.clear();
+    ExpressionInterner expressions_out(output.expression_register_constants_);
+    expressions_out.reserve(input.num_expression_registers(),
+                            input.expression_dependencies_.targets_.size());
     const auto prepare = [&](const AffineBool& expression) -> ExecutablePlan::PreparedExpression {
-        if (terms.size() + expression.terms().size() > std::numeric_limits<uint32_t>::max() ||
-            interned.size() >= std::numeric_limits<uint32_t>::max()) {
-            throw std::length_error("compact expression storage exceeds uint32 range");
-        }
-        const auto [found, inserted] =
-            interned.emplace(std::make_pair(expression.constant(), expression.terms()),
-                             static_cast<uint32_t>(interned.size()));
-        if (inserted) {
-            begins.push_back(static_cast<uint32_t>(terms.size()));
-            output.expression_register_constants_.push_back(expression.constant());
-            for (SymbolId symbol : expression.terms()) {
-                terms.push_back(index(symbol));
-            }
-        }
-        for (SymbolId symbol : expression.terms()) {
-            first_actions[index(symbol)] = std::min(first_actions[index(symbol)],
-                                                    static_cast<uint32_t>(output.actions_.size()));
-        }
-        return {found->second};
+        return {expressions_out.prepare(expression, static_cast<uint32_t>(output.actions_.size()),
+                                        first_actions)};
     };
-    const auto zero = prepare(AffineBool{});
+    const auto zero = ExecutablePlan::PreparedExpression{expressions_out.prepare_constant(false)};
     uint32_t next_record = 1;
     for (size_t source_index : order) {
         const auto append = [&](ExecutablePlan::Action action) {
@@ -292,8 +420,8 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
     }
     output.num_visible_records_ = 0;
     output.num_hidden_records_ = next_record;
-    output.expression_dependencies_ =
-        ExecutablePlan::ExpressionDependencies::build(output.num_symbols_, terms, begins);
+    output.expression_dependencies_ = ExecutablePlan::ExpressionDependencies::build(
+        output.num_symbols_, expressions_out.terms(), expressions_out.term_begins());
     output.expression_dependencies_.validate(output.num_symbols_,
                                              output.num_expression_registers());
     prepare_noise_schedule(output, first_actions);
@@ -329,7 +457,7 @@ void ExecutablePlanBuilder::build(ExecutablePlan& output, const SamplingPlan& so
 }
 
 ExecutablePlanBuilder::ExecutablePlanBuilder(ExecutablePlan& output, const SamplingPlan& source)
-    : output_(output), source_(source) {}
+    : output_(output), source_(source), expressions_(output.expression_register_constants_) {}
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     source_.validate();
@@ -369,11 +497,9 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::initialize_program() {
     if (source_.source_map.has_value()) {
         output_.action_plan_ranges_.reserve(source_.actions.size());
     }
-    output_.expression_register_constants_.reserve(source_.actions.size());
     // The storage prepass avoids repeated growth of the temporary term tape
     // and identifies plans that need reverse compaction metadata.
-    expression_terms_.reserve(storage.expression_terms);
-    expression_term_begins_.reserve(source_.actions.size());
+    expressions_.reserve(source_.actions.size(), storage.expression_terms);
     output_.instrument_resume_offsets_.assign(source_.instrument_distributions.size(),
                                               std::numeric_limits<uint32_t>::max());
 }
@@ -491,60 +617,16 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_noise_and_bounda
                                      : boundary_noise_starts_.front();
 }
 
-CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::ensure_expression_term_capacity(
-    size_t additional_terms) const {
-    constexpr size_t kMaxExpressionTerms = std::numeric_limits<uint32_t>::max();
-    // Dynamic fusion can replace source signs with denser basis expressions,
-    // so the source-plan count is only a reserve estimate after lowering.
-    if (additional_terms > kMaxExpressionTerms - expression_terms_.size()) {
-        throw std::length_error("sampling executable expression storage exceeds uint32 range");
-    }
-}
-
 CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::PreparedExpression
 ExecutablePlanBuilder::prepare_expression(const AffineBool& expression) {
-    if (output_.expression_register_constants_.size() >= std::numeric_limits<uint32_t>::max()) {
-        throw std::length_error("sampling executable expression count exceeds uint32 range");
-    }
-    ensure_expression_term_capacity(expression.terms().size());
-    const uint32_t register_id =
-        static_cast<uint32_t>(output_.expression_register_constants_.size());
-    expression_term_begins_.push_back(static_cast<uint32_t>(expression_terms_.size()));
-    output_.expression_register_constants_.push_back(static_cast<uint8_t>(expression.constant()));
-    for (SymbolId term : expression.terms()) {
-        expression_terms_.push_back(index(term));
-        if (!symbol_first_actions_.empty()) {
-            symbol_first_actions_[index(term)] = std::min(
-                symbol_first_actions_[index(term)], static_cast<uint32_t>(output_.actions_.size()));
-        }
-    }
-    return {register_id};
+    return {expressions_.prepare(expression, static_cast<uint32_t>(output_.actions_.size()),
+                                 symbol_first_actions_)};
 }
 
 CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::PreparedExpression
 ExecutablePlanBuilder::prepare_measurement_correction(const AffineBool& outcome, uint32_t branch) {
-    if (output_.expression_register_constants_.size() >= std::numeric_limits<uint32_t>::max()) {
-        throw std::length_error("sampling executable expression count exceeds uint32 range");
-    }
-    ensure_expression_term_capacity(outcome.terms().size() - 1);
-    const uint32_t register_id =
-        static_cast<uint32_t>(output_.expression_register_constants_.size());
-    const uint32_t begin = static_cast<uint32_t>(expression_terms_.size());
-    expression_term_begins_.push_back(begin);
-    output_.expression_register_constants_.push_back(static_cast<uint8_t>(outcome.constant()));
-    for (SymbolId term : outcome.terms()) {
-        if (index(term) != branch) {
-            expression_terms_.push_back(index(term));
-            if (!symbol_first_actions_.empty()) {
-                symbol_first_actions_[index(term)] =
-                    std::min(symbol_first_actions_[index(term)],
-                             static_cast<uint32_t>(output_.actions_.size()));
-            }
-        }
-    }
-    assert(expression_terms_.size() == static_cast<size_t>(begin) + outcome.terms().size() - 1 &&
-           "validated measurement outcome must contain its branch exactly once");
-    return {register_id};
+    return {expressions_.prepare_measurement_correction(
+        outcome, branch, static_cast<uint32_t>(output_.actions_.size()), symbol_first_actions_)};
 }
 
 CLIFFT_BUILDER_FORCE_INLINE ExecutablePlan::PreparedRecordParity
@@ -839,7 +921,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_action_origin(uin
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::build_expression_dependencies() {
     output_.expression_dependencies_ = ExecutablePlan::ExpressionDependencies::build(
-        output_.num_symbols_, expression_terms_, expression_term_begins_);
+        output_.num_symbols_, expressions_.terms(), expressions_.term_begins());
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan() const {
@@ -851,7 +933,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                output_.noise_action_deadlines_.back() <= output_.actions_.size() &&
                "noise deadlines must follow executable action order");
     }
-    assert(expression_term_begins_.size() == output_.expression_register_constants_.size() &&
+    assert(expressions_.num_registers() == output_.expression_register_constants_.size() &&
            "expression register storage is inconsistent");
     output_.expression_dependencies_.validate(output_.num_symbols_,
                                               output_.expression_register_constants_.size());

@@ -20,29 +20,9 @@ std::optional<uint32_t> get_written_meas_idx(const HeisenbergOp& op, const HirMo
 /// Returns true if the operation accesses (reads or writes) the given
 /// classical measurement index.
 bool accesses_classical_index(const HeisenbergOp& op, uint32_t target_idx, const HirModule& hir) {
-    switch (op.op_type()) {
-        case OpType::MEASURE:
-            return static_cast<uint32_t>(op.meas_record_idx()) == target_idx;
-        case OpType::CONDITIONAL_PAULI:
-            return static_cast<uint32_t>(op.controlling_meas()) == target_idx;
-        case OpType::READOUT_NOISE:
-            return hir.readout_noise[static_cast<uint32_t>(op.readout_noise_idx())].meas_idx ==
-                   target_idx;
-        case OpType::DETECTOR:
-            for (uint32_t idx : hir.detector_targets[static_cast<uint32_t>(op.detector_idx())]) {
-                if (idx == target_idx)
-                    return true;
-            }
-            return false;
-        case OpType::OBSERVABLE:
-            for (uint32_t idx : hir.observable_targets[op.observable_target_list_idx()]) {
-                if (idx == target_idx)
-                    return true;
-            }
-            return false;
-        default:
-            return false;
-    }
+    bool found = false;
+    for_each_classical_record(op, hir, [&](uint32_t idx) { found |= (idx == target_idx); });
+    return found;
 }
 
 /// Check Pauli commutativity between an op's masks and a noise site's channels.
@@ -97,8 +77,7 @@ bool can_swap(const HeisenbergOp& left, const HeisenbergOp& right, const HirModu
     // after it", and re-entry requires prefix compilation to be a function
     // of the prefix alone. Both carry Pauli masks, so without these
     // clauses the symplectic test below would let commuting ops cross.
-    if (lt == OpType::EXP_VAL || rt == OpType::EXP_VAL || lt == OpType::INSTRUMENT ||
-        rt == OpType::INSTRUMENT) {
+    if (is_positional_barrier(lt) || is_positional_barrier(rt)) {
         return false;
     }
 

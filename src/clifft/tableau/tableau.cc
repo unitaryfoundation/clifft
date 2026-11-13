@@ -1,10 +1,12 @@
 #include "clifft/tableau/tableau.h"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cassert>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 namespace clifft {
 
@@ -34,6 +36,58 @@ void right_multiply_masks(MutableMaskView x, MutableMaskView z, uint8_t& phase,
     phase = (phase + value.phase() + phase_delta + (crossing_parity ? 2U : 0U)) & 3U;
     x.xor_with(value.x());
     z.xor_with(value.z());
+}
+
+uint8_t mask_y_phase(std::span<const uint64_t> x, std::span<const uint64_t> z) {
+    uint32_t count = 0;
+    for (size_t w = 0; w < x.size(); ++w) {
+        count += std::popcount(x[w] & z[w]);
+    }
+    return static_cast<uint8_t>(count & 3U);
+}
+
+void transpose_64x64(std::array<uint64_t, 64>& block) {
+    constexpr std::array<std::pair<uint32_t, uint64_t>, 6> kSteps{{
+        {32, 0x00000000FFFFFFFFULL},
+        {16, 0x0000FFFF0000FFFFULL},
+        {8, 0x00FF00FF00FF00FFULL},
+        {4, 0x0F0F0F0F0F0F0F0FULL},
+        {2, 0x3333333333333333ULL},
+        {1, 0x5555555555555555ULL},
+    }};
+    for (const auto& [shift, mask] : kSteps) {
+        for (uint32_t base = 0; base < 64; base += 2 * shift) {
+            for (uint32_t i = 0; i < shift; ++i) {
+                const uint64_t diff = ((block[base + i] >> shift) ^ block[base + i + shift]) & mask;
+                block[base + i] ^= diff << shift;
+                block[base + i + shift] ^= diff;
+            }
+        }
+    }
+}
+
+void transpose_submatrix(std::span<const uint64_t> src, uint32_t src_row_base,
+                         std::span<uint64_t> dst, uint32_t dst_row_base, uint32_t num_qubits,
+                         uint32_t num_words) {
+    std::array<uint64_t, 64> block{};
+    for (uint32_t wb_row = 0; wb_row < num_words; ++wb_row) {
+        const uint32_t row_limit = std::min<uint32_t>(64, num_qubits - 64 * wb_row);
+        for (uint32_t wb_col = 0; wb_col < num_words; ++wb_col) {
+            const uint32_t col_limit = std::min<uint32_t>(64, num_qubits - 64 * wb_col);
+            for (uint32_t r = 0; r < row_limit; ++r) {
+                block[r] =
+                    src[static_cast<size_t>(src_row_base + 64 * wb_row + r) * num_words + wb_col];
+            }
+            for (uint32_t r = row_limit; r < 64; ++r) {
+                block[r] = 0;
+            }
+            transpose_64x64(block);
+            for (uint32_t c = 0; c < col_limit; ++c) {
+                dst[static_cast<size_t>(dst_row_base + 64 * wb_col + c) * num_words + wb_row] =
+                    block[c];
+            }
+        }
+    }
 }
 
 }  // namespace
@@ -70,7 +124,7 @@ Tableau Tableau::from_rows(std::initializer_list<std::string_view> rows) {
     return result;
 }
 
-const Tableau& Tableau::named_gate_tableau(GateType gate) {
+const Tableau& Tableau::from_named_gate(GateType gate) {
 // Parsing fixed row literals for every circuit operation needlessly makes gate lookup allocate.
 #define CLIFFT_RETURN_CACHED_TABLEAU(...)                       \
     do {                                                        \
@@ -179,8 +233,61 @@ const Tableau& Tableau::named_gate_tableau(GateType gate) {
 #undef CLIFFT_RETURN_CACHED_TABLEAU
 }
 
-Tableau Tableau::from_named_gate(GateType gate) {
-    return named_gate_tableau(gate);
+GateType Tableau::inverse_named_gate(GateType gate) {
+    // Validate that the gate has a fixed Clifford tableau before mapping its inverse.
+    static_cast<void>(from_named_gate(gate));
+    switch (gate) {
+        case GateType::S:
+            return GateType::S_DAG;
+        case GateType::S_DAG:
+            return GateType::S;
+        case GateType::SQRT_X:
+            return GateType::SQRT_X_DAG;
+        case GateType::SQRT_X_DAG:
+            return GateType::SQRT_X;
+        case GateType::SQRT_Y:
+            return GateType::SQRT_Y_DAG;
+        case GateType::SQRT_Y_DAG:
+            return GateType::SQRT_Y;
+        case GateType::C_XYZ:
+            return GateType::C_ZYX;
+        case GateType::C_ZYX:
+            return GateType::C_XYZ;
+        case GateType::C_NXYZ:
+            return GateType::C_ZYNX;
+        case GateType::C_NZYX:
+            return GateType::C_XYNZ;
+        case GateType::C_XNYZ:
+            return GateType::C_ZNYX;
+        case GateType::C_XYNZ:
+            return GateType::C_NZYX;
+        case GateType::C_ZNYX:
+            return GateType::C_XNYZ;
+        case GateType::C_ZYNX:
+            return GateType::C_NXYZ;
+        case GateType::ISWAP:
+            return GateType::ISWAP_DAG;
+        case GateType::ISWAP_DAG:
+            return GateType::ISWAP;
+        case GateType::SQRT_XX:
+            return GateType::SQRT_XX_DAG;
+        case GateType::SQRT_XX_DAG:
+            return GateType::SQRT_XX;
+        case GateType::SQRT_YY:
+            return GateType::SQRT_YY_DAG;
+        case GateType::SQRT_YY_DAG:
+            return GateType::SQRT_YY;
+        case GateType::SQRT_ZZ:
+            return GateType::SQRT_ZZ_DAG;
+        case GateType::SQRT_ZZ_DAG:
+            return GateType::SQRT_ZZ;
+        case GateType::CXSWAP:
+            return GateType::SWAPCX;
+        case GateType::SWAPCX:
+            return GateType::CXSWAP;
+        default:
+            return gate;
+    }
 }
 
 Tableau Tableau::from_pauli_rotation(PauliStringView axis, bool dagger) {
@@ -339,23 +446,87 @@ Tableau Tableau::then(const Tableau& next) const {
 
 Tableau Tableau::inverse() const {
     Tableau result(num_qubits_);
-    for (uint32_t q = 0; q < num_qubits_; ++q) {
-        PauliString inverse_x(num_qubits_);
-        PauliString inverse_z(num_qubits_);
-        for (uint32_t k = 0; k < num_qubits_; ++k) {
-            inverse_x.set_pauli(k, z_output(k).z().bit_get(q), x_output(k).z().bit_get(q));
-            inverse_z.set_pauli(k, z_output(k).x().bit_get(q), x_output(k).x().bit_get(q));
+    if (num_qubits_ == 0) {
+        return result;
+    }
+
+    // Symplectic inversion transposes the four n x n generator blocks:
+    //   inverse_x(q).x[k] = z_output(k).z[q], inverse_x(q).z[k] = x_output(k).z[q]
+    //   inverse_z(q).x[k] = z_output(k).x[q], inverse_z(q).z[k] = x_output(k).x[q]
+    transpose_submatrix(z_rows_, num_qubits_, result.x_rows_, 0, num_qubits_, num_words_);
+    transpose_submatrix(z_rows_, 0, result.z_rows_, 0, num_qubits_, num_words_);
+    transpose_submatrix(x_rows_, num_qubits_, result.x_rows_, num_qubits_, num_qubits_, num_words_);
+    transpose_submatrix(x_rows_, 0, result.z_rows_, num_qubits_, num_qubits_, num_words_);
+
+    struct RowSpan {
+        uint32_t begin = 0;
+        uint32_t end = 0;
+    };
+    std::vector<RowSpan> spans(static_cast<size_t>(2) * num_qubits_);
+    for (uint32_t r = 0; r < 2 * num_qubits_; ++r) {
+        const size_t offset = static_cast<size_t>(r) * num_words_;
+        uint32_t b = 0;
+        while (b < num_words_ && (x_rows_[offset + b] | z_rows_[offset + b]) == 0) {
+            ++b;
         }
-        inverse_x.set_sign(false);
-        inverse_z.set_sign(false);
-        if (apply(inverse_x.view()).sign()) {
-            inverse_x.negate();
+        uint32_t e = num_words_;
+        while (e > b && (x_rows_[offset + e - 1] | z_rows_[offset + e - 1]) == 0) {
+            --e;
         }
-        if (apply(inverse_z.view()).sign()) {
-            inverse_z.negate();
+        spans[r] = {b, e};
+    }
+
+    std::vector<uint64_t> acc_z(num_words_, 0);
+    const uint64_t last_word_mask =
+        num_qubits_ % 64 == 0 ? ~uint64_t{0} : (uint64_t{1} << (num_qubits_ % 64)) - 1;
+    for (uint32_t idx = 0; idx < 2 * num_qubits_; ++idx) {
+        const size_t inv_offset = static_cast<size_t>(idx) * num_words_;
+        const std::span<const uint64_t> inv_x =
+            std::span<const uint64_t>(result.x_rows_).subspan(inv_offset, num_words_);
+        const std::span<const uint64_t> inv_z =
+            std::span<const uint64_t>(result.z_rows_).subspan(inv_offset, num_words_);
+        const uint8_t base_phase = mask_y_phase(inv_x, inv_z);
+        uint8_t phase = base_phase;
+        uint32_t dirty_begin = num_words_;
+        uint32_t dirty_end = 0;
+
+        auto multiply_forward_row = [&](uint32_t forward_row) {
+            const auto [b, e] = spans[forward_row];
+            const size_t f_offset = static_cast<size_t>(forward_row) * num_words_;
+            bool crossing = false;
+            for (uint32_t w = b; w < e; ++w) {
+                crossing ^= (std::popcount(acc_z[w] & x_rows_[f_offset + w]) & 1U) != 0;
+                acc_z[w] ^= z_rows_[f_offset + w];
+            }
+            if (b < e) {
+                dirty_begin = std::min(dirty_begin, b);
+                dirty_end = std::max(dirty_end, e);
+            }
+            phase = (phase + phases_[forward_row] + (crossing ? 2U : 0U)) & 3U;
+        };
+
+        for (uint32_t w = 0; w < num_words_; ++w) {
+            uint64_t pending = inv_x[w] & (w + 1 == num_words_ ? last_word_mask : ~uint64_t{0});
+            while (pending != 0) {
+                multiply_forward_row(64 * w + std::countr_zero(pending));
+                pending &= pending - 1;
+            }
         }
-        result.set_row(row_index(false, q, num_qubits_), inverse_x.view());
-        result.set_row(row_index(true, q, num_qubits_), inverse_z.view());
+        for (uint32_t w = 0; w < num_words_; ++w) {
+            uint64_t pending = inv_z[w] & (w + 1 == num_words_ ? last_word_mask : ~uint64_t{0});
+            while (pending != 0) {
+                multiply_forward_row(num_qubits_ + 64 * w + std::countr_zero(pending));
+                pending &= pending - 1;
+            }
+        }
+
+        if (dirty_begin < dirty_end) {
+            std::fill_n(acc_z.data() + dirty_begin, dirty_end - dirty_begin, uint64_t{0});
+        }
+        // Forward evaluation of an unsigned inverse generator yields +/-X_q or +/-Z_q,
+        // both of which have zero Y count, so phase == 2 indicates a minus sign.
+        assert(phase == 0 || phase == 2);
+        result.phases_[idx] = (base_phase + (phase == 2 ? 2U : 0U)) & 3U;
     }
     return result;
 }
@@ -459,11 +630,11 @@ void Tableau::prepend_local(const Tableau& gate, std::span<const uint32_t> targe
 }
 
 void Tableau::append_named_gate(GateType gate, std::span<const uint32_t> targets) {
-    append_local(named_gate_tableau(gate), targets);
+    append_local(from_named_gate(gate), targets);
 }
 
 void Tableau::prepend_named_gate(GateType gate, std::span<const uint32_t> targets) {
-    const Tableau& gate_tableau = named_gate_tableau(gate);
+    const Tableau& gate_tableau = from_named_gate(gate);
     if (gate_tableau.num_qubits() != targets.size()) {
         throw std::invalid_argument("Gate tableau width does not match target count");
     }
@@ -507,10 +678,24 @@ void Tableau::prepend_named_gate(GateType gate, std::span<const uint32_t> target
             phases_[row_index(false, targets[0], num_qubits_)] ^= 2U;
             return;
         case GateType::CX:
-            right_multiply_row(row_index(false, targets[0], num_qubits_),
-                               row_index(false, targets[1], num_qubits_));
-            right_multiply_row(row_index(true, targets[1], num_qubits_),
-                               row_index(true, targets[0], num_qubits_));
+            if (targets[0] != targets[1]) {
+                right_multiply_row(row_index(false, targets[0], num_qubits_),
+                                   row_index(false, targets[1], num_qubits_));
+                right_multiply_row(row_index(true, targets[1], num_qubits_),
+                                   row_index(true, targets[0], num_qubits_));
+                return;
+            }
+            prepend_local(gate_tableau, targets);
+            return;
+        case GateType::CZ:
+            if (targets[0] != targets[1]) {
+                right_multiply_row(row_index(false, targets[0], num_qubits_),
+                                   row_index(true, targets[1], num_qubits_));
+                right_multiply_row(row_index(false, targets[1], num_qubits_),
+                                   row_index(true, targets[0], num_qubits_));
+                return;
+            }
+            prepend_local(gate_tableau, targets);
             return;
         default:
             prepend_local(gate_tableau, targets);

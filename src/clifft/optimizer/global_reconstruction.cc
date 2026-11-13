@@ -5,12 +5,14 @@
 #include "clifft/util/symplectic.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
 #include <iterator>
 #include <map>
 #include <numeric>
 #include <optional>
+#include <span>
 #include <utility>
 
 namespace clifft {
@@ -79,14 +81,6 @@ bool intersects(const Bits& a, const Bits& b) {
     return false;
 }
 
-PauliString axis(uint32_t n, const Bits& x, const Bits& z, bool sign = false) {
-    PauliString p(n);
-    each_bit(x, [&](uint32_t i) { p.mut_x().bit_set(i, true); });
-    each_bit(z, [&](uint32_t i) { p.mut_z().bit_set(i, true); });
-    p.set_sign(sign);
-    return p;
-}
-
 void xor_sign(ReconstructionSign& a, const ReconstructionSign& b) {
     xor_into(a.words, b.words);
     a.constant ^= b.constant;
@@ -97,39 +91,74 @@ void xor_sign(ReconstructionSign& a, const ReconstructionSign& b) {
 class Basis {
   public:
     std::optional<Bits> insert(Bits value, Bits label) {
-        reduce(value, label);
-        const auto pivot = highest(value);
-        if (!pivot) {
+        if (reduce(value, &label)) {
             return label;
         }
-        rows_.emplace(*pivot, std::make_pair(std::move(value), std::move(label)));
+        store_reduced(std::move(value), std::move(label));
         return std::nullopt;
     }
 
     std::optional<Bits> solve(Bits value) const {
         Bits label;
-        reduce(value, label);
-        return !highest(value) ? std::optional<Bits>{std::move(label)} : std::nullopt;
+        if (!reduce(value, &label)) {
+            return std::nullopt;
+        }
+        return label;
     }
 
-    size_t size() const { return rows_.size(); }
+    std::pair<Bits, bool> solve_or_insert(Bits value, uint32_t next_unit_index) {
+        Bits label;
+        if (reduce(value, &label)) {
+            return {std::move(label), false};
+        }
+        toggle(label, next_unit_index);
+        store_reduced(std::move(value), std::move(label));
+        return {unit(next_unit_index), true};
+    }
+
+    size_t size() const { return size_; }
 
   private:
-    void reduce(Bits& value, Bits& label) const {
-        for (;;) {
-            const auto pivot = highest(value);
-            if (!pivot) {
-                return;
-            }
-            const auto it = rows_.find(*pivot);
-            if (it == rows_.end()) {
-                return;
-            }
-            xor_into(value, it->second.first);
-            xor_into(label, it->second.second);
+    struct Row {
+        Bits value;
+        Bits label;
+    };
+
+    void store_reduced(Bits value, Bits label) {
+        value = canonical(std::move(value));
+        assert(!value.empty());
+        const uint32_t pivot =
+            static_cast<uint32_t>((value.size() - 1) * 64 + 63 - std::countl_zero(value.back()));
+        if (pivot >= rows_.size()) {
+            rows_.resize(static_cast<size_t>(pivot) + 1);
         }
+        rows_[pivot] = {std::move(value), canonical(std::move(label))};
+        ++size_;
     }
-    std::map<uint32_t, std::pair<Bits, Bits>> rows_;
+
+    bool reduce(Bits& value, Bits* label) const {
+        for (size_t w = value.size(); w-- > 0;) {
+            while (value[w] != 0) {
+                const uint32_t pivot =
+                    static_cast<uint32_t>(w * 64 + 63 - std::countl_zero(value[w]));
+                if (pivot >= rows_.size() || rows_[pivot].value.empty()) {
+                    return false;
+                }
+                const auto& row = rows_[pivot];
+                assert(row.value.size() == w + 1);
+                for (size_t i = 0; i <= w; ++i) {
+                    value[i] ^= row.value[i];
+                }
+                if (label != nullptr) {
+                    xor_into(*label, row.label);
+                }
+            }
+        }
+        return true;
+    }
+
+    std::vector<Row> rows_;
+    size_t size_ = 0;
 };
 
 struct Ineligible {
@@ -155,8 +184,19 @@ struct Rotation {
 
 struct Clifford {
     GateType gate;
-    std::vector<uint32_t> targets;
+    std::array<uint32_t, 2> targets{};
+    uint8_t arity = 0;
+
+    std::span<const uint32_t> span() const { return {targets.data(), arity}; }
 };
+
+struct PreparedOp {
+    PauliString axis;
+    ReconstructionSign sign;
+    double half_turns = 0;
+};
+
+constexpr uint32_t kUnmappedQubit = UINT32_MAX;
 
 // Purifies a noisy Clifford+T circuit by deferring measurements to ancillas,
 // allocating fresh wires on reset, and propagating Pauli fault symbols forward.
@@ -165,7 +205,15 @@ class Dilation {
     explicit Dilation(const ReconstructionLimits& limits) : limits_(limits) {}
 
     void parse(const Circuit& circuit);
-    GlobalReconstruction reconstruct(ReconstructionOutputs outputs);
+
+    uint32_t num_qubits() const { return n_; }
+    uint32_t num_noise_bits() const { return error_bits_; }
+    const std::vector<Clifford>& body() const { return body_; }
+    const std::vector<Rotation>& rotations() const { return rotations_; }
+    std::vector<Output>& records() { return records_; }
+    std::vector<Output>& detectors() { return detectors_; }
+    std::vector<Output>& observables() { return observables_; }
+    std::vector<std::vector<ReconstructionNoiseOutcome>>& channels() { return channels_; }
 
   private:
     uint32_t fresh() {
@@ -175,17 +223,28 @@ class Dilation {
         return n_++;
     }
     uint32_t qubit(uint32_t source) {
-        if (auto it = aliases_.find(source); it != aliases_.end()) {
-            return it->second;
+        if (source < aliases_.size() && aliases_[source] != kUnmappedQubit) {
+            return aliases_[source];
         }
         const uint32_t q = fresh();
+        if (source >= aliases_.size()) {
+            aliases_.resize(static_cast<size_t>(source) + 1, kUnmappedQubit);
+        }
         aliases_[source] = q;
         return q;
     }
-    void gate(GateType type, std::vector<uint32_t> targets) {
+    void gate(GateType type, std::span<const uint32_t> targets) {
         require_supported(body_.size() < limits_.max_operations * kMaxDilationGatesPerSourceOp,
                           "dilation operation limit exceeded");
-        body_.push_back({type, std::move(targets)});
+        assert(targets.size() <= 2);
+        Clifford op{type, {}, static_cast<uint8_t>(targets.size())};
+        for (size_t i = 0; i < targets.size(); ++i) {
+            op.targets[i] = targets[i];
+        }
+        body_.push_back(op);
+    }
+    void gate(GateType type, std::initializer_list<uint32_t> targets) {
+        gate(type, std::span<const uint32_t>{targets.begin(), targets.size()});
     }
     uint32_t noise_bits(uint32_t count) {
         require_supported(count <= limits_.max_noise_bits - error_bits_,
@@ -252,7 +311,7 @@ class Dilation {
     const ReconstructionLimits& limits_;
     uint32_t n_ = 0;
     uint32_t error_bits_ = 0;
-    std::map<uint32_t, uint32_t> aliases_;
+    std::vector<uint32_t> aliases_;
     std::vector<ReconstructionSign> fx_, fz_;
     std::vector<Clifford> body_;
     std::vector<Rotation> rotations_;
@@ -265,7 +324,7 @@ void Dilation::clifford(const AstNode& node) {
     require_supported(
         is_clifford(node.gate) && node.gate != GateType::SPP && node.gate != GateType::SPP_DAG,
         "unsupported source operation");
-    const auto local = Tableau::from_named_gate(node.gate);
+    const auto& local = Tableau::from_named_gate(node.gate);
     const uint32_t arity = local.num_qubits();
     require_supported(node.targets.size() == arity, "unsupported Clifford operands");
     if (std::any_of(node.targets.begin(), node.targets.end(),
@@ -281,12 +340,54 @@ void Dilation::clifford(const AstNode& node) {
         error(q, node.gate == GateType::CX ? 'X' : 'Z', r.sign);
         return;
     }
-    std::vector<uint32_t> qs;
-    for (Target t : node.targets) {
-        qs.push_back(qubit(t.value()));
+    std::array<uint32_t, 2> qs{};
+    for (uint32_t i = 0; i < arity; ++i) {
+        qs[i] = qubit(node.targets[i].value());
     }
-    gate(node.gate, qs);
-    std::vector<ReconstructionSign> xs(arity), zs(arity);
+    gate(node.gate, std::span<const uint32_t>{qs.data(), arity});
+    if (arity == 1 || qs[0] != qs[1]) {
+        switch (node.gate) {
+            case GateType::I:
+            case GateType::II:
+            case GateType::X:
+            case GateType::Y:
+            case GateType::Z:
+                return;
+            case GateType::H:
+            case GateType::H_NXZ:
+            case GateType::SQRT_Y:
+            case GateType::SQRT_Y_DAG:
+                std::swap(fx_[qs[0]], fz_[qs[0]]);
+                return;
+            case GateType::S:
+            case GateType::S_DAG:
+            case GateType::H_XY:
+            case GateType::H_NXY:
+                xor_sign(fz_[qs[0]], fx_[qs[0]]);
+                return;
+            case GateType::SQRT_X:
+            case GateType::SQRT_X_DAG:
+            case GateType::H_YZ:
+            case GateType::H_NYZ:
+                xor_sign(fx_[qs[0]], fz_[qs[0]]);
+                return;
+            case GateType::CX:
+                xor_sign(fx_[qs[1]], fx_[qs[0]]);
+                xor_sign(fz_[qs[0]], fz_[qs[1]]);
+                return;
+            case GateType::CZ:
+                xor_sign(fz_[qs[0]], fx_[qs[1]]);
+                xor_sign(fz_[qs[1]], fx_[qs[0]]);
+                return;
+            case GateType::SWAP:
+                std::swap(fx_[qs[0]], fx_[qs[1]]);
+                std::swap(fz_[qs[0]], fz_[qs[1]]);
+                return;
+            default:
+                break;
+        }
+    }
+    std::array<ReconstructionSign, 2> xs, zs;
     for (uint32_t j = 0; j < arity; ++j) {
         for (uint32_t i = 0; i < arity; ++i) {
             if (local.x_output(j).x().bit_get(i))
@@ -313,6 +414,8 @@ void Dilation::parse(const Circuit& circuit) {
         circuit.num_measurements <= limits_.max_outputs &&
             uint64_t{circuit.num_detectors} + circuit.num_observables <= limits_.max_outputs,
         "output limit exceeded");
+    aliases_.assign(std::min<size_t>(circuit.num_qubits, limits_.max_dilation_qubits),
+                    kUnmappedQubit);
     observables_.resize(circuit.num_observables);
     std::optional<size_t> chain;
     for (const auto& node : circuit.nodes) {
@@ -433,14 +536,24 @@ void Dilation::parse(const Circuit& circuit) {
 // Completes n independent commuting Pauli generators to a full symplectic
 // frame by solving for dual X destabilizers and orthogonalizing them.
 Tableau stabilizer_frame(const std::vector<PauliString>& generators, uint32_t n) {
+    std::vector<Bits> patterns(2 * n);
+    for (uint32_t j = 0; j < n; ++j) {
+        const auto z_words = generators[j].z().words;
+        for (size_t w = 0; w < z_words.size(); ++w) {
+            for (uint64_t v = z_words[w]; v != 0; v &= v - 1) {
+                toggle(patterns[w * 64 + std::countr_zero(v)], j);
+            }
+        }
+        const auto x_words = generators[j].x().words;
+        for (size_t w = 0; w < x_words.size(); ++w) {
+            for (uint64_t v = x_words[w]; v != 0; v &= v - 1) {
+                toggle(patterns[n + w * 64 + std::countr_zero(v)], j);
+            }
+        }
+    }
     Basis columns;
     for (uint32_t i = 0; i < 2 * n; ++i) {
-        Bits pattern;
-        for (uint32_t j = 0; j < n; ++j) {
-            if ((i < n ? generators[j].z() : generators[j].x()).bit_get(i % n))
-                toggle(pattern, j);
-        }
-        columns.insert(std::move(pattern), unit(i));
+        columns.insert(std::move(patterns[i]), unit(i));
     }
     require_supported(columns.size() == n, "dependent folded projections");
     Tableau frame(n);
@@ -484,15 +597,25 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
 
     // 1. Synthesize commuting hidden measurements from the nullspace of
     // operation commutation columns to shrink the initial active subspace.
+    std::vector<Bits> column_patterns(2 * n);
+    for (uint32_t j = 0; j < ops.size(); ++j) {
+        const auto z_words = ops[j].axis.z().words;
+        for (size_t w = 0; w < z_words.size(); ++w) {
+            for (uint64_t v = z_words[w]; v != 0; v &= v - 1) {
+                toggle(column_patterns[w * 64 + std::countr_zero(v)], j);
+            }
+        }
+        const auto x_words = ops[j].axis.x().words;
+        for (size_t w = 0; w < x_words.size(); ++w) {
+            for (uint64_t v = x_words[w]; v != 0; v &= v - 1) {
+                toggle(column_patterns[n + w * 64 + std::countr_zero(v)], j);
+            }
+        }
+    }
     Basis columns;
     std::vector<Bits> nullspace;
     for (uint32_t i = 0; i < 2 * n; ++i) {
-        Bits column;
-        for (uint32_t j = 0; j < ops.size(); ++j) {
-            if ((i < n ? ops[j].axis.z() : ops[j].axis.x()).bit_get(i % n))
-                toggle(column, j);
-        }
-        if (auto dependency = columns.insert(std::move(column), unit(i)))
+        if (auto dependency = columns.insert(std::move(column_patterns[i]), unit(i)))
             nullspace.push_back(std::move(*dependency));
     }
     auto weight = [](const Bits& value) {
@@ -620,130 +743,224 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
     ops = std::move(scheduled);
 }
 
-GlobalReconstruction Dilation::reconstruct(ReconstructionOutputs outputs) {
-    // Parsing has copied the fault signs needed by rotations and outputs.
-    // Release the per-wire signs before allocating the reconstruction frames.
-    fx_.clear();
-    fz_.clear();
+struct PreparedDilation {
+    ReconstructionLimits limits;
+    uint32_t n = 0;
+    uint32_t error_bits = 0;
+    uint32_t num_records = 0;
+    uint32_t num_detectors = 0;
+    uint32_t num_observables = 0;
+    std::vector<PreparedOp> dressed_rotations;
+    std::vector<PreparedOp> mapped_checks;
+    std::vector<Output> records;
+    std::optional<std::vector<PreparedOp>> mapped_records;
+    Tableau backward;
+    Tableau frame;
+    std::vector<std::vector<ReconstructionNoiseOutcome>> channels;
+
+    PauliString map_output(const Bits& z) const {
+        PauliString z_axis(n);
+        each_bit(z, [&](uint32_t i) { z_axis.mut_z().bit_set(i, true); });
+        return frame.apply(backward.apply(z_axis.view()).view());
+    }
+};
+
+PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLimits& limits) {
+    Dilation dilation(limits);
+    dilation.parse(circuit);
+    const uint32_t n = dilation.num_qubits();
 
     // 1. Build the inverse Clifford frame by prepending local gate inverses in
     // forward order, touching only each gate's operand rows.
-    Tableau backward(n_);
-    for (const auto& gate : body_) {
-        backward.prepend_local(Tableau::from_named_gate(gate.gate).inverse(), gate.targets);
+    Tableau backward(n);
+    for (const auto& gate : dilation.body()) {
+        backward.prepend_named_gate(Tableau::inverse_named_gate(gate.gate), gate.span());
     }
-    std::vector<bool> magic(n_, false);
-    for (const auto& r : rotations_)
+    const auto& rotations = dilation.rotations();
+    std::vector<bool> magic(n, false);
+    for (const auto& r : rotations)
         magic[r.ancilla] = true;
-    std::vector<PauliString> initial, constraints;
-    for (uint32_t i = 0; i < n_; ++i)
-        initial.push_back(axis(n_, magic[i] ? unit(i) : Bits{}, magic[i] ? Bits{} : unit(i)));
-    for (const auto& r : rotations_)
+    std::vector<PauliString> constraints;
+    constraints.reserve(rotations.size());
+    for (const auto& r : rotations)
         constraints.emplace_back(backward.z_output(r.ancilla));
-    auto pattern = [&](PauliStringView p) {
-        Bits result;
-        for (uint32_t j = 0; j < constraints.size(); ++j)
-            if (!p.commutes(constraints[j].view()))
-                toggle(result, j);
-        return result;
-    };
-    std::vector<Bits> patterns;
+    std::vector<Bits> patterns(n);
+    for (uint32_t j = 0; j < constraints.size(); ++j) {
+        const auto cx = constraints[j].x().words;
+        const auto cz = constraints[j].z().words;
+        for (size_t w = 0; w < cx.size(); ++w) {
+            for (uint64_t v = cx[w]; v != 0; v &= v - 1) {
+                const uint32_t i = static_cast<uint32_t>(w * 64 + std::countr_zero(v));
+                if (!magic[i])
+                    toggle(patterns[i], j);
+            }
+            for (uint64_t v = cz[w]; v != 0; v &= v - 1) {
+                const uint32_t i = static_cast<uint32_t>(w * 64 + std::countr_zero(v));
+                if (magic[i])
+                    toggle(patterns[i], j);
+            }
+        }
+    }
     Basis allowed;
-    for (uint32_t i = 0; i < n_; ++i) {
-        patterns.push_back(pattern(initial[i].view()));
+    for (uint32_t i = 0; i < n; ++i) {
         if (!magic[i])
-            allowed.insert(patterns.back(), unit(i));
+            allowed.insert(patterns[i], unit(i));
     }
 
     // 2. Dress each T/T_DAG gadget axis with input stabilizers so it commutes
     // with all earlier gadget projections.
-    GlobalReconstruction result;
-    result.outputs = {
-        outputs == ReconstructionOutputs::Records ? static_cast<uint32_t>(records_.size()) : 0,
-        static_cast<uint32_t>(detectors_.size()), static_cast<uint32_t>(observables_.size())};
-    result.dilation_qubits = n_;
-    result.num_noise_bits = error_bits_;
-    for (auto it = rotations_.rbegin(); it != rotations_.rend(); ++it) {
-        auto p = axis(n_, {}, unit(it->ancilla));
-        const auto dressing = allowed.solve(pattern(p.view()));
+    std::vector<PreparedOp> dressed_rotations;
+    dressed_rotations.reserve(rotations.size());
+    for (auto it = rotations.rbegin(); it != rotations.rend(); ++it) {
+        Bits z_pattern;
+        for (uint32_t j = 0; j < constraints.size(); ++j) {
+            if (constraints[j].x().bit_get(it->ancilla))
+                toggle(z_pattern, j);
+        }
+        const auto dressing = allowed.solve(std::move(z_pattern));
         require_supported(dressing.has_value(), "no causal stabilizer dressing");
-        each_bit(*dressing, [&](uint32_t i) { p.right_multiply(initial[i].view()); });
-        result.operations.push_back({std::move(p), it->sign, it->half_turns, std::nullopt});
+        PauliString p(n);
+        p.mut_z().bit_set(it->ancilla, true);
+        each_bit(*dressing, [&](uint32_t i) {
+            assert(i != it->ancilla);
+            if (magic[i])
+                p.mut_x().bit_set(i, true);
+            else
+                p.mut_z().bit_set(i, true);
+        });
+        p.set_sign(false);
+        dressed_rotations.push_back({std::move(p), it->sign, it->half_turns});
         allowed.insert(patterns[it->ancilla], unit(it->ancilla));
     }
-    std::reverse(result.operations.begin(), result.operations.end());
+    std::reverse(dressed_rotations.begin(), dressed_rotations.end());
 
     // 3. Complete the independent gadget projections to an n-qubit stabilizer
     // basis and fold them into the input state. Full projection rank certifies
     // a state-independent normalization factor.
     Basis independent;
-    std::vector<PauliString> generators = constraints;
-    for (uint32_t i = 0; i < n_; ++i) {
-        if (auto dependency = independent.insert(patterns[i], unit(i))) {
-            PauliString p(n_);
-            each_bit(*dependency, [&](uint32_t j) { p.right_multiply(initial[j].view()); });
+    std::vector<PauliString> generators = std::move(constraints);
+    const size_t num_constraints = generators.size();
+    generators.reserve(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        if (auto dependency = independent.insert(std::move(patterns[i]), unit(i))) {
+            PauliString p(n);
+            each_bit(*dependency, [&](uint32_t j) {
+                if (magic[j])
+                    p.mut_x().bit_set(j, true);
+                else
+                    p.mut_z().bit_set(j, true);
+            });
+            p.set_sign(false);
             generators.push_back(std::move(p));
         }
     }
-    require_supported(independent.size() == constraints.size(), "nonuniform gadget projection");
-    assert(generators.size() == n_);
-    const auto frame = stabilizer_frame(generators, n_);
+    require_supported(independent.size() == num_constraints, "nonuniform gadget projection");
+    assert(generators.size() == n);
+    Tableau frame = stabilizer_frame(generators, n);
 
+    for (auto& op : dressed_rotations)
+        op.axis = frame.apply(op.axis.view());
+
+    PreparedDilation prepared;
+    prepared.limits = limits;
+    prepared.n = n;
+    prepared.error_bits = dilation.num_noise_bits();
+    prepared.num_records = static_cast<uint32_t>(dilation.records().size());
+    prepared.num_detectors = static_cast<uint32_t>(dilation.detectors().size());
+    prepared.num_observables = static_cast<uint32_t>(dilation.observables().size());
+    prepared.dressed_rotations = std::move(dressed_rotations);
+    prepared.records = std::move(dilation.records());
+    prepared.backward = std::move(backward);
+    prepared.frame = std::move(frame);
+    prepared.channels = std::move(dilation.channels());
+    prepared.mapped_checks.reserve(prepared.num_detectors + prepared.num_observables);
+    for (auto& out : dilation.detectors())
+        prepared.mapped_checks.push_back({prepared.map_output(out.z), std::move(out.sign), 0});
+    for (auto& out : dilation.observables())
+        prepared.mapped_checks.push_back({prepared.map_output(out.z), std::move(out.sign), 0});
+    return prepared;
+}
+
+GlobalReconstruction reconstruct_variant(PreparedDilation& prepared,
+                                         ReconstructionOutputs outputs) {
     // 4. Map requested outputs through the inverse frame and reduce all
     // operations to a basis of their X supports, eliminating fixed-|0> wires.
-    std::vector<Output> requested;
-    if (outputs == ReconstructionOutputs::Records)
-        requested = std::move(records_);
-    requested.insert(requested.end(), std::make_move_iterator(detectors_.begin()),
-                     std::make_move_iterator(detectors_.end()));
-    requested.insert(requested.end(), std::make_move_iterator(observables_.begin()),
-                     std::make_move_iterator(observables_.end()));
-    for (uint32_t i = 0; i < requested.size(); ++i) {
-        auto& out = requested[i];
-        result.operations.push_back(
-            {backward.apply(axis(n_, {}, out.z).view()), std::move(out.sign), 0, i});
+    if (outputs == ReconstructionOutputs::Records && !prepared.mapped_records) {
+        std::vector<PreparedOp> mapped;
+        mapped.reserve(prepared.records.size());
+        for (auto& out : prepared.records)
+            mapped.push_back({prepared.map_output(out.z), std::move(out.sign), 0});
+        prepared.mapped_records = std::move(mapped);
+        prepared.records = {};
+        prepared.backward = Tableau();
+        prepared.frame = Tableau();
     }
+
+    const bool keep_records = outputs == ReconstructionOutputs::Records;
+    const size_t record_count = keep_records ? prepared.mapped_records->size() : 0;
+    const size_t total_ops =
+        prepared.dressed_rotations.size() + record_count + prepared.mapped_checks.size();
+
     Basis xb;
     std::vector<Bits> directions;
-    for (auto& op : result.operations) {
-        op.axis = frame.apply(op.axis.view());
-        const Bits x = copy(op.axis.x());
-        if (!xb.solve(x)) {
-            xb.insert(x, unit(static_cast<uint32_t>(directions.size())));
-            directions.push_back(x);
-        }
+    std::vector<Bits> x_coords;
+    x_coords.reserve(total_ops);
+    auto record_x_support = [&](const PreparedOp& op) {
+        Bits x = canonical(copy(op.axis.x()));
+        auto [coords, inserted] = xb.solve_or_insert(x, static_cast<uint32_t>(directions.size()));
+        if (inserted)
+            directions.push_back(std::move(x));
+        x_coords.push_back(std::move(coords));
+    };
+    for (const auto& op : prepared.dressed_rotations)
+        record_x_support(op);
+    if (keep_records) {
+        for (const auto& op : *prepared.mapped_records)
+            record_x_support(op);
     }
+    for (const auto& op : prepared.mapped_checks)
+        record_x_support(op);
+
+    GlobalReconstruction result;
+    result.outputs = {keep_records ? prepared.num_records : 0, prepared.num_detectors,
+                      prepared.num_observables};
+    result.dilation_qubits = prepared.n;
+    result.num_noise_bits = prepared.error_bits;
     result.num_qubits = static_cast<uint32_t>(directions.size());
-    for (uint32_t i = 0; i < n_; ++i) {
-        if (!xb.solve(unit(i))) {
-            xb.insert(unit(i), unit(static_cast<uint32_t>(directions.size())));
-            directions.push_back(unit(i));
-        }
-    }
-    std::vector<Bits> inverse_rows(n_);
-    for (uint32_t i = 0; i < n_; ++i)
-        each_bit(*xb.solve(unit(i)), [&](uint32_t j) { toggle(inverse_rows[j], i); });
-    Tableau linear(n_);
-    for (uint32_t i = 0; i < n_; ++i) {
-        linear.set_x_output(i, axis(n_, directions[i], {}).view());
-        linear.set_z_output(i, axis(n_, {}, inverse_rows[i]).view());
-    }
-    linear = linear.inverse();
-    for (auto& op : result.operations) {
-        const auto p = linear.apply(op.axis.view());
+    result.operations.reserve(total_ops);
+
+    size_t op_index = 0;
+    auto append_reduced = [&](const PreparedOp& op, std::optional<uint32_t> output) {
         PauliString reduced(result.num_qubits);
-        for (uint32_t i = 0; i < n_; ++i) {
-            if (i < result.num_qubits)
-                reduced.set_pauli(i, p.x().bit_get(i), p.z().bit_get(i));
-            else
-                assert(!p.x().bit_get(i));
+        each_bit(x_coords[op_index++], [&](uint32_t q) { reduced.mut_x().bit_set(q, true); });
+        const auto src_z = op.axis.z().words;
+        for (uint32_t q = 0; q < result.num_qubits; ++q) {
+            uint64_t acc = 0;
+            const size_t limit = std::min(directions[q].size(), src_z.size());
+            for (size_t w = 0; w < limit; ++w)
+                acc ^= directions[q][w] & src_z[w];
+            if ((std::popcount(acc) & 1) != 0)
+                reduced.mut_z().bit_set(q, true);
         }
         reduced.set_sign(false);
-        op.sign.constant ^= p.sign();
-        op.axis = std::move(reduced);
+        const uint8_t phase_delta = (op.axis.phase() - reduced.phase()) & 3U;
+        assert((phase_delta & 1U) == 0U);
+        ReconstructionSign sign = op.sign;
+        sign.constant ^= (phase_delta == 2U);
+        result.operations.push_back({std::move(reduced), std::move(sign), op.half_turns, output});
+    };
+    for (const auto& op : prepared.dressed_rotations)
+        append_reduced(op, std::nullopt);
+    uint32_t next_output = 0;
+    if (keep_records) {
+        for (const auto& op : *prepared.mapped_records)
+            append_reduced(op, next_output++);
     }
-    result.noise_channels = std::move(channels_);
-    schedule_reconstruction(result, limits_);
+    for (const auto& op : prepared.mapped_checks)
+        append_reduced(op, next_output++);
+
+    result.noise_channels = prepared.channels;
+    schedule_reconstruction(result, prepared.limits);
     return result;
 }
 
@@ -758,15 +975,17 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
     std::stable_sort(indices.begin(), indices.end(), [&](size_t a, size_t b) {
         return !r.operations[a].output.has_value() < !r.operations[b].output.has_value();
     });
+    std::vector<ReconstructionSign> mapped_signs(r.operations.size());
     for (size_t i : indices) {
         const auto& terms = r.operations[i].sign.words;
-        if (!basis.solve(terms)) {
-            basis.insert(terms, unit(static_cast<uint32_t>(rows.size())));
+        auto [coords, inserted] = basis.solve_or_insert(terms, static_cast<uint32_t>(rows.size()));
+        if (inserted) {
             rows.push_back(terms);
         }
+        mapped_signs[i] = {std::move(coords), r.operations[i].sign.constant};
     }
     std::vector<Bits> columns(r.num_noise_bits);
-    for (uint32_t j = 0; j < rows.size(); ++j) {
+    for (uint32_t j = static_cast<uint32_t>(rows.size()); j-- > 0;) {
         each_bit(rows[j], [&](uint32_t i) { toggle(columns.at(i), j); });
     }
 
@@ -783,45 +1002,64 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
             Bits value;
             for (auto b : outcome.bits)
                 xor_into(value, columns.at(b));
-            image[canonical(std::move(value))] += outcome.probability;
+            auto [it, inserted] =
+                image.try_emplace(canonical(std::move(value)), outcome.probability);
+            if (!inserted) {
+                it->second += outcome.probability;
+            } else {
+                require_supported(image.size() <= limits.max_channel_support,
+                                  "channel support limit exceeded");
+            }
         }
-        if (image.size() == 1 && image.begin()->first.empty())
+        if (image.empty() || (image.size() == 1 && image.begin()->first.empty()))
             continue;
         std::vector<Bits> key;
+        key.reserve(image.size());
         for (const auto& [value, probability] : image)
             key.push_back(value);
         auto existing = grouped.find(key);
         if (existing != grouped.end()) {
+            const size_t existing_size = existing->second.size();
+            const size_t image_size = image.size();
+            const size_t remaining_products = limits.max_channel_products - products;
+            require_supported(existing_size <= remaining_products / image_size,
+                              "channel convolution work limit exceeded");
+            products += existing_size * image_size;
+
             Distribution convolved;
             for (const auto& [a, p] : existing->second) {
                 for (const auto& [b, q] : image) {
-                    require_supported(products++ < limits.max_channel_products,
-                                      "channel convolution work limit exceeded");
                     Bits sum = a;
                     xor_into(sum, b);
-                    convolved[canonical(std::move(sum))] += p * q;
-                    require_supported(convolved.size() <= limits.max_channel_support,
-                                      "channel support limit exceeded");
+                    auto [it, inserted] = convolved.try_emplace(canonical(std::move(sum)), p * q);
+                    if (!inserted) {
+                        it->second += p * q;
+                    } else {
+                        require_supported(convolved.size() <= limits.max_channel_support,
+                                          "channel support limit exceeded");
+                    }
                 }
             }
             existing->second = std::move(convolved);
         } else {
-            require_supported(image.size() <= limits.max_channel_support,
-                              "channel support limit exceeded");
             grouped.emplace(std::move(key), std::move(image));
         }
     }
+    columns = {};
+
     ReconstructionNoise result;
     result.num_bits = static_cast<uint32_t>(rows.size());
-    for (const auto& op : r.operations)
-        result.signs.push_back({*basis.solve(op.sign.words), op.sign.constant});
-    for (const auto& [key, distribution] : grouped) {
+    result.signs = std::move(mapped_signs);
+    result.channels.reserve(grouped.size());
+    for (auto& [key, distribution] : grouped) {
         auto& channel = result.channels.emplace_back();
+        channel.reserve(distribution.size());
         for (const auto& [value, probability] : distribution) {
             ReconstructionNoiseOutcome outcome{probability, {}};
             each_bit(value, [&](uint32_t i) { outcome.bits.push_back(i); });
             channel.push_back(std::move(outcome));
         }
+        distribution.clear();
     }
     return result;
 }
@@ -830,21 +1068,52 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
                                const PostselectionMetadata& postselection,
                                const ReconstructionLimits& limits) {
     // 1. Lay out quantum wires [0, num_qubits), auxiliary fault-bit wires
-    // [num_qubits, num_qubits + num_bits), and one scratch wire (`carrier`) for
-    // assembling visible record parities.
+    // [num_qubits, num_qubits + num_bits), and an optional scratch wire
+    // (`carrier`) when visible records must be materialized.
     const uint32_t visible = r.outputs.num_records;
-    const uint32_t width = r.num_qubits + noise.num_bits + 1;
+    const bool need_carrier = visible != 0;
+    const uint32_t width = r.num_qubits + noise.num_bits + (need_carrier ? 1U : 0U);
     const uint32_t carrier = width - 1;
-    size_t masks = noise.num_bits + 1;
-    for (const auto& sign : noise.signs) {
+
+    bool need_one = false;
+    size_t masks = noise.num_bits;
+    for (size_t j = 0; j < r.operations.size(); ++j) {
+        const auto& op = r.operations[j];
         size_t terms = 0;
-        for (auto w : sign.words)
+        for (auto w : noise.signs[j].words)
             terms += std::popcount(w);
-        masks += 2 * (terms + 2) + 2;
+        if (op.half_turns != 0) {
+            const uint32_t pivot = std::min(op.axis.x().lowest_bit(), op.axis.z().lowest_bit());
+            if (pivot < r.num_qubits)
+                masks += 2 * terms + 1;
+        } else {
+            const bool is_identity = op.axis.x().is_zero() && op.axis.z().is_zero();
+            const bool constant = noise.signs[j].constant ^ op.axis.sign();
+            if (!op.output) {
+                if (!is_identity)
+                    ++masks;
+                continue;
+            }
+            if (constant)
+                need_one = true;
+            if (!is_identity)
+                ++masks;
+            if (*op.output < visible) {
+                const size_t parity_len = terms + (!is_identity ? 1 : 0) + (constant ? 1 : 0);
+                masks += 2 * parity_len + 1;
+            }
+        }
     }
+    if (need_one)
+        ++masks;
+
     size_t noise_masks = 0;
-    for (const auto& channel : noise.channels)
-        noise_masks += channel.size();
+    for (const auto& channel : noise.channels) {
+        for (const auto& outcome : channel) {
+            if (!outcome.bits.empty() && outcome.probability != 0)
+                ++noise_masks;
+        }
+    }
     const size_t bytes_per_mask = 2 * ((size_t{width} + 63) / 64) * sizeof(uint64_t) + 1;
     require_supported(masks + noise_masks <= limits.max_lowering_bytes / bytes_per_mask,
                       "lowering mask memory limit exceeded");
@@ -887,18 +1156,20 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
         return record;
     };
     std::vector<uint32_t> fault_records;
+    fault_records.reserve(noise.num_bits);
     for (uint32_t i = 0; i < noise.num_bits; ++i) {
         fault_records.push_back(
             hidden_measure([&](MutablePauliMaskView p) { p.z().bit_set(r.num_qubits + i, true); }));
     }
-    const auto one = hidden_measure([](MutablePauliMaskView p) { p.set_sign(true); });
+    const uint32_t one =
+        need_one ? hidden_measure([](MutablePauliMaskView p) { p.set_sign(true); }) : 0;
 
-    // 3. Emit scheduled rotations and measurements.
+    // 3. Emit scheduled rotations and measurements. Identity-axis measurements
+    // act trivially on the quantum state, so their parities reference fault
+    // bits and the optional constant-1 record without a quantum measurement.
     std::vector<std::vector<uint32_t>> output_parities(r.outputs.num_outputs());
     for (size_t j = 0; j < r.operations.size(); ++j) {
         const auto& op = r.operations[j];
-        std::vector<uint32_t> parity;
-        each_bit(noise.signs[j].words, [&](uint32_t i) { parity.push_back(fault_records[i]); });
         auto fill_axis = [&](MutablePauliMaskView p) {
             for (uint32_t w = 0; w < op.axis.x().num_words(); ++w) {
                 p.x().words[w] = op.axis.x().words[w];
@@ -909,6 +1180,8 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
             const uint32_t pivot = std::min(op.axis.x().lowest_bit(), op.axis.z().lowest_bit());
             if (pivot >= r.num_qubits)
                 continue;
+            std::vector<uint32_t> parity;
+            each_bit(noise.signs[j].words, [&](uint32_t i) { parity.push_back(fault_records[i]); });
             auto feedback = [&] {
                 for (auto record : parity)
                     hir.append_conditional(ControllingMeasIdx{record}, [&](MutablePauliMaskView p) {
@@ -921,15 +1194,23 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
             feedback();
             hir.append_phase_rotation(op.half_turns, [&](MutablePauliMaskView p) {
                 fill_axis(p);
-                p.set_sign(noise.signs[j].constant);
+                p.set_sign(noise.signs[j].constant ^ op.axis.sign());
             });
             feedback();
         } else {
-            parity.push_back(hidden_measure(fill_axis));
-            if (noise.signs[j].constant)
-                parity.push_back(one);
-            if (!op.output)
+            const bool is_identity = op.axis.x().is_zero() && op.axis.z().is_zero();
+            const bool constant = noise.signs[j].constant ^ op.axis.sign();
+            if (!op.output) {
+                if (!is_identity)
+                    hidden_measure(fill_axis);
                 continue;
+            }
+            std::vector<uint32_t> parity;
+            each_bit(noise.signs[j].words, [&](uint32_t i) { parity.push_back(fault_records[i]); });
+            if (!is_identity)
+                parity.push_back(hidden_measure(fill_axis));
+            if (constant)
+                parity.push_back(one);
             const uint32_t out_idx = *op.output;
             output_parities.at(out_idx) = parity;
             if (out_idx < visible) {
@@ -964,16 +1245,42 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
 
 }  // namespace
 
-ReconstructionResult reconstruct_global_sampling(const Circuit& circuit,
-                                                 ReconstructionOutputs outputs,
-                                                 const ReconstructionLimits& limits) {
+struct GlobalSamplingReconstructor::Impl {
+    std::optional<PreparedDilation> prepared;
+    std::string fallback_reason;
+};
+
+GlobalSamplingReconstructor::GlobalSamplingReconstructor(const Circuit& circuit,
+                                                         const ReconstructionLimits& limits)
+    : impl_(std::make_unique<Impl>()) {
     try {
-        Dilation dilation(limits);
-        dilation.parse(circuit);
-        return {dilation.reconstruct(outputs), {}};
+        impl_->prepared.emplace(prepare_dilation(circuit, limits));
+    } catch (const Ineligible& e) {
+        impl_->fallback_reason = e.reason;
+    }
+}
+
+GlobalSamplingReconstructor::~GlobalSamplingReconstructor() = default;
+GlobalSamplingReconstructor::GlobalSamplingReconstructor(GlobalSamplingReconstructor&&) noexcept =
+    default;
+GlobalSamplingReconstructor& GlobalSamplingReconstructor::operator=(
+    GlobalSamplingReconstructor&&) noexcept = default;
+
+ReconstructionResult GlobalSamplingReconstructor::reconstruct(ReconstructionOutputs outputs) {
+    if (!impl_->prepared) {
+        return {std::nullopt, impl_->fallback_reason};
+    }
+    try {
+        return {reconstruct_variant(*impl_->prepared, outputs), {}};
     } catch (const Ineligible& e) {
         return {std::nullopt, e.reason};
     }
+}
+
+ReconstructionResult reconstruct_global_sampling(const Circuit& circuit,
+                                                 ReconstructionOutputs outputs,
+                                                 const ReconstructionLimits& limits) {
+    return GlobalSamplingReconstructor(circuit, limits).reconstruct(outputs);
 }
 
 ReconstructionNoiseResult compress_reconstruction_noise(const GlobalReconstruction& reconstruction,

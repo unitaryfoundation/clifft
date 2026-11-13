@@ -181,9 +181,10 @@ TEST_CASE("Native named Clifford cases cover fixed gate metadata", "[tableau]") 
 TEST_CASE("Native named Clifford inverses compose to identity", "[tableau]") {
     for (const GateCase& gate : kNamedCliffords) {
         CAPTURE(gate.name);
+        CHECK(clifft::Tableau::inverse_named_gate(gate.gate) == expected_inverse(gate.gate));
         const clifft::Tableau forward = clifft::Tableau::from_named_gate(gate.gate);
         const clifft::Tableau inverse =
-            clifft::Tableau::from_named_gate(expected_inverse(gate.gate));
+            clifft::Tableau::from_named_gate(clifft::Tableau::inverse_named_gate(gate.gate));
         const clifft::Tableau identity(gate.arity);
         CHECK(forward.then(inverse) == identity);
         CHECK(inverse.then(forward) == identity);

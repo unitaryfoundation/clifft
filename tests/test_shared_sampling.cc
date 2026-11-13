@@ -366,7 +366,7 @@ TEST_CASE("Compact outputs preserve snapshots and feedback across noise preparat
     REQUIRE(compact.num_batch_noise_carriers() == 0);
     REQUIRE(original.num_visible_records() > 0);
     REQUIRE(compact.num_visible_records() == 0);
-    REQUIRE(compact.num_expression_registers() < original.num_expression_registers());
+    REQUIRE(compact.num_hidden_records() < original.num_visible_records());
     REQUIRE(compact.estimated_batch_lane_work(BatchOutputMode::Rows) ==
             original.estimated_batch_lane_work(BatchOutputMode::Rows));
     const auto& old_noise = rows.noise(mode);
