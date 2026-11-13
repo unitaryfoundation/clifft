@@ -570,16 +570,28 @@ TEST_CASE("Automatic shared policy sizes batches to the call and its workers") {
 }
 
 TEST_CASE("Shared tuning candidates start at the baseline and stay within the safe capacity") {
-    const auto [safe, shots, workers] = GENERATE(table<uint32_t, uint32_t, uint32_t>(
-        {{8192, 16384, 8}, {8192, 1 << 20, 8}, {341, 65536, 4}, {8192, 100, 2}, {1, 100, 1}}));
+    const auto [safe, shots, workers] =
+        GENERATE(table<uint32_t, uint32_t, uint32_t>({{8192, 16384, 8},
+                                                      {8192, 1 << 20, 8},
+                                                      {8192, 1 << 20, 9},
+                                                      {8192, 1 << 20, 16},
+                                                      {341, 65536, 4},
+                                                      {8192, 100, 2},
+                                                      {1, 100, 1}}));
     const auto candidates = shared_tuning_candidates(safe, shots, workers);
     const auto baseline = resolve_shared_execution_policy(safe, shots, workers);
+    REQUIRE_FALSE(candidates.empty());
     REQUIRE(candidates.front().policy.lane_capacity == baseline.lane_capacity);
     REQUIRE(candidates.front().policy.worker_count == baseline.worker_count);
     const uint32_t limit = std::min(safe, shots);
     bool reaches_limit = false;
     for (size_t i = 0; i < candidates.size(); ++i) {
         const auto& policy = candidates[i].policy;
+        REQUIRE(candidates[i].min_probe_shots <= candidates[i].max_probe_shots);
+        REQUIRE(candidates[i].max_probe_shots <= shots);
+        REQUIRE(candidates[i].max_probe_shots <= std::max(65536u, candidates[i].min_probe_shots));
+        REQUIRE(candidates[i].min_probe_shots >=
+                std::min<uint64_t>(shots, uint64_t{policy.lane_capacity} * policy.worker_count));
         REQUIRE(policy.lane_capacity <= limit);
         REQUIRE(policy.worker_count <= workers);
         REQUIRE(uint64_t{policy.lane_capacity} * (policy.worker_count - 1) < shots);
@@ -699,4 +711,17 @@ TEST_CASE("Dense noise preparation builds the presampled program for compact pla
     }
     REQUIRE(survivors > 0);
     REQUIRE(rejected > 0);
+}
+
+TEST_CASE("Shared tuning bounds retained output allocations") {
+    constexpr uint64_t row_bytes = 4096;
+    constexpr uint64_t budget = 8 * 1024 * 1024;
+    const auto candidates = shared_tuning_candidates(1024, 65536, 2, row_bytes);
+    REQUIRE(candidates.size() > 1);
+    for (const auto& candidate : candidates) {
+        REQUIRE(candidate.min_probe_shots <= candidate.max_probe_shots);
+        REQUIRE(candidate.max_probe_shots * row_bytes <= budget);
+    }
+    REQUIRE(shared_tuning_candidates(8192, 65536, 2, row_bytes).empty());
+    REQUIRE(shared_tuning_candidates(8192, 256, 1, budget + 1).empty());
 }

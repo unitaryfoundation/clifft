@@ -160,6 +160,13 @@ TEST_CASE("Transposed bit columns match per-bit reads") {
     std::vector<uint8_t> output(static_cast<size_t>(lanes) * stride, kSentinel);
 
     transpose_bit_columns_to_rows(columns, num_columns, rows, output, stride, bit_packed);
+    std::vector<uint8_t> sequential(output.size(), kSentinel);
+    transpose_bit_columns_to_rows(columns, num_columns, lanes, sequential, stride, bit_packed);
+    for (uint32_t lane = 0; lane < lanes; ++lane) {
+        REQUIRE(std::equal(sequential.begin() + static_cast<size_t>(lane) * stride,
+                           sequential.begin() + static_cast<size_t>(lane + 1) * stride,
+                           output.begin() + static_cast<size_t>(rows[lane]) * stride));
+    }
 
     for (uint32_t lane = 0; lane < lanes; ++lane) {
         const size_t row_start = static_cast<size_t>(rows[lane]) * stride;

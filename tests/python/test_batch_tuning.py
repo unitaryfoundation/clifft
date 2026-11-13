@@ -209,3 +209,22 @@ def test_tuned_noise_matches_stim_joint_distribution() -> None:
         tuning_budget_seconds=0.03,
     )
     assert_joint_distribution(result.measurements, expected)
+
+
+def test_shared_row_tuning_reports_when_the_baseline_exceeds_the_output_budget():
+    program = clifft.compile(
+        "H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0 1 2 3 4 5 6 7\n"
+        "OBSERVABLE_INCLUDE(127) rec[-1]",
+        hir_passes=None,
+    )
+    assert program.peak_active_width == 8
+    with pytest.warns(RuntimeWarning):
+        result = clifft.sample(
+            program, 65536, seed=42, threads=8, batch_size="tune", tuning_budget_seconds=0.1
+        )
+    assert result.batch_tuning.stop_reason == "output_budget"
+    assert result.batch_tuning.trial_shots == 0
+    assert result.batch_tuning.batch_size == 8192
+    assert result.batch_tuning.shot_workers == 8
+    assert result.measurements.shape == (65536, 8)
+    assert result.observables.shape == (65536, 128)

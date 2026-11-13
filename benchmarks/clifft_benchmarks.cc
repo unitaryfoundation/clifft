@@ -46,6 +46,11 @@
 #define CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
 #endif
 
+#if __has_include("clifft/api/sampler.h")
+#define CLIFFT_BENCHMARK_HAS_NATIVE_SAMPLER
+#include "clifft/api/sampler.h"
+#endif
+
 #include <array>
 #include <benchmark/benchmark.h>
 #include <cstdint>
@@ -512,6 +517,37 @@ const Program& shared_cultivation_program() {
     }();
     return program;
 }
+
+#ifdef CLIFFT_BENCHMARK_HAS_NATIVE_SAMPLER
+// Complete calls include worker construction and survivor row collection.
+void sample_native_cultivation_d5(benchmark::State& state, sampling::SamplingOutputs outputs) {
+    const auto& program = shared_cultivation_program<5>();
+    const auto warmup = clifft::sample_survivors(program, kSharedShots, 731, outputs);
+    if (warmup.execution.executor != sampling::SamplingExecutor::Shared ||
+        warmup.passed_shots == 0 || warmup.passed_shots >= kSharedShots ||
+        (outputs.syndromes() &&
+         warmup.detectors.size() !=
+             warmup.passed_shots * outputs.stride(program.original().num_detectors()))) {
+        state.SkipWithError("native cultivation did not select shared survivor execution");
+        return;
+    }
+    uint64_t seed = 732;
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = clifft::sample_survivors(program, kSharedShots, seed++, outputs);
+        benchmark::DoNotOptimize(result);
+    }
+    state.counters["capacity"] = warmup.execution.batch_size;
+    state.SetItemsProcessed(state.iterations() * kSharedShots);
+}
+
+BENCHMARK_CAPTURE(sample_native_cultivation_d5, counts, sampling::SamplingOutputs(false))
+    ->Name("sample_native_cultivation_d5_counts_65536_shots");
+BENCHMARK_CAPTURE(sample_native_cultivation_d5, full, sampling::SamplingOutputs(true))
+    ->Name("sample_native_cultivation_d5_rows_65536_shots");
+BENCHMARK_CAPTURE(sample_native_cultivation_d5, packed_syndromes,
+                  sampling::SamplingOutputs(sampling::RecordOutputs::Syndromes, true))
+    ->Name("sample_native_cultivation_d5_packed_syndromes_65536_shots");
+#endif
 
 // Count-only calls use the public API's selected preparation before worker setup.
 // The older API samples the selected compiled plan directly.

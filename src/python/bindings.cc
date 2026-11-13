@@ -1,5 +1,6 @@
 #include "clifft/api/program.h"
 #include "clifft/api/reference_syndrome.h"
+#include "clifft/api/sampler.h"
 #include "clifft/api/sampling_preparation.h"
 #include "clifft/api/survivor_sampler.h"
 #include "clifft/circuit/circuit.h"
@@ -132,6 +133,14 @@ ParsedBatchOption parse_batch_option(const BatchOption& option, std::optional<do
 
 void warn_if_batch_tuning_inconclusive(
     const std::optional<clifft::sampling::BatchTuningReport>& report) {
+    if (report.has_value() && report->stop_reason == "output_budget") {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning,
+                         "Batch tuning cannot fit a baseline probe within the output memory "
+                         "budget; using auto.",
+                         1) < 0) {
+            throw nb::python_error();
+        }
+    }
     if (report.has_value() && !report->sufficient_measurements &&
         (report->stop_reason == "budget_exhausted" ||
          report->stop_reason == "insufficient_measurements")) {
@@ -1660,9 +1669,11 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample(
-                    owner.sampling_preparation(outputs, {.early_postselection = false}).plan(),
-                    shots, seed, threads, thread_layout, batch_size, tuning_budget, outputs);
+                result = clifft::sample(owner, shots, seed, outputs,
+                                        {.threads = threads,
+                                         .thread_layout = thread_layout,
+                                         .batch_size = batch_size,
+                                         .tuning_budget_seconds = tuning_budget});
             }
             return sampling_result_to_python(std::move(result), program, shots, outputs);
         },
@@ -1693,10 +1704,10 @@ NB_MODULE(_clifft_core, m) {
         "overrides that choice and ignores threads; intra-shot counts above 1\n"
         "require OpenMP support. intra_shot_min_active_width overrides the\n"
         "default threshold of 18 for an explicit layout. batch_size='auto'\n"
-        "uses the conservative plan policy; 1 forces scalar execution,\n"
+        "selects scalar, packed, or shared execution; 1 forces scalar execution,\n"
         "and a positive integer requests a packed lane-capacity limit. Seeded\n"
         "results replay within one batching configuration, but individual rows\n"
-        "may differ between scalar and packed modes or different capacities.\n\n"
+        "may differ between scalar, packed, and shared modes or different capacities.\n\n"
         "With batch_size='auto', changing threads can change seeded results.\n\n"
         "batch_size='tune' calibrates before running all requested shots. "
         "tuning_budget_seconds is a soft calibration deadline, defaulting to 0.25 seconds. "
@@ -1983,15 +1994,11 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
-                const auto& preparation = owner.sampling_preparation(
-                    outputs, {.early_postselection = false, .survivor_counts = true});
-                const auto* noise =
-                    batch_size == 1 || shots == 0
-                        ? nullptr
-                        : &preparation.noise(clifft::sampling::BatchNoiseMode::Dense);
-                result = clifft::sampling::sample_survivors(preparation.plan(), shots, seed,
-                                                            outputs, threads, thread_layout,
-                                                            batch_size, tuning_budget, noise);
+                result = clifft::sample_survivors(owner, shots, seed, outputs,
+                                                  {.threads = threads,
+                                                   .thread_layout = thread_layout,
+                                                   .batch_size = batch_size,
+                                                   .tuning_budget_seconds = tuning_budget});
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
             return sampling_result_to_python(std::move(result), program, rows, outputs);
@@ -2018,7 +2025,7 @@ NB_MODULE(_clifft_core, m) {
         "concurrency; it defaults to 1. thread_layout=(shot_workers,\n"
         "intra_shot_workers) overrides automatic scheduling.\n"
         "intra_shot_min_active_width overrides the default threshold of 18 for\n"
-        "an explicit layout. batch_size='auto' uses the conservative plan policy;\n"
+        "an explicit layout. batch_size='auto' selects scalar, packed, or shared execution;\n"
         "1 forces scalar execution, and a positive integer requests a packed\n"
         "lane-capacity limit.\n\n"
         "With batch_size='auto', changing threads can change seeded results.\n\n"
