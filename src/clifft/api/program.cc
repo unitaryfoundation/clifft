@@ -124,14 +124,13 @@ const std::string& Program::reconstruction_fallback_reason(bool keep_records) co
 }
 
 const SamplingPreparation& Program::sampling_preparation(sampling::SamplingOutputs outputs,
-                                                         bool early_postselection,
-                                                         bool fixed_faults,
-                                                         bool survivor_counts) const {
-    fixed_faults &= uses_reconstruction(outputs.measurements());
+                                                         SamplingPreparationOptions options) const {
+    const bool fixed_faults = options.fixed_faults && uses_reconstruction(outputs.measurements());
     const auto& plan = fixed_faults ? original() : sampling_plan(outputs.measurements());
-    const bool early = early_postselection && plan.has_postselection();
-    survivor_counts = !outputs.rows() ||
-                      (outputs.records == sampling::RecordOutputs::Measurements && survivor_counts);
+    const bool early = options.early_postselection && plan.has_postselection();
+    const bool survivor_counts =
+        !outputs.rows() ||
+        (outputs.records == sampling::RecordOutputs::Measurements && options.survivor_counts);
     return data_
         ->preparations[static_cast<size_t>(outputs.records)][fixed_faults][survivor_counts][early]
         .get(plan, outputs, early, survivor_counts);

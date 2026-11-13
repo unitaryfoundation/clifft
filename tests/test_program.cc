@@ -188,7 +188,10 @@ TEST_CASE("Selective preparation removes unrequested storage and work") {
     REQUIRE(measurements.num_exp_vals() == 0);
     REQUIRE(measurements.num_actions() < original.num_actions());
     const auto& summaries =
-        program.sampling_preparation(RecordOutputs::Measurements, false, false, true).plan();
+        program
+            .sampling_preparation(RecordOutputs::Measurements,
+                                  {.early_postselection = false, .survivor_counts = true})
+            .plan();
     REQUIRE(summaries.num_observables() == original.num_observables());
     REQUIRE(summaries.num_detectors() == 0);
     REQUIRE(&program.sampling_preparation(RecordOutputs::Syndromes) ==
@@ -225,7 +228,7 @@ TEST_CASE("Program prepares each sampling output once and shares it across copie
     REQUIRE(&counts.checks() == &counts.checks());
     REQUIRE(&counts.sharing_key() == &counts.sharing_key());
 
-    REQUIRE(&program.sampling_preparation(false, false) != &counts);
+    REQUIRE(&program.sampling_preparation(false, {.early_postselection = false}) != &counts);
 
     const Program copy = program;
     REQUIRE(&copy.sampling_preparation(false) == &counts);
@@ -235,8 +238,8 @@ TEST_CASE("Program prepares each sampling output once and shares it across copie
     REQUIRE(&program.sampling_plan(false) == &program.original());
 
     const Program unselected = compile_preparation_program({0, 0});
-    REQUIRE(&unselected.sampling_preparation(false, true) ==
-            &unselected.sampling_preparation(false, false));
+    REQUIRE(&unselected.sampling_preparation(false, {.early_postselection = true}) ==
+            &unselected.sampling_preparation(false, {.early_postselection = false}));
 }
 
 TEST_CASE("Concurrent first use prepares one shared sampling preparation") {
@@ -274,7 +277,7 @@ TEST_CASE("Count only sampling reuses dense noise with bounded packed storage") 
     hir.postselection.mask.assign(hir.num_detectors, 1);
     default_hir_pass_manager().run(hir);
     const auto program = Program::compile(source, hir);
-    const auto& preparation = program.sampling_preparation(false, false);
+    const auto& preparation = program.sampling_preparation(false, {.early_postselection = false});
     const auto& plan = preparation.plan();
     const auto& dense = preparation.noise(BatchNoiseMode::Dense);
     REQUIRE(dense.num_carriers() > 0);

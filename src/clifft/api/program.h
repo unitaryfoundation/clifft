@@ -1,8 +1,7 @@
 #pragma once
 
 // Owns a circuit's compiled ExecutablePlan together with optional reconstructed
-// sampling plans for keep_records=true (records, detectors, and observables)
-// and keep_records=false (detectors and observables only), plus the sampling
+// sampling plans with or without measurement records, plus the sampling
 // preparation derived from them on first use. Copies share both. Mutable
 // workers belong to each sampler or sampling call. State queries, exact
 // probabilities, replay, fixed-fault sampling, and plan inspection use the
@@ -18,6 +17,13 @@ namespace clifft {
 
 struct HirModule;
 class SamplingPreparation;
+
+// Selects execution requirements independently of the retained output rows.
+struct SamplingPreparationOptions {
+    bool early_postselection = true;
+    bool fixed_faults = false;
+    bool survivor_counts = false;
+};
 
 class Program {
   public:
@@ -38,8 +44,7 @@ class Program {
     // Survivor summaries retain observables even without their per-shot rows.
     // Bit packing affects collection only and shares the same preparation.
     [[nodiscard]] const SamplingPreparation& sampling_preparation(
-        sampling::SamplingOutputs outputs, bool early_postselection = true,
-        bool fixed_faults = false, bool survivor_counts = false) const;
+        sampling::SamplingOutputs outputs, SamplingPreparationOptions options = {}) const;
 
   private:
     struct Data;

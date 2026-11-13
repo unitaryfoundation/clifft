@@ -1654,9 +1654,9 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingResult result;
             {
                 nb::gil_scoped_release release;
-                result = clifft::sampling::sample(owner.sampling_preparation(outputs, false).plan(),
-                                                  shots, seed, threads, thread_layout, batch_size,
-                                                  tuning_budget, outputs);
+                result = clifft::sampling::sample(
+                    owner.sampling_preparation(outputs, {.early_postselection = false}).plan(),
+                    shots, seed, threads, thread_layout, batch_size, tuning_budget, outputs);
             }
             return sampling_result_to_python(std::move(result), program, shots, outputs);
         },
@@ -1733,8 +1733,11 @@ NB_MODULE(_clifft_core, m) {
             {
                 nb::gil_scoped_release release;
                 result = clifft::sampling::sample_k(
-                    owner.sampling_preparation(outputs, false, true).plan(), shots, k, seed,
-                    threads, thread_layout, batch_size, tuning_budget, outputs);
+                    owner
+                        .sampling_preparation(outputs,
+                                              {.early_postselection = false, .fixed_faults = true})
+                        .plan(),
+                    shots, k, seed, threads, thread_layout, batch_size, tuning_budget, outputs);
             }
             return sampling_result_to_python(std::move(result), program, shots, outputs);
         },
@@ -1895,10 +1898,16 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
-                const auto& preparation = owner.sampling_preparation(outputs, false, true, true);
-                result = clifft::sampling::sample_k_survivors(
-                    preparation.plan(), shots, k, seed, outputs, threads, thread_layout, batch_size,
-                    tuning_budget, &preparation.noise(clifft::sampling::BatchNoiseMode::Dense));
+                const auto& preparation = owner.sampling_preparation(
+                    outputs,
+                    {.early_postselection = false, .fixed_faults = true, .survivor_counts = true});
+                const auto* noise =
+                    batch_size == 1 || shots == 0
+                        ? nullptr
+                        : &preparation.noise(clifft::sampling::BatchNoiseMode::Dense);
+                result = clifft::sampling::sample_k_survivors(preparation.plan(), shots, k, seed,
+                                                              outputs, threads, thread_layout,
+                                                              batch_size, tuning_budget, noise);
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
             return sampling_result_to_python(std::move(result), program, rows, outputs);
@@ -1965,10 +1974,15 @@ NB_MODULE(_clifft_core, m) {
             clifft::sampling::SamplingSurvivorResult result;
             {
                 nb::gil_scoped_release release;
-                const auto& preparation = owner.sampling_preparation(outputs, false, false, true);
-                result = clifft::sampling::sample_survivors(
-                    preparation.plan(), shots, seed, outputs, threads, thread_layout, batch_size,
-                    tuning_budget, &preparation.noise(clifft::sampling::BatchNoiseMode::Dense));
+                const auto& preparation = owner.sampling_preparation(
+                    outputs, {.early_postselection = false, .survivor_counts = true});
+                const auto* noise =
+                    batch_size == 1 || shots == 0
+                        ? nullptr
+                        : &preparation.noise(clifft::sampling::BatchNoiseMode::Dense);
+                result = clifft::sampling::sample_survivors(preparation.plan(), shots, seed,
+                                                            outputs, threads, thread_layout,
+                                                            batch_size, tuning_budget, noise);
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
             return sampling_result_to_python(std::move(result), program, rows, outputs);

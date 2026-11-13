@@ -358,8 +358,8 @@ TEST_CASE("Compact outputs preserve snapshots and feedback across noise preparat
     hir.postselection.mask = {1, 1};
     hir.postselection.expected_detectors = {1, 0};
     const Program program{ExecutablePlan(plan_sampling(hir))};
-    const auto& rows = program.sampling_preparation(true, early);
-    const auto& counts = program.sampling_preparation(false, early);
+    const auto& rows = program.sampling_preparation(true, {.early_postselection = early});
+    const auto& counts = program.sampling_preparation(false, {.early_postselection = early});
     const auto& original = rows.plan();
     const auto& compact = counts.plan();
     REQUIRE(&original == &program.sampling_plan(true));

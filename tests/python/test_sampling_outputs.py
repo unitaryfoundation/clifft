@@ -81,6 +81,39 @@ def test_selected_and_packed_rows(
 
 
 @pytest.mark.parametrize("api", ["sample", "sample_k", "sample_survivors", "sample_k_survivors"])
+@pytest.mark.parametrize("batch_size", [1, 65])
+def test_surface_code_selected_rows_cross_word_boundaries(api: str, batch_size: int) -> None:
+    circuit = stim.Circuit.generated(
+        "surface_code:rotated_memory_x",
+        distance=5,
+        rounds=5,
+        after_clifford_depolarization=0.01,
+        before_measure_flip_probability=0.01,
+    )
+    assert circuit.num_detectors > 64
+    program = clifft.compile(str(circuit), normalize_syndromes=True)
+    sample = getattr(clifft, api)
+    options: dict[str, Any] = dict(seed=73, batch_size=batch_size)
+    if "sample_k" in api:
+        options["k"] = 3
+    reference = sample(program, 131, keep_records=True, **options)
+    # No postselection removes lanes, so the selected plans preserve each row.
+    assert reference.detectors[:, 64:].any()
+    for selection, fields in (
+        ("syndromes", ("detectors", "observables")),
+        ("measurements", ("measurements",)),
+    ):
+        for bit_packed in (False, True):
+            actual = sample(program, 131, keep_records=selection, bit_packed=bit_packed, **options)
+            assert actual.retained_shots == 131
+            for field in fields:
+                expected = getattr(reference, field)
+                if bit_packed:
+                    expected = np.packbits(expected, axis=1, bitorder="little")
+                np.testing.assert_array_equal(getattr(actual, field), expected)
+
+
+@pytest.mark.parametrize("api", ["sample", "sample_k", "sample_survivors", "sample_k_survivors"])
 @pytest.mark.parametrize("keep_records", [False, "all", "syndromes", "measurements"])
 @pytest.mark.parametrize("shots,source", [(0, "M 0\nDETECTOR rec[-1]"), (3, ""), (3, "M 0")])
 @pytest.mark.parametrize("bit_packed", [False, True])

@@ -17,7 +17,7 @@ These boundaries have different responsibilities:
 | HIR | Circuit operations expressed in the Heisenberg frame | Active-coordinate and kernel choices |
 | `SamplingPlan` | Symbols, affine dependencies, active-coordinate actions, width transitions, and outputs | CPU instruction-set selection, descriptor layout, and target-specific fusion |
 | `ExecutablePlan` | Immutable descriptors, dependency tables, fused actions, and kernels prepared for one execution target | Per-shot state and runtime topology analysis |
-| `Program` | Original CPU executable and optional reconstructed sampling plans for retained records and survivor counts | Per-shot state and runtime compilation |
+| `Program` | Original CPU executable and optional reconstructed sampling plans with and without measurement records | Per-shot state and runtime compilation |
 | `Executor` | Mutable coefficients, symbols, expression registers, records, outputs, scratch space, and RNG state | Tableau evolution, coordinate planning, and dependency discovery |
 
 The [Theoretical Overview](overview.md) explains the state factorization and
@@ -187,10 +187,12 @@ all consume that same type. One compiled program can be reused for many calls
 and shot counts.
 
 With `reconstruction=True`, compilation also prepares bounded reconstructed
-plans for full-record sampling and for detector/observable survivor counts.
-`sample()` selects the full-record plan; `sample_survivors()` selects according
-to `keep_records`. Each falls back to the original plan when its candidate is
-ineligible or does not reduce peak active width.
+plans with and without measurement records. Ordinary and survivor sampling
+select according to `keep_records`: calls retaining measurements use the
+full-record candidate; syndrome and count-only calls use the detector/observable
+candidate. Each falls back to the original plan when its candidate is ineligible
+or does not reduce peak active width. Output preparation then removes unneeded
+storage and evaluations from the selected plan.
 
 Because the reconstructed plans preserve only the classical output distribution
 and postselection acceptance probability, state and exact-probability queries,

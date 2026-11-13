@@ -106,9 +106,12 @@ from the original pipeline and emits standard HIR operations for the existing
 planner and executor.
 
 Compilation builds up to two reconstructed candidates: one retaining all
-measurement records, detectors, and observables (used when `keep_records=True`),
-and one retaining only detectors and observables (used by `sample_survivors(...,
-keep_records=False)`). To limit compilation cost, a candidate proceeds to
+measurement records, detectors, and observables, and one retaining only
+detectors and observables. Calls retaining measurements select the first;
+syndrome and count-only calls select the second. Output preparation removes
+unrequested rows and evaluations from the selected candidate. See
+[sampling-plan inspection](../guide/compilation.md#inspect-sampling-cost) for
+the API mapping. To limit compilation cost, a candidate proceeds to
 lowering and the default HIR passes only when its scheduled peak active width
 is strictly smaller than the original plan's. This heuristic can miss reductions
 that later optimization would find. The optimized candidate must still have a

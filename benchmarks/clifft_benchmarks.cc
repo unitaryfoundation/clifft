@@ -519,7 +519,9 @@ void sample_count_only_msc(benchmark::State& state, bool fixed_faults,
                            std::optional<uint32_t> batch_size) {
     const auto& program = shared_cultivation_program<3>();
 #ifdef CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
-    const auto& preparation = program.sampling_preparation(false, false, fixed_faults, true);
+    const auto& preparation = program.sampling_preparation(
+        false,
+        {.early_postselection = false, .fixed_faults = fixed_faults, .survivor_counts = true});
     const auto& plan = preparation.plan();
     const auto* noise = &preparation.noise(sampling::BatchNoiseMode::Dense);
 #else
