@@ -7,7 +7,6 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
-#include <ranges>
 #include <stdexcept>
 #include <utility>
 
@@ -159,21 +158,21 @@ void fill_low_lane_mask(std::span<uint64_t> output, uint32_t lanes) noexcept {
     std::fill(output.begin() + static_cast<std::ptrdiff_t>(live_words), output.end(), uint64_t{0});
 }
 
-template <typename Rows>
-static void transpose_rows(const PackedBitColumns& columns, size_t num_columns, Rows rows,
-                           std::span<uint8_t> output, size_t stride, bool bit_packed) noexcept {
+template <typename RowIndex>
+static void transpose_rows(const PackedBitColumns& columns, size_t num_columns, size_t lanes,
+                           RowIndex row_index, std::span<uint8_t> output, size_t stride,
+                           bool bit_packed) noexcept {
     assert(num_columns <= columns.num_columns() &&
            "transposed column count must not exceed the packed columns");
-    const size_t lanes = rows.size();
     if (num_columns == 0 || lanes == 0) {
         return;
     }
     assert(packed_word_count(static_cast<uint32_t>(lanes)) <= columns.column(0).size() &&
            "transposed lanes must fit the packed lane capacity");
 #ifndef NDEBUG
-    for (const uint32_t row : rows) {
+    for (size_t lane = 0; lane < lanes; ++lane) {
         const size_t bytes = bit_packed ? (num_columns + 7) / 8 : num_columns;
-        assert(static_cast<size_t>(row) * stride + bytes <= output.size() &&
+        assert(row_index(lane) * stride + bytes <= output.size() &&
                "transposed rows must lie within the output");
     }
 #endif
@@ -188,8 +187,7 @@ static void transpose_rows(const PackedBitColumns& columns, size_t num_columns, 
             }
             if (!bit_packed && ncols <= kDirectCopyColumns) {
                 for (size_t i = 0; i < count; ++i) {
-                    uint8_t* destination =
-                        output.data() + static_cast<size_t>(rows[first + i]) * stride + c0;
+                    uint8_t* destination = output.data() + row_index(first + i) * stride + c0;
                     for (size_t j = 0; j < ncols; ++j) {
                         destination[j] = static_cast<uint8_t>((tile[j] >> i) & 1);
                     }
@@ -199,9 +197,8 @@ static void transpose_rows(const PackedBitColumns& columns, size_t num_columns, 
             std::fill(tile + ncols, tile + 64, uint64_t{0});
             transpose_tile_64x64(tile);
             for (size_t i = 0; i < count; ++i) {
-                uint8_t* destination = output.data() +
-                                       static_cast<size_t>(rows[first + i]) * stride +
-                                       (bit_packed ? c0 / 8 : c0);
+                uint8_t* destination =
+                    output.data() + row_index(first + i) * stride + (bit_packed ? c0 / 8 : c0);
                 if (bit_packed) {
                     // Explicit byte shifts keep the b8 layout independent of host endian.
                     for (size_t byte = 0; byte < (ncols + 7) / 8; ++byte) {
@@ -218,14 +215,17 @@ static void transpose_rows(const PackedBitColumns& columns, size_t num_columns, 
 void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
                                    std::span<const uint32_t> rows, std::span<uint8_t> output,
                                    size_t stride, bool bit_packed) noexcept {
-    transpose_rows(columns, num_columns, rows, output, stride, bit_packed);
+    transpose_rows(
+        columns, num_columns, rows.size(),
+        [rows](size_t lane) { return static_cast<size_t>(rows[lane]); }, output, stride,
+        bit_packed);
 }
 
 void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
                                    uint32_t lanes, std::span<uint8_t> output, size_t stride,
                                    bool bit_packed) noexcept {
-    transpose_rows(columns, num_columns, std::views::iota(uint32_t{0}, lanes), output, stride,
-                   bit_packed);
+    transpose_rows(
+        columns, num_columns, lanes, [](size_t lane) { return lane; }, output, stride, bit_packed);
 }
 
 PackedBitColumns::PackedBitColumns(size_t columns, uint32_t lane_capacity)

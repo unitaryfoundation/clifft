@@ -282,3 +282,27 @@ def test_zero_budget_tuning_uses_auto_and_the_existing_warning():
     assert not result.batch_tuning.sufficient_measurements
     auto = clifft.SurvivorSampler(program, batch_size="auto")
     assert counts(result) == counts(auto.sample(1301, seed=25))
+
+
+def test_tuning_high_worker_count_preserves_the_automatic_baseline():
+    program = clifft.compile("H 0\nT 0\nH 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]")
+    sampler = clifft.SurvivorSampler(
+        program, batch_size="tune", tuning_budget_seconds=0, threads=16
+    )
+    with pytest.warns(RuntimeWarning):
+        result = sampler.sample(1_000_000, seed=42)
+    assert result.total_shots == result.passed_shots == 1_000_000
+    assert result.batch_tuning.baseline_batch_size == 8192
+    assert result.batch_tuning.shot_workers == 16
+    assert result.batch_tuning.stop_reason == "budget_exhausted"
+
+
+def test_tuning_single_candidate_needs_no_calibration():
+    sampler = clifft.SurvivorSampler(
+        clifft.compile(SOURCE), batch_size="tune", tuning_budget_seconds=0.1
+    )
+    result = sampler.sample(1, seed=42)
+    assert result.total_shots == 1
+    assert result.batch_tuning.stop_reason == "single_candidate"
+    assert result.batch_tuning.trial_shots == 0
+    assert result.batch_tuning.batch_size == 1

@@ -105,9 +105,13 @@ before the requested shots run. Keep these points in mind:
   Trial results are excluded from the returned counts and estimates.
 - Batch sizes that exceed the worker memory limits are excluded. If none fit,
   Clifft samples without batching and skips calibration.
-- If calibration cannot make a useful comparison, Clifft uses `auto` and
-  returns the samples with a `RuntimeWarning` suggesting a larger budget.
+- If timing data cannot support a useful comparison, Clifft uses `auto` and
+  returns the samples with a `RuntimeWarning` suggesting a larger time budget.
   A budget overrun alone does not cause a warning.
+- Shared calibration limits each probe's output size to 8 MiB. If a full batch
+  per worker exceeds that limit at the automatic capacity, Clifft keeps `auto`
+  and warns that calibration could not fit. Fewer workers or fewer retained
+  record types can make calibration fit; a longer time budget does not help.
 
 The selected capacity and timings are returned in `result.batch_tuning`.
 Calibration compares capacities within the automatically selected execution
@@ -137,6 +141,9 @@ the workload or machine changes; selections are not cached automatically.
     can still provide sufficient measurements. `insufficient_measurements`
     means usable timing data was missing without a candidate being excluded
     for lack of time.
+
+    `output_budget` means a shared baseline probe exceeded the output-size
+    limit. No trials ran, and a `RuntimeWarning` explains the fallback.
 
     `zero_shots`, `zero_budget`, and `single_candidate` indicate that no
     calibration was needed or requested. These cases do not issue a warning.

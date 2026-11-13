@@ -382,25 +382,29 @@ TEST_CASE("Native shared calibration skips a single candidate") {
 }
 
 TEST_CASE("Native automatic sharing requires more selected detectors on wider plans") {
-    const auto circuit =
-        parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/reconstruction_msc_d7.stim");
-    const auto selected = GENERATE(8u, 16u, 32u);
-    const auto placement = GENERATE(0u, 1u, 2u);
-    auto hir = trace(circuit);
-    hir.postselection.mask.assign(hir.num_detectors, 0);
-    for (uint32_t i = 0; i < selected; ++i) {
-        const uint32_t detector = placement == 0   ? i
-                                  : placement == 1 ? hir.num_detectors - 1 - i
-                                                   : i * (hir.num_detectors - 1) / (selected - 1);
-        hir.postselection.mask[detector] = 1;
+    const uint32_t width = GENERATE(7u, 8u);
+    const uint32_t selected = GENERATE(7u, 8u, 16u, 31u, 32u);
+    std::string source;
+    for (const auto* gate : {"H", "T", "M"}) {
+        source += gate;
+        for (uint32_t q = 0; q < width; ++q) {
+            source += " " + std::to_string(q);
+        }
+        source += "\n";
     }
-    default_hir_pass_manager().run(hir);
-    const auto program = Program::compile(circuit, hir, true);
-    const auto& plan = program.sampling_plan(false);
-    REQUIRE(plan.peak_active_width() >= 8);
+    for (uint32_t q = width; q < width + 32; ++q) {
+        source += "X_ERROR(0.01) " + std::to_string(q) + "\nM " + std::to_string(q) +
+                  "\nDETECTOR rec[-1]\n";
+    }
+    auto hir = trace(parse(source));
+    hir.postselection.mask.assign(32, 0);
+    std::fill_n(hir.postselection.mask.begin(), selected, 1);
+    const ExecutablePlan plan(plan_sampling(hir));
+    REQUIRE(plan.peak_active_width() == width);
     REQUIRE(plan.num_postselected_detectors() == selected);
-    REQUIRE(should_share_sampling(plan, 65536, false, {1, 1}, kDefaultSharedWorkerStateBudget) ==
-            (selected >= 32));
+    REQUIRE(plan.num_presampled_symbols() == 32);
+    REQUIRE(should_share_sampling(plan, 8192, false, {1, 1}, kDefaultSharedWorkerStateBudget) ==
+            (selected >= (width < 8 ? 8 : 32)));
 }
 
 TEST_CASE("Survivor row collection transfers a single batch and preserves batch order") {
@@ -430,4 +434,20 @@ TEST_CASE("Survivor row collection transfers a single batch and preserves batch 
     if (batches == 1) {
         REQUIRE(result.measurements.data() == original);
     }
+}
+
+TEST_CASE("Native shared counts calibrate a baseline with more than eight workers") {
+    const Program program{ExecutablePlan(
+        plan_sampling(trace(parse("H 0\nT 0\nH 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]"))))};
+    constexpr uint32_t shots = 131073;
+    const auto result = clifft::sample_survivors(
+        program, shots, 42, false, {.threads = 9, .tuning_budget_seconds = 0.1, .sharing = true});
+    REQUIRE(result.total_shots == shots);
+    REQUIRE(result.passed_shots == shots);
+    REQUIRE(result.batch_tuning.has_value());
+    REQUIRE_FALSE(result.batch_tuning->trials.empty());
+    const auto& baseline = result.batch_tuning->trials.front();
+    REQUIRE(baseline.batch_size == 8192);
+    REQUIRE(baseline.shot_workers == 9);
+    REQUIRE(result.batch_tuning->stop_reason != "single_candidate");
 }

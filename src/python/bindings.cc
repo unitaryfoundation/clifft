@@ -133,6 +133,14 @@ ParsedBatchOption parse_batch_option(const BatchOption& option, std::optional<do
 
 void warn_if_batch_tuning_inconclusive(
     const std::optional<clifft::sampling::BatchTuningReport>& report) {
+    if (report.has_value() && report->stop_reason == "output_budget") {
+        if (PyErr_WarnEx(PyExc_RuntimeWarning,
+                         "Batch tuning cannot fit a baseline probe within the output memory "
+                         "budget; using auto.",
+                         1) < 0) {
+            throw nb::python_error();
+        }
+    }
     if (report.has_value() && !report->sufficient_measurements &&
         (report->stop_reason == "budget_exhausted" ||
          report->stop_reason == "insufficient_measurements")) {

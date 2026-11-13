@@ -15,7 +15,6 @@
 #include <chrono>
 #include <limits>
 #include <memory>
-#include <ranges>
 #include <stdexcept>
 #include <type_traits>
 
@@ -172,9 +171,9 @@ ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
 
 namespace {
 
-template <typename Rows>
+template <typename RowIndex>
 void copy_batch_expectations(std::span<double> output, const BatchExecutor& executor,
-                             uint32_t num_exp_vals, Rows output_rows) noexcept {
+                             uint32_t num_exp_vals, RowIndex row_index) noexcept {
     if (num_exp_vals == 0) {
         return;
     }
@@ -188,7 +187,7 @@ void copy_batch_expectations(std::span<double> output, const BatchExecutor& exec
         // Hoist the shot lookup so it is cheap even without cross-file inlining.
         std::array<size_t, kTileLanes> rows{};
         for (uint32_t i = 0; i < count; ++i) {
-            rows[i] = static_cast<size_t>(output_rows[first + i]) * num_exp_vals;
+            rows[i] = static_cast<size_t>(row_index(first + i)) * num_exp_vals;
         }
         for (uint32_t exp_val = 0; exp_val < num_exp_vals; ++exp_val) {
             for (uint32_t i = 0; i < count; ++i) {
@@ -285,8 +284,9 @@ SamplingResult sample_fixed_batches(const ExecutablePlan& plan, uint32_t shots,
                        "fixed-row batch must retain every shot");
                 batch_detail::copy_batch_rows(result, executor, plan, outputs);
                 if (outputs.expectations()) {
-                    copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals(),
-                                            executor.shot_indices());
+                    copy_batch_expectations(
+                        result.exp_vals, executor, plan.num_exp_vals(),
+                        [&](uint32_t lane) { return executor.shot_index(lane); });
                 }
                 offset += batch;
             }
@@ -408,9 +408,8 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
                     batch_detail::copy_batch_rows(batch, executor, plan, outputs,
                                                   executor.surviving_shots());
                     if (outputs.expectations()) {
-                        copy_batch_expectations(
-                            batch.exp_vals, executor, plan.num_exp_vals(),
-                            std::views::iota(uint32_t{0}, executor.surviving_shots()));
+                        copy_batch_expectations(batch.exp_vals, executor, plan.num_exp_vals(),
+                                                [](uint32_t lane) { return lane; });
                     }
                 }
                 first += count;

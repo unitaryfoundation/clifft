@@ -239,7 +239,9 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                     return candidate.policy.lane_capacity == 1;
                 });
             }
-            if (candidates.size() < 2) {
+            if (candidates.empty()) {
+                tuning->stop_reason = "output_budget";
+            } else if (candidates.size() == 1) {
                 tuning->stop_reason = "single_candidate";
             } else {
                 tuning = batch_detail::sweep_batch_candidates(

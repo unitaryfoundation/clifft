@@ -214,10 +214,12 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
     if (shots == 0) {
         return candidates;
     }
-    // Probes larger than this add calibration time without changing the ranking.
-    constexpr uint32_t kMaxProbeShots = 65536;
-    const uint32_t maximum =
-        std::min(kMaxProbeShots, batch_detail::max_batch_probe_shots(shots, output_row_bytes));
+    // Cheap probes grow toward this target. A full batch per production worker
+    // may need more shots; retained output bytes impose a separate hard limit.
+    constexpr uint32_t kTargetProbeShots = 65536;
+    const uint32_t output_limit =
+        output_row_bytes == 0 ? shots
+                              : batch_detail::max_batch_probe_shots(shots, output_row_bytes);
     const auto append = [&](uint32_t requested) {
         const uint32_t capacity = std::min({requested, safe_capacity, shots});
         if (std::ranges::any_of(candidates, [&](const auto& candidate) {
@@ -232,7 +234,9 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
         constexpr uint64_t kMinProbeShots = 256;
         const uint32_t probe_shots = static_cast<uint32_t>(
             std::min<uint64_t>(shots, std::max(kMinProbeShots, uint64_t{capacity} * used)));
-        if (probe_shots <= maximum) {
+        if (probe_shots <= output_limit) {
+            const uint32_t maximum =
+                std::min(output_limit, std::max(kTargetProbeShots, probe_shots));
             candidates.push_back({{capacity, used}, probe_shots, maximum});
         }
     };
