@@ -64,15 +64,19 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
 
 template <typename Attempt>
 ReplayResult Executor::run_with_activation(Attempt&& attempt) {
-    if (!frame_.has_value()) {
-        return attempt();
-    }
+    assert(frame_.has_value() && "only frame plans have an activation boundary");
     // A shot that outgrows its storage stops before the promotion changes the
     // frame or coefficients. Repeating it from the same RNG position gives the
     // result it would have had with enough storage from the start.
     const Xoshiro256PlusPlus start = rng_;
     for (;;) {
+        if (frame_->changed) {
+            frame_->frame.reset();
+            frame_->changed = false;
+        }
+        frame_->running = true;
         const ReplayResult result = attempt();
+        frame_->running = false;
         if (!frame_->needs_storage) {
             return result;
         }
@@ -88,35 +92,37 @@ ReplayResult Executor::run_with_activation(Attempt&& attempt) {
     }
 }
 
-void Executor::run_shot() {
+void Executor::run_shot() noexcept {
     plan_ = root_plan_;
     assert(plan_->num_unbound_presampled_symbols_ == 0 &&
            "automatic execution requires every presampled symbol to have a distribution");
+    reset_shot();
+    if (!plan_->noise_action_deadlines_.empty()) {
+        advance_lazy_noise(0);
+    } else {
+        sample_presampled_noise(0, plan_->initial_noise_end_);
+    }
+    (void)execute_actions_for_backend<ShotMode::SampleNoise>({});
+}
+
+void Executor::run_frame_shot() {
     (void)run_with_activation([&]() noexcept {
-        reset_shot();
-        if (!plan_->noise_action_deadlines_.empty()) {
-            advance_lazy_noise(0);
-        } else {
-            sample_presampled_noise(0, plan_->initial_noise_end_);
-        }
-        return execute_actions_for_backend<ShotMode::SampleNoise>({});
+        run_shot();
+        return ReplayResult{};
     });
 }
 
-void Executor::run_shot(std::span<const uint8_t> presampled_values) {
+void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
     plan_ = root_plan_;
-    (void)run_with_activation([&]() noexcept {
-        reset_shot();
-        assign_presampled_values(presampled_values);
-        return execute_actions_for_backend<ShotMode::UsePresampledNoise>({});
-    });
+    reset_shot();
+    assign_presampled_values(presampled_values);
+    (void)execute_actions_for_backend<ShotMode::UsePresampledNoise>({});
 }
 
 void Executor::run_shot(std::span<const uint8_t> presampled_values,
                         std::span<const ReadoutNoiseInput> readout_inputs) noexcept {
     plan_ = root_plan_;
-    assert(!plan_->has_instruments_ && !frame_.has_value() &&
-           "external inputs require a fixed plan without a runtime Clifford frame");
+    assert(!plan_->has_instruments_ && "external inputs require a fixed plan");
     assert(readout_inputs.size() == plan_->num_readout_noise_sites_);
     reset_shot();
     assign_presampled_values(presampled_values);
@@ -127,7 +133,6 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values,
 
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     plan_ = root_plan_;
-    assert(!frame_.has_value() && "fixed-fault execution has no runtime Clifford frame support");
     assert(fault_sampler.num_sites() ==
                plan_->noise_sites_.size() + plan_->num_readout_noise_sites_ &&
            "conditioned sampler must cover every quantum and readout fault site");
@@ -230,18 +235,22 @@ void Executor::return_to_root_plan() noexcept {
 }
 
 ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
-                                   std::span<const uint8_t> presampled_values) {
+                                   std::span<const uint8_t> presampled_values) noexcept {
     plan_ = root_plan_;
     assert(forced_records.size() ==
                static_cast<size_t>(plan_->num_visible_records_) + plan_->num_hidden_records_ &&
            "one forced value is required for every plan record");
     assert(std::ranges::all_of(forced_records, [](uint8_t value) { return value <= 1; }) &&
            "forced records must be Boolean");
-    return run_with_activation([&]() noexcept {
-        reset_shot();
-        assign_presampled_values(presampled_values);
-        return execute_actions_for_backend<ShotMode::ReplayRecords>(forced_records);
-    });
+    reset_shot();
+    assign_presampled_values(presampled_values);
+    return execute_actions_for_backend<ShotMode::ReplayRecords>(forced_records);
+}
+
+ReplayResult Executor::replay_frame_shot(std::span<const uint8_t> forced_records,
+                                         std::span<const uint8_t> presampled_values) {
+    return run_with_activation(
+        [&]() noexcept { return replay_shot(forced_records, presampled_values); });
 }
 
 void Executor::reset_shot() noexcept {
@@ -258,10 +267,6 @@ void Executor::reset_shot() noexcept {
     std::ranges::fill(forced_record_mask_, uint8_t{0});
     discarded_ = false;
     pending_trap_.reset();
-    if (frame_.has_value() && frame_->changed) {
-        frame_->frame.reset();
-        frame_->changed = false;
-    }
 }
 
 void Executor::initialize_expression_registers(const ExecutablePlan& plan,
@@ -773,7 +778,8 @@ void Executor::execute_action(const ExecutablePlan::ExecuteBoundary& action,
 }
 
 PauliStringView Executor::map_frame_pauli(uint32_t pauli) noexcept {
-    assert(frame_.has_value() && "frame actions require a plan with a runtime Clifford frame");
+    assert(frame_.has_value() && frame_->running &&
+           "frame actions run through run_frame_shot or replay_frame_shot");
     frame_->changed = true;
     frame_->frame.map(plan_->frame_pauli_x(pauli), plan_->frame_pauli_z(pauli), frame_->mapped);
     return frame_->mapped.view();

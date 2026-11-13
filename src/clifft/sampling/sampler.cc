@@ -622,7 +622,9 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
         [&](uint32_t, uint32_t capacity) {
             return std::make_unique<BatchSamplingWorker>(plan, capacity);
         },
-        [](SamplingWorker& worker) { worker.executor.run_shot(); },
+        [frame = plan.uses_runtime_frame()](SamplingWorker& worker) {
+            frame ? worker.executor.run_frame_shot() : worker.executor.run_shot();
+        },
         [](BatchSamplingWorker& worker, const SeedRoot& root, uint32_t first_shot,
            uint32_t batch) noexcept { worker.executor.run_batch(root, first_shot, batch); });
 }
@@ -665,7 +667,9 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
         [&](uint32_t, uint32_t capacity) {
             return std::make_unique<BatchSurvivorWorker>(plan, capacity, output_mode, noise);
         },
-        [](SurvivorWorker& worker) { worker.executor.run_shot(); },
+        [frame = plan.uses_runtime_frame()](SurvivorWorker& worker) {
+            frame ? worker.executor.run_frame_shot() : worker.executor.run_shot();
+        },
         [](BatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
            uint32_t batch) noexcept { worker.executor.run_batch(root, first_shot, batch); });
 }
@@ -808,8 +812,9 @@ std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
     std::vector<double> log_probabilities(num_records);
     Executor executor(plan);
     for (size_t record = 0; record < num_records; ++record) {
-        const ReplayResult replay =
-            executor.replay_shot(forced_records.subspan(record * stride, stride));
+        const auto forced = forced_records.subspan(record * stride, stride);
+        const ReplayResult replay = plan.uses_runtime_frame() ? executor.replay_frame_shot(forced)
+                                                              : executor.replay_shot(forced);
         log_probabilities[record] =
             replay.reachable ? replay.log_probability : std::numeric_limits<double>::lowest();
     }

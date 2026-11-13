@@ -425,8 +425,6 @@ class ExecutablePlan {
     uint32_t num_qubits_ = 0;
     uint32_t initial_active_width_ = 0;
     uint32_t peak_active_width_ = 0;
-    uint32_t frame_width_ = 0;
-    uint32_t frame_entry_peak_width_ = 0;
     uint32_t num_visible_records_ = 0;
     uint32_t num_hidden_records_ = 0;
     uint32_t num_detectors_ = 0;
@@ -465,9 +463,6 @@ class ExecutablePlan {
     // Packed-only output parities.
     std::vector<uint32_t> record_parity_terms_;
 
-    // Frame Paulis, each stored as its X words followed by its Z words.
-    std::vector<uint64_t> frame_paulis_;
-
     // Instrument inputs and continuation offsets share the same site index.
     std::vector<InstrumentDistribution> instrument_distributions_;
     std::vector<uint32_t> instrument_resume_offsets_;
@@ -478,6 +473,12 @@ class ExecutablePlan {
     std::vector<PreparedDynamicFusedRotationExecution> dynamic_fused_rotations_;
     std::vector<Action> actions_;
     std::vector<PlanActionRange> action_plan_ranges_;
+
+    // Runtime Clifford frame. Frame Paulis are each stored as their X words
+    // followed by their Z words.
+    uint32_t frame_width_ = 0;
+    uint32_t frame_entry_peak_width_ = 0;
+    std::vector<uint64_t> frame_paulis_;
 };
 
 }  // namespace clifft::sampling
