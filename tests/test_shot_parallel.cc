@@ -112,3 +112,34 @@ TEST_CASE("Shot scheduler joins workers before rethrowing a range error") {
     REQUIRE(caller_error != nullptr);
     REQUIRE_THROWS_WITH(std::rethrow_exception(caller_error), "range failed");
 }
+
+TEST_CASE("Shot scheduler initializes contexts on their execution threads") {
+    std::atomic<bool> wrong_thread{false};
+    std::atomic<uint32_t> visits{0};
+    auto workers = clifft::run_shot_ranges(
+        8192, 4, [](uint32_t) { return std::this_thread::get_id(); },
+        [&](const auto& owner, clifft::ShotRange range) {
+            if (owner != std::this_thread::get_id()) {
+                wrong_thread = true;
+            }
+            visits += range.end - range.begin;
+        },
+        1, clifft::WorkerInitialization::OnWorkerThread);
+    REQUIRE(workers.size() == 4);
+    REQUIRE_FALSE(wrong_thread);
+    REQUIRE(visits == 8192);
+}
+
+TEST_CASE("Shot scheduler propagates worker initialization failures") {
+    REQUIRE_THROWS_AS(
+        clifft::run_shot_ranges(
+            8192, 4,
+            [](uint32_t index) {
+                if (index == 0) {
+                    throw std::runtime_error("worker initialization failed");
+                }
+                return std::make_unique<uint32_t>(index);
+            },
+            [](auto&, clifft::ShotRange) {}, 1, clifft::WorkerInitialization::OnWorkerThread),
+        std::runtime_error);
+}

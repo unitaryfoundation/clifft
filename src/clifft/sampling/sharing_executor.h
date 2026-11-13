@@ -38,10 +38,10 @@ class SharingKey;
 // Largest lane capacity, up to kMaxAutoSharedBatchShots, that one worker can
 // run within max_worker_state_bytes when every lane keeps its own state and
 // within the classical buffer bound. Zero when the budget cannot hold a state.
-[[nodiscard]] uint32_t max_safe_shared_capacity(const ExecutablePlan& plan,
-                                                const PreparedBatchNoise& noise,
-                                                const SharingKey* key,
-                                                uint64_t max_worker_state_bytes);
+[[nodiscard]] uint32_t max_safe_shared_capacity(
+    const ExecutablePlan& plan, const PreparedBatchNoise& noise, const SharingKey* key,
+    uint64_t max_worker_state_bytes,
+    BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
 
 // Automatic capacity and worker count for one call. Depends only on the safe
 // capacity and the call, so a seeded call replays independently of earlier
@@ -79,13 +79,13 @@ class SharingExecutor : public BatchClassicalState {
     SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                     const EarlyPostselection& checks, uint32_t lane_capacity,
                     uint32_t initial_states, bool share = true, const SharingKey* key = nullptr,
-                    uint64_t max_worker_state_bytes = kDefaultSharedWorkerStateBudget);
+                    uint64_t max_worker_state_bytes = kDefaultSharedWorkerStateBudget,
+                    BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
 
     // Classical buffers retained by one worker, excluding its state pool.
-    [[nodiscard]] static uint64_t classical_storage_bytes(const ExecutablePlan& plan,
-                                                          const PreparedBatchNoise& noise,
-                                                          const SharingKey* key,
-                                                          uint32_t lane_capacity);
+    [[nodiscard]] static uint64_t classical_storage_bytes(
+        const ExecutablePlan& plan, const PreparedBatchNoise& noise, const SharingKey* key,
+        uint32_t lane_capacity, BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
 
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] uint32_t state_capacity() const noexcept {

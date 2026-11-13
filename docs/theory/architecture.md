@@ -112,7 +112,7 @@ coordinates, not one amplitude per physical-qubit basis state. Clifford
 structure outside that active space remains encoded by the prepared coordinate
 description.
 
-In shared-trajectory execution (`SurvivorSampler`), each shot keeps its own
+In shared-trajectory execution, each shot keeps its own
 packed classical values while shots on identical quantum branches share a
 single coefficient state. This resembles copy-on-write:
 equivalent shots evolve one coefficient vector together, and splitting a group
@@ -132,9 +132,13 @@ asymmetric readout update cannot change an earlier detector's value. Passing the
 entrance checks does not guarantee acceptance: the original selected detector
 checks still decide it. Each runs after its last contributing record write,
 allowing rejected shots to skip later evolution. On first use, a `Program`
-builds the count-only plan, noise metadata, entrance checks, and any grouping
-key, and shares them, immutable, across samplers and concurrent calls; workers
-hold all mutable state.
+builds the requested-output plan, noise metadata, entrance checks, and any
+grouping key, and shares them, immutable, across samplers and concurrent calls.
+Native sampling selects execution from the program and call arguments before
+requesting preparation. Workers hold all mutable state and are created on the
+threads that run them. Completed survivor batches retain only their accepted
+rows; collection joins batches in shot order after dispatch. The plan-only
+WebAssembly sampler remains separate from native shared orchestration.
 
 Before an action's possible splits can exceed a worker's allocated states,
 dispatch suspends at an explicit storage-growth boundary. The worker grows its

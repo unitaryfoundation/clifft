@@ -613,8 +613,7 @@ bool BatchClassicalState::is_live(uint32_t lane) const noexcept {
 
 uint32_t BatchClassicalState::accumulate_survivor_counts(
     std::span<uint64_t> observable_ones) const noexcept {
-    assert(output_mode_ == BatchOutputMode::AggregateSurvivors &&
-           observable_ones.size() == plan_->num_observables_ &&
+    assert(observable_ones.size() == plan_->num_observables_ &&
            "aggregate survivor outputs must match the prepared observable count");
     uint32_t logical_errors = 0;
     const size_t words = packed_word_count(active_lanes());

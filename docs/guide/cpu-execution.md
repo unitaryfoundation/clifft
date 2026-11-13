@@ -25,15 +25,25 @@ result = clifft.sample(program, shots=10_000, seed=42, threads=4)
 ```
 
 Clifft chooses whether that budget is better spent across shots or within a
-wide shot. It separately decides whether packing shots into SIMD lanes is
-worthwhile. Benchmark before overriding either decision.
+wide shot. `sample()` and `sample_survivors()` can also share coefficient
+evolution between shots that follow the same quantum trajectory. This is useful
+for sufficiently large postselected workloads and noiseless circuits with a
+shared unitary prefix. Short calls and uncertain cases
+use ordinary scalar or packed execution. Requested expectation-value rows use
+ordinary execution so every probe is retained.
+
+Shared execution supports every record choice and bit-packed output. Survivor
+collection stores only accepted rows and preserves their order and the pairing
+between measurements, detectors, and observables. Each shared call constructs its
+own workers on their execution threads; concurrent calls share only immutable
+preparation on the `Program`.
 
 ## Common controls
 
 | Argument | Default | Meaning |
 |---|---|---|
 | `threads` | `1` | Total CPU worker budget; `"auto"` uses reported hardware concurrency. |
-| `batch_size` | `"auto"` | Packed-lane policy; `1` forces scalar execution and `"tune"` measures candidate capacities. |
+| `batch_size` | `"auto"` | Select execution automatically; `1` forces scalar execution, another integer requests ordinary packed execution, and `"tune"` measures capacities within the selected path. |
 | `tuning_budget_seconds` | `None` | Keyword-only soft calibration budget for `batch_size="tune"`; `None` uses 0.25 seconds. |
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
@@ -50,7 +60,7 @@ batch-size tuning, whereas trajectory execution runs one shot at a time
 thread layouts are not supported by `clifft.noncomp`, and exact probability
 queries and `get_statevector()` do not expose these sampling controls.
 
-Three independent mechanisms are involved:
+The execution mechanisms are:
 
 - **Cross-shot workers** run different shots concurrently. Each owns an
   executor and mutable storage.
@@ -58,8 +68,12 @@ Three independent mechanisms are involved:
   shares an executor.
 - **Packed execution** represents several shots as SIMD lanes within one
   worker.
+- **Shared execution** keeps per-shot classical data while reusing coefficient
+  states across equivalent trajectories. Each worker has a 64 MiB state budget;
+  classical storage and output rows are additional. Capacity fits even when
+  every shot needs its own state, and is capped at 8192 lanes.
 
-Packed execution cannot be combined with intra-shot workers.
+Packed and shared execution cannot be combined with intra-shot workers.
 
 ## Budgeted batch calibration
 
@@ -95,10 +109,12 @@ before the requested shots run. Keep these points in mind:
   returns the samples with a `RuntimeWarning` suggesting a larger budget.
   A budget overrun alone does not cause a warning.
 
-The selected settings are returned in `result.batch_tuning`. To reuse the
-batch size without recalibrating, pass `batch_size=result.batch_tuning.batch_size`
-on later calls with the same circuit and simulation settings. Retune when the
-workload or machine changes; selections are not cached automatically.
+The selected capacity and timings are returned in `result.batch_tuning`.
+Calibration compares capacities within the automatically selected execution
+path. For ordinary scalar or packed execution, reuse its capacity with
+`batch_size=result.batch_tuning.batch_size`. A numeric capacity selects ordinary
+execution and does not reproduce an automatically shared call. Retune when
+the workload or machine changes; selections are not cached automatically.
 
 ??? note "Calibration report details"
 
@@ -134,7 +150,7 @@ workload or machine changes; selections are not cached automatically.
     `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
     nonempty call and preserve any explicit intra-shot threshold.
 
-## Sharing trajectories in survivor sampling
+## Retaining a shared survivor sampler
 
 Many shots in a noisy circuit follow the same quantum trajectory.
 `SurvivorSampler` shares quantum state evolution across those shots, reducing
@@ -280,7 +296,7 @@ active.
 
 ### Packed batch sampling
 
-The default `batch_size="auto"` considers packed execution only when:
+When shared execution is not selected, `batch_size="auto"` considers packed execution only when:
 
 - at least 64 shots were requested;
 - peak active width and post-selection satisfy the policy below; and
@@ -336,7 +352,13 @@ can differ between machines, so the same seed need not produce the same rows.
 To preserve rows and survivor order while changing the number of cross-shot
 workers, pin a numeric `batch_size`.
 
-Scalar and packed execution use separate random streams, and different packed
+Untuned selection depends only on the program and call arguments, including the
+requested outputs and worker layout. Cold, warm, and concurrent first use make
+the same choices. Automatic calls can select shared execution and produce
+different seeded rows from earlier versions; an explicit numeric batch size
+keeps the ordinary execution path.
+
+Scalar, packed, and shared execution use separate random streams, and different
 capacities can produce different rows. Changing `keep_records` can also change
 individual seeded rows while preserving the requested output distribution.
 `bit_packed` only changes array storage and preserves the sampled bits. Keep the

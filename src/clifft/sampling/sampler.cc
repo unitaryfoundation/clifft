@@ -15,6 +15,7 @@
 #include <chrono>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <type_traits>
 
@@ -62,6 +63,7 @@ struct SurvivorWorker {
 
     Executor executor;
     SurvivorCounts counts;
+    SamplingResult rows;
 };
 
 struct ConditionedSurvivorWorker {
@@ -76,10 +78,13 @@ struct ConditionedSurvivorWorker {
     Executor executor;
     KFaultSampler fault_sampler;
     SurvivorCounts counts;
+    SamplingResult rows;
 };
 
 struct BatchSamplingWorker {
-    BatchSamplingWorker(const ExecutablePlan& plan, uint32_t capacity) : executor(plan, capacity) {}
+    BatchSamplingWorker(const ExecutablePlan& plan, uint32_t capacity,
+                        const PreparedBatchNoise* noise)
+        : executor(plan, capacity, BatchOutputMode::Rows, BatchSamplingMode::Ordinary, noise) {}
 
     BatchExecutor executor;
 };
@@ -99,10 +104,14 @@ struct BatchSurvivorWorker {
     BatchSurvivorWorker(const ExecutablePlan& plan, uint32_t capacity, BatchOutputMode output_mode,
                         const PreparedBatchNoise* noise)
         : executor(plan, capacity, output_mode, BatchSamplingMode::Ordinary, noise),
-          counts(plan.num_observables()) {}
+          counts(plan.num_observables()),
+          rows(output_mode == BatchOutputMode::Rows ? capacity : 0) {
+        std::iota(rows.begin(), rows.end(), uint32_t{0});
+    }
 
     BatchExecutor executor;
     SurvivorCounts counts;
+    std::vector<uint32_t> rows;
 };
 
 struct ConditionedBatchSurvivorWorker {
@@ -112,16 +121,22 @@ struct ConditionedBatchSurvivorWorker {
                                    const PreparedBatchNoise* noise)
         : executor(plan, capacity, output_mode, BatchSamplingMode::FixedFaults, noise),
           fault_sampler(std::move(fault_distribution)),
-          counts(plan.num_observables()) {}
+          counts(plan.num_observables()),
+          rows(output_mode == BatchOutputMode::Rows ? capacity : 0) {
+        std::iota(rows.begin(), rows.end(), uint32_t{0});
+    }
 
     BatchExecutor executor;
     KFaultSampler fault_sampler;
     SurvivorCounts counts;
+    std::vector<uint32_t> rows;
 };
 
 uint64_t survivor_worker_bytes(const ExecutablePlan& plan) noexcept {
     return static_cast<uint64_t>(plan.num_observables()) * sizeof(uint64_t);
 }
+
+}  // namespace
 
 ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
                                    uint32_t requested_threads,
@@ -163,15 +178,11 @@ ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
     return {.shot_workers = std::min(shots, budget), .intra_shot_workers = 1};
 }
 
-size_t checked_output_size(uint32_t shots, size_t stride) {
-    if (stride != 0 && shots > std::numeric_limits<size_t>::max() / stride) {
-        throw std::length_error("sampling output size exceeds size_t range");
-    }
-    return static_cast<size_t>(shots) * stride;
-}
+namespace {
 
 void copy_batch_expectations(std::span<double> output, const BatchExecutor& executor,
-                             uint32_t num_exp_vals) noexcept {
+                             uint32_t num_exp_vals,
+                             std::span<const uint32_t> output_rows = {}) noexcept {
     if (num_exp_vals == 0) {
         return;
     }
@@ -185,7 +196,9 @@ void copy_batch_expectations(std::span<double> output, const BatchExecutor& exec
         // Hoist the shot lookup so it is cheap even without cross-file inlining.
         std::array<size_t, kTileLanes> rows{};
         for (uint32_t i = 0; i < count; ++i) {
-            rows[i] = static_cast<size_t>(executor.shot_index(first + i)) * num_exp_vals;
+            rows[i] = static_cast<size_t>(output_rows.empty() ? executor.shot_index(first + i)
+                                                              : output_rows[first + i]) *
+                      num_exp_vals;
         }
         for (uint32_t exp_val = 0; exp_val < num_exp_vals; ++exp_val) {
             for (uint32_t i = 0; i < count; ++i) {
@@ -193,38 +206,6 @@ void copy_batch_expectations(std::span<double> output, const BatchExecutor& exec
             }
         }
     }
-}
-
-template <typename T>
-void compact_survivor_rows(std::vector<T>& values, std::span<const uint8_t> survived, size_t stride,
-                           uint32_t passed_shots) {
-    if (stride != 0) {
-        size_t output_row = 0;
-        for (size_t shot = 0; shot < survived.size(); ++shot) {
-            if (survived[shot] == 0) {
-                continue;
-            }
-            if (output_row != shot) {
-                std::copy_n(values.begin() + shot * stride, stride,
-                            values.begin() + output_row * stride);
-            }
-            ++output_row;
-        }
-    }
-    values.resize(static_cast<size_t>(passed_shots) * stride);
-}
-
-template <typename Result>
-void resize_output_rows(Result& result, uint32_t shots, const ExecutablePlan& plan,
-                        SamplingOutputs outputs) {
-    result.measurements.resize(checked_output_size(
-        shots, outputs.measurements() ? outputs.stride(plan.num_visible_records()) : 0));
-    result.detectors.resize(
-        checked_output_size(shots, outputs.syndromes() ? outputs.stride(plan.num_detectors()) : 0));
-    result.observables.resize(checked_output_size(
-        shots, outputs.syndromes() ? outputs.stride(plan.num_observables()) : 0));
-    result.exp_vals.resize(
-        checked_output_size(shots, outputs.expectations() ? plan.num_exp_vals() : 0));
 }
 
 // Pack directly into the preallocated result so no unpacked matrix is needed.
@@ -270,7 +251,7 @@ SamplingResult sample_fixed_rows(const ExecutablePlan& plan, uint32_t shots,
                                  SamplingOutputs outputs, MakeWorker&& make_worker,
                                  RunShot&& run_shot) {
     SamplingResult result;
-    resize_output_rows(result, shots, plan, outputs);
+    batch_detail::resize_output_rows(result, shots, plan, outputs);
     if (shots == 0) {
         return result;
     }
@@ -295,7 +276,7 @@ SamplingResult sample_fixed_batches(const ExecutablePlan& plan, uint32_t shots,
                                     SamplingOutputs outputs, MakeWorker&& make_worker,
                                     RunBatch&& run_batch) {
     SamplingResult result;
-    resize_output_rows(result, shots, plan, outputs);
+    batch_detail::resize_output_rows(result, shots, plan, outputs);
     if (shots == 0) {
         return result;
     }
@@ -334,37 +315,61 @@ SamplingSurvivorResult sample_surviving_rows(const ExecutablePlan& plan, uint32_
     if (shots == 0) {
         return result;
     }
-    if (outputs.rows()) {
-        resize_output_rows(result, shots, plan, outputs);
-    }
-    std::vector<uint8_t> survived(outputs.rows() ? shots : 0, 0);
+    // A bounded scratch block keeps the per-shot loop allocation-free.
+    constexpr uint32_t kScalarRowChunkShots = 256;
+    const uint32_t capacity = std::min(shots, kScalarRowChunkShots);
+    batch_detail::SurvivorRowCollector rows(shots, capacity, outputs.rows());
     const SeedRoot root = make_seed_root(shots, seed);
     auto workers = run_shot_ranges(
-        shots, thread_layout.shot_workers, std::forward<MakeWorker>(make_worker),
+        shots, thread_layout.shot_workers,
+        [&](uint32_t i) {
+            auto worker = make_worker(i);
+            batch_detail::resize_output_rows(worker->rows, capacity, plan, outputs);
+            return worker;
+        },
         [&](auto& worker_handle, ShotRange range) {
             auto& worker = *worker_handle;
             Executor& executor = worker.executor;
             SurvivorCounts& counts = worker.counts;
-            for (uint32_t shot = range.begin; shot < range.end; ++shot) {
-                reseed_executor_for_shot(executor, root, shot);
-                run_shot(worker);
-                if (executor.discarded()) {
-                    continue;
+            for (uint32_t first = range.begin; first < range.end;) {
+                const uint32_t count = std::min(capacity, range.end - first);
+                uint32_t passed = 0;
+                for (uint32_t shot = first; shot < first + count; ++shot) {
+                    reseed_executor_for_shot(executor, root, shot);
+                    run_shot(worker);
+                    if (executor.discarded()) {
+                        continue;
+                    }
+                    ++counts.passed_shots;
+                    bool logical_error = false;
+                    for (uint32_t observable = 0; observable < plan.num_observables();
+                         ++observable) {
+                        const bool value = executor.observables()[observable] != 0;
+                        counts.observable_ones[observable] += static_cast<uint64_t>(value);
+                        logical_error |= value;
+                    }
+                    counts.logical_errors += static_cast<uint32_t>(logical_error);
+                    if (outputs.rows()) {
+                        copy_scalar_rows(worker.rows, executor, passed, outputs);
+                    }
+                    ++passed;
                 }
-                ++counts.passed_shots;
-                bool logical_error = false;
-                for (uint32_t observable = 0; observable < plan.num_observables(); ++observable) {
-                    const bool value = executor.observables()[observable] != 0;
-                    counts.observable_ones[observable] += static_cast<uint64_t>(value);
-                    logical_error |= value;
-                }
-                counts.logical_errors += static_cast<uint32_t>(logical_error);
                 if (outputs.rows()) {
-                    survived[shot] = 1;
-                    copy_scalar_rows(result, executor, shot, outputs);
+                    auto& batch = rows.batch(first);
+                    batch_detail::resize_output_rows(batch, passed, plan, outputs);
+                    std::copy_n(worker.rows.measurements.begin(), batch.measurements.size(),
+                                batch.measurements.begin());
+                    std::copy_n(worker.rows.detectors.begin(), batch.detectors.size(),
+                                batch.detectors.begin());
+                    std::copy_n(worker.rows.observables.begin(), batch.observables.size(),
+                                batch.observables.begin());
+                    std::copy_n(worker.rows.exp_vals.begin(), batch.exp_vals.size(),
+                                batch.exp_vals.begin());
                 }
+                first += count;
             }
-        });
+        },
+        capacity);
     for (const auto& worker : workers) {
         result.passed_shots += worker->counts.passed_shots;
         result.logical_errors += worker->counts.logical_errors;
@@ -373,19 +378,7 @@ SamplingSurvivorResult sample_surviving_rows(const ExecutablePlan& plan, uint32_
         }
     }
     if (outputs.rows()) {
-        compact_survivor_rows(
-            result.measurements, survived,
-            outputs.measurements() ? outputs.stride(plan.num_visible_records()) : 0,
-            result.passed_shots);
-        compact_survivor_rows(result.detectors, survived,
-                              outputs.syndromes() ? outputs.stride(plan.num_detectors()) : 0,
-                              result.passed_shots);
-        compact_survivor_rows(result.observables, survived,
-                              outputs.syndromes() ? outputs.stride(plan.num_observables()) : 0,
-                              result.passed_shots);
-        compact_survivor_rows(result.exp_vals, survived,
-                              outputs.expectations() ? plan.num_exp_vals() : 0,
-                              result.passed_shots);
+        rows.finish(result, plan, outputs);
     }
     return result;
 }
@@ -402,49 +395,36 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
     if (shots == 0) {
         return result;
     }
-    if (outputs.rows()) {
-        resize_output_rows(result, shots, plan, outputs);
-    }
-    std::vector<uint8_t> survived(outputs.rows() ? shots : 0, 0);
+    const uint32_t capacity = batch_policy.lane_capacity;
+    batch_detail::SurvivorRowCollector rows(shots, capacity, outputs.rows());
     const SeedRoot root = make_seed_root(shots, seed);
-    const uint32_t batch_capacity = batch_policy.lane_capacity;
     auto workers = run_shot_ranges(
         shots, batch_policy.worker_count, std::forward<MakeWorker>(make_worker),
         [&](auto& worker_handle, ShotRange range) {
             auto& worker = *worker_handle;
-            BatchExecutor& executor = worker.executor;
-            SurvivorCounts& counts = worker.counts;
-            for (uint32_t offset = range.begin; offset < range.end;) {
-                const uint32_t batch = std::min(batch_capacity, range.end - offset);
-                run_batch(worker, root, offset, batch);
-                if (!outputs.rows()) {
-                    counts.passed_shots += executor.surviving_shots();
-                    counts.logical_errors +=
-                        executor.accumulate_survivor_counts(counts.observable_ones);
-                    offset += batch;
-                    continue;
-                }
-                for (uint32_t lane = 0; lane < executor.surviving_shots(); ++lane) {
-                    ++counts.passed_shots;
-                    bool logical_error = false;
-                    for (uint32_t observable = 0; observable < plan.num_observables();
-                         ++observable) {
-                        const bool value = executor.observable(lane, observable);
-                        counts.observable_ones[observable] += static_cast<uint64_t>(value);
-                        logical_error |= value;
+            auto& executor = worker.executor;
+            auto& counts = worker.counts;
+            for (uint32_t first = range.begin; first < range.end;) {
+                const uint32_t count = std::min(capacity, range.end - first);
+                run_batch(worker, root, first, count);
+                counts.passed_shots += executor.surviving_shots();
+                counts.logical_errors +=
+                    executor.accumulate_survivor_counts(counts.observable_ones);
+                if (outputs.rows()) {
+                    auto& batch = rows.batch(first);
+                    batch_detail::resize_output_rows(batch, executor.surviving_shots(), plan,
+                                                     outputs);
+                    const auto indices = std::span(worker.rows).first(executor.surviving_shots());
+                    batch_detail::copy_batch_rows(batch, executor, plan, outputs, indices);
+                    if (outputs.expectations()) {
+                        copy_batch_expectations(batch.exp_vals, executor, plan.num_exp_vals(),
+                                                indices);
                     }
-                    counts.logical_errors += static_cast<uint32_t>(logical_error);
-                    const uint32_t shot = executor.shot_index(lane);
-                    survived[shot] = 1;
                 }
-                batch_detail::copy_batch_rows(result, executor, plan, outputs);
-                if (outputs.expectations()) {
-                    copy_batch_expectations(result.exp_vals, executor, plan.num_exp_vals());
-                }
-                offset += batch;
+                first += count;
             }
         },
-        batch_capacity);
+        capacity);
     for (const auto& worker : workers) {
         result.passed_shots += worker->counts.passed_shots;
         result.logical_errors += worker->counts.logical_errors;
@@ -453,19 +433,7 @@ SamplingSurvivorResult sample_surviving_batches(const ExecutablePlan& plan, uint
         }
     }
     if (outputs.rows()) {
-        compact_survivor_rows(
-            result.measurements, survived,
-            outputs.measurements() ? outputs.stride(plan.num_visible_records()) : 0,
-            result.passed_shots);
-        compact_survivor_rows(result.detectors, survived,
-                              outputs.syndromes() ? outputs.stride(plan.num_detectors()) : 0,
-                              result.passed_shots);
-        compact_survivor_rows(result.observables, survived,
-                              outputs.syndromes() ? outputs.stride(plan.num_observables()) : 0,
-                              result.passed_shots);
-        compact_survivor_rows(result.exp_vals, survived,
-                              outputs.expectations() ? plan.num_exp_vals() : 0,
-                              result.passed_shots);
+        rows.finish(result, plan, outputs);
     }
     return result;
 }
@@ -490,9 +458,11 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
                          MakeScalar&& make_scalar, MakePacked&& make_packed, RunShot&& run_shot,
                          RunBatch&& run_batch) {
     batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
+    const uint64_t row_index_bits =
+        std::is_same_v<Result, SamplingSurvivorResult> && outputs.rows() ? 8 * sizeof(uint32_t) : 0;
     BatchExecutionPolicy policy = resolve_batch_execution_policy(
         plan, shots, layout.shot_workers, layout.intra_shot_workers, output_mode, batch_size,
-        sampling_mode, additional_worker_bytes, 0, 0, noise);
+        sampling_mode, additional_worker_bytes, row_index_bits, 0, noise);
     if (policy.lane_capacity == 1) {
         policy.worker_count = layout.shot_workers;
     }
@@ -538,7 +508,7 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
         } else {
             const auto candidates = batch_detail::batch_tuning_candidates(
                 plan, shots, layout.shot_workers, layout.intra_shot_workers, output_mode,
-                sampling_mode, additional_worker_bytes, policy, 0, 0, noise);
+                sampling_mode, additional_worker_bytes, policy, row_index_bits, 0, noise);
             if (candidates.size() < 2) {
                 tuning->stop_reason = "single_candidate";
             } else {
@@ -586,6 +556,14 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
     Result result = run(shots, seed, policy, make_scalar,
                         [&](uint32_t i) { return make_packed(i, policy.lane_capacity); });
     result.batch_tuning = std::move(tuning);
+    result.execution.executor =
+        policy.lane_capacity > 1 ? SamplingExecutor::Packed : SamplingExecutor::Scalar;
+    result.execution.batch_size = policy.lane_capacity;
+    result.execution.shot_workers = policy.worker_count;
+    result.execution.intra_shot_workers = layout.intra_shot_workers;
+    if (policy.lane_capacity > 1) {
+        result.execution.noise_preparation = noise ? noise->mode() : BatchNoiseMode::Dense;
+    }
     return result;
 }
 
@@ -594,7 +572,8 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
 SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed,
                       uint32_t threads, std::optional<ThreadLayout> thread_layout,
                       std::optional<uint32_t> batch_size,
-                      std::optional<double> tuning_budget_seconds, SamplingOutputs outputs) {
+                      std::optional<double> tuning_budget_seconds, SamplingOutputs outputs,
+                      const PreparedBatchNoise* noise) {
     if (!outputs.rows()) {
         throw std::invalid_argument("fixed-row sampling requires retained outputs");
     }
@@ -614,13 +593,13 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
     const ThreadLayout resolved = resolve_thread_layout(plan, shots, threads, thread_layout);
     return sample_configured<SamplingResult>(
         plan, shots, seed, resolved, batch_size, tuning_budget_seconds, BatchOutputMode::Rows,
-        BatchSamplingMode::Ordinary, 0, outputs, nullptr,
+        BatchSamplingMode::Ordinary, 0, outputs, noise,
         [&](uint32_t) {
             return std::make_unique<SamplingWorker>(plan, resolved.intra_shot_workers,
                                                     resolved.intra_shot_min_active_width);
         },
         [&](uint32_t, uint32_t capacity) {
-            return std::make_unique<BatchSamplingWorker>(plan, capacity);
+            return std::make_unique<BatchSamplingWorker>(plan, capacity, noise);
         },
         [](SamplingWorker& worker) noexcept { worker.executor.run_shot(); },
         [](BatchSamplingWorker& worker, const SeedRoot& root, uint32_t first_shot,

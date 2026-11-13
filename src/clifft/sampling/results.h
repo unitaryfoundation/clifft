@@ -1,11 +1,29 @@
 #pragma once
 
+#include "clifft/sampling/batch/policy.h"
+
 #include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
 
 namespace clifft::sampling {
+
+enum class SamplingExecutor { Scalar, Packed, Shared };
+
+// Effective CPU settings, recorded after selection and any capacity tuning.
+struct SamplingExecution {
+    SamplingExecutor executor = SamplingExecutor::Scalar;
+    uint32_t batch_size = 1;
+    uint32_t shot_workers = 1;
+    uint32_t intra_shot_workers = 1;
+    std::optional<BatchNoiseMode> noise_preparation;
+    bool group_by_noise = false;
+    bool early_postselection = false;
+    std::optional<uint64_t> max_worker_state_bytes;
+
+    friend bool operator==(const SamplingExecution&, const SamplingExecution&) = default;
+};
 
 struct BatchTuningTrial {
     uint32_t batch_size = 1;
@@ -45,6 +63,7 @@ struct SamplingResult {
     std::vector<uint8_t> observables;
     std::vector<double> exp_vals;
     std::optional<BatchTuningReport> batch_tuning;
+    SamplingExecution execution;
 };
 
 // Backend-neutral outputs from postselected survivor sampling.
@@ -58,6 +77,7 @@ struct SamplingSurvivorResult {
     std::vector<uint8_t> observables;
     std::vector<double> exp_vals;
     std::optional<BatchTuningReport> batch_tuning;
+    SamplingExecution execution;
 };
 
 }  // namespace clifft::sampling

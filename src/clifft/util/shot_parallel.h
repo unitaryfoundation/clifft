@@ -1,10 +1,9 @@
 #pragma once
 
-// Shared cross-shot scheduling for sampling frontends. The worker factory
-// creates every base context before this helper starts dispatch, then workers
-// claim disjoint global shot ranges dynamically. Fixed-plan samplers fully
-// allocate those contexts up front; trajectory samplers may grow them only at
-// explicit continuation boundaries.
+// Shared cross-shot scheduling for sampling frontends. Workers claim disjoint
+// global ranges dynamically. Their contexts are initialized before dispatch,
+// either on the calling thread or on each worker's execution thread. Trajectory
+// samplers may grow storage only at explicit continuation boundaries.
 
 #include "clifft/util/intra_shot_parallel.h"
 
@@ -26,6 +25,8 @@ struct ShotRange {
     uint32_t begin = 0;
     uint32_t end = 0;
 };
+
+enum class WorkerInitialization { BeforeDispatch, OnWorkerThread };
 
 // requested_threads == 0 selects the implementation-reported hardware
 // concurrency. Environments without native threads use a serial budget.
@@ -69,21 +70,26 @@ inline uint32_t shot_chunk_size(uint32_t shots, uint32_t workers,
     return static_cast<uint32_t>(std::min<uint64_t>(aligned_size, shots));
 }
 
-// make_worker(index) runs for every worker before any range is dispatched.
+// By default make_worker(index) runs for every worker before any dispatch.
+// OnWorkerThread constructs each context on the thread that uses it, before
+// that thread claims any ranges. Factories then must allow concurrent calls.
 // run_range(worker_handle, range) may execute concurrently for different
 // handles. If it throws, remaining work is cancelled, all threads are joined,
 // and the first exception is rethrown on the calling thread.
 // Internal linkage keeps the target-local OpenMP configuration from changing a
 // shared template definition in consumers that do not inherit the core define.
 template <typename MakeWorker, typename RunRange>
-static auto run_shot_ranges(uint32_t shots, uint32_t requested_threads, MakeWorker&& make_worker,
-                            RunRange&& run_range, uint32_t minimum_chunk_size = 1) {
+static auto run_shot_ranges(
+    uint32_t shots, uint32_t requested_threads, MakeWorker&& make_worker, RunRange&& run_range,
+    uint32_t minimum_chunk_size = 1,
+    WorkerInitialization initialization = WorkerInitialization::BeforeDispatch) {
     using WorkerHandle = std::remove_cvref_t<std::invoke_result_t<MakeWorker, uint32_t>>;
     const uint32_t worker_count = resolve_shot_worker_count(shots, requested_threads);
-    std::vector<WorkerHandle> workers;
-    workers.reserve(worker_count);
-    for (uint32_t worker = 0; worker < worker_count; ++worker) {
-        workers.emplace_back(std::invoke(make_worker, worker));
+    std::vector<WorkerHandle> workers(worker_count);
+    if (initialization == WorkerInitialization::BeforeDispatch || worker_count == 1) {
+        for (uint32_t worker = 0; worker < worker_count; ++worker) {
+            workers[worker] = std::invoke(make_worker, worker);
+        }
     }
     if (worker_count == 0) {
         return workers;
@@ -104,6 +110,9 @@ static auto run_shot_ranges(uint32_t shots, uint32_t requested_threads, MakeWork
 
     auto worker_loop = [&](uint32_t worker) noexcept {
         try {
+            if (initialization == WorkerInitialization::OnWorkerThread) {
+                workers[worker] = std::invoke(make_worker, worker);
+            }
             while (!cancelled.load(std::memory_order_relaxed)) {
                 const uint64_t begin = next_shot.fetch_add(chunk_size, std::memory_order_relaxed);
                 if (begin >= shots) {
