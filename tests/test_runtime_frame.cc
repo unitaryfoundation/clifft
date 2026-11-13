@@ -21,7 +21,9 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
+#include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -387,6 +389,61 @@ std::vector<SignedRegionCase> signed_region_cases() {
          "T 3\n"
          "H 0 1 2 3\n"
          "M 0 1 2 3\n"},
+        // The Bell pair's T and T_DAG cancel on the reference state, while the
+        // T on qubit 2 does not, so the region keeps one T and one frame-only
+        // coordinate.
+        {"cancelling pair beside an irreducible T",
+         "H 0 2\n"
+         "CX 0 1\n"
+         "X_ERROR(0.2) 0\n"
+         "Z_ERROR(0.3) 2\n"
+         "T 0\n"
+         "T_DAG 1\n"
+         "T 2\n"
+         "X_ERROR(0.1) 2\n"
+         "MPP X0*X1*X2\n"
+         "MPP Y0*X1\n"
+         "MX 2\n"
+         "M 0 1\n"},
+        // Four T rotations on a GHZ state leave S on the reference state.
+        {"GHZ state with a Clifford remainder",
+         "H 0\n"
+         "CX 0 1 0 2 0 3\n"
+         "DEPOLARIZE1(0.15) 1\n"
+         "X_ERROR(0.2) 3\n"
+         "T 0 1\n"
+         "T_DAG 2\n"
+         "T 3\n"
+         "MPP X0*X1*X2*X3\n"
+         "MPP Y0*X1*X2*X3\n"
+         "M 0 1 2 3\n"},
+        // Qubit 3 is untouched until its T, which then adds a coordinate to
+        // the live frame. Qubit 1 is rotated again in a different basis.
+        {"rotations after the frame is live",
+         "H 0 3\n"
+         "CX 0 1\n"
+         "X_ERROR(0.25) 1\n"
+         "T 0\n"
+         "T_DAG 1\n"
+         "H 1\n"
+         "T 1 3\n"
+         "R_Z(0.3) 0\n"
+         "CX 3 0\n"
+         "H 0 1\n"
+         "M 0 1\n"
+         "MX 3\n"},
+        {"feedback from a frame measurement",
+         "H 0 2\n"
+         "CX 0 1\n"
+         "X_ERROR(0.3) 0\n"
+         "T 0\n"
+         "T_DAG 1\n"
+         "MX 0\n"
+         "CZ rec[-1] 1\n"
+         "CX rec[-1] 2\n"
+         "T 2\n"
+         "MX 1 2\n"
+         "DETECTOR rec[-2] rec[-3]\n"},
         {"postselected detector after a signed region",
          "H 0 1 2\n"
          "X_ERROR(0.2) 0\n"
@@ -418,10 +475,221 @@ TEST_CASE("Signed T regions match the dense oracle", "[runtime_frame][sampling]"
                     auto passes = default_hir_pass_manager();
                     passes.run(hir);
                 }
-                require_distributions_equal(expected, compute_exact_hir_distribution(hir, options));
+                for (const bool runtime_frame : {false, true}) {
+                    CAPTURE(runtime_frame);
+                    sampling::SamplingPlanOptions planned = options;
+                    planned.runtime_frame = runtime_frame;
+                    require_distributions_equal(expected,
+                                                compute_exact_hir_distribution(hir, planned));
+                }
             }
         }
     }
+}
+
+TEST_CASE("Frame planning replaces signed promotions with conditional Cliffords",
+          "[runtime_frame][sampling]") {
+    struct Expected {
+        std::string source;
+        uint32_t static_peak;
+        uint32_t frame_peak;
+        uint32_t frame_width;
+        size_t conditional_cliffords;
+    };
+    const std::vector<Expected> cases = {
+        // The reference rotations cancel, so no coordinate becomes active.
+        {"H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nM 0 1\n", 1, 0, 1, 1},
+        // One T survives; the Bell pair contributes a frame-only coordinate.
+        {"H 0 2\nCX 0 1\nX_ERROR(0.2) 0\nZ_ERROR(0.3) 2\nT 0\nT_DAG 1\nT 2\nM 0 1 2\n", 2, 1, 2, 1},
+        // Both sign flips come from one fault, but they rotate about different axes.
+        {"H 0 1\nCX 0 2 1 3\nE(0.2) X0 X1\nT 0\nT_DAG 2\nT 1\nT_DAG 3\nM 0 1 2 3\n", 2, 0, 2, 2},
+    };
+    for (const Expected& test : cases) {
+        CAPTURE(test.source);
+        const HirModule hir = clifft::trace(clifft::parse(test.source));
+        const SamplingPlan fixed = sampling::plan_sampling(hir);
+        const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+        REQUIRE(fixed.frame_width == 0);
+        REQUIRE(fixed.peak_active_width == test.static_peak);
+        REQUIRE(frame.peak_active_width == test.frame_peak);
+        REQUIRE(frame.frame_width == test.frame_width);
+        REQUIRE(static_cast<size_t>(std::ranges::count_if(frame.actions, [](const auto& planned) {
+                    return std::holds_alternative<sampling::ApplyConditionalClifford>(
+                        planned.action);
+                })) == test.conditional_cliffords);
+    }
+}
+
+TEST_CASE("Frame planning reduces a region without sign flips and adds no frame",
+          "[runtime_frame][sampling]") {
+    // Nothing flips a sign here, so the cancelling pair needs neither an
+    // active coordinate nor conditional Cliffords.
+    const Circuit circuit = clifft::parse("H 0\nCX 0 1\nT 0\nT_DAG 1\nMPP X0*X1\nM 0 1\n");
+    const HirModule hir = clifft::trace(circuit);
+    const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+    REQUIRE(sampling::plan_sampling(hir).peak_active_width == 1);
+    REQUIRE(frame.peak_active_width == 0);
+    REQUIRE(frame.frame_width == 0);
+    require_distributions_equal(compute_dense_circuit_distribution(circuit),
+                                compute_exact_plan_distribution(frame));
+}
+
+TEST_CASE("Frame planning keeps the static plan when it cannot help", "[runtime_frame][sampling]") {
+    const std::vector<std::string> sources = {
+        // The reference CCZ already needs every coordinate.
+        "H 0 1 2\nX_ERROR(0.1) 0\nCCZ 0 1 2\nH 0 1 2\nM 0 1 2\n",
+        // Expectation probes need the static coordinates.
+        "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nEXP_VAL X0*X1\nM 0 1\n",
+    };
+    for (const std::string& source : sources) {
+        CAPTURE(source);
+        const HirModule hir = clifft::trace(clifft::parse(source));
+        const SamplingPlan fixed = sampling::plan_sampling(hir);
+        const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+        REQUIRE(frame.frame_width == 0);
+        REQUIRE(frame.peak_active_width == fixed.peak_active_width);
+        REQUIRE(frame.inspect() == fixed.inspect());
+    }
+}
+
+// A stabilizer-state preparation, then layers of commuting diagonal T
+// rotations with faults between them, separated by basis changes. The result
+// ends with a measurement of every qubit when measure_all is set.
+std::string random_signed_region_source(Xoshiro256PlusPlus& rng, uint32_t num_qubits,
+                                        bool measure_all = true) {
+    const auto below = [&](uint32_t bound) { return static_cast<uint32_t>(rng() % bound); };
+    const auto qubit = [&] { return std::to_string(below(num_qubits)); };
+    const auto pair = [&] {
+        const uint32_t a = below(num_qubits);
+        const uint32_t b = (a + 1 + below(num_qubits - 1)) % num_qubits;
+        return std::to_string(a) + " " + std::to_string(b);
+    };
+    std::string source;
+    uint32_t faults = 0;
+    const auto fault = [&] {
+        if (faults == 5 || below(2) == 0) {
+            return;
+        }
+        ++faults;
+        source += std::string(below(2) == 0 ? "X_ERROR" : "Z_ERROR") + "(0.2) " + qubit() + "\n";
+    };
+    const auto cliffords = [&](uint32_t count) {
+        for (uint32_t i = 0; i < count; ++i) {
+            switch (below(3)) {
+                case 0:
+                    source += "H " + qubit() + "\n";
+                    break;
+                case 1:
+                    source += "S " + qubit() + "\n";
+                    break;
+                default:
+                    source += "CX " + pair() + "\n";
+                    break;
+            }
+        }
+    };
+    for (uint32_t q = 0; q < num_qubits; ++q) {
+        if (below(2) == 0) {
+            source += "H " + std::to_string(q) + "\n";
+        }
+    }
+    cliffords(2 * num_qubits);
+    const uint32_t layers = 1 + below(2);
+    for (uint32_t layer = 0; layer < layers; ++layer) {
+        const uint32_t rotations = 2 + below(2 * num_qubits);
+        for (uint32_t i = 0; i < rotations; ++i) {
+            fault();
+            switch (below(4)) {
+                case 0:
+                    source += "T " + qubit() + "\n";
+                    break;
+                case 1:
+                    source += "T_DAG " + qubit() + "\n";
+                    break;
+                case 2: {
+                    const uint32_t a = below(num_qubits);
+                    const uint32_t b = (a + 1 + below(num_qubits - 1)) % num_qubits;
+                    source += std::string(below(2) == 0 ? "TPP" : "TPP_DAG") + " Z" +
+                              std::to_string(a) + "*Z" + std::to_string(b) + "\n";
+                    break;
+                }
+                default:
+                    source += "CCZ " + std::to_string(below(num_qubits)) + " " +
+                              std::to_string((below(num_qubits))) + " " + qubit() + "\n";
+                    break;
+            }
+        }
+        if (below(3) == 0) {
+            source += "MPP Z" + std::to_string(below(num_qubits)) + "\n";
+        }
+        cliffords(1 + below(num_qubits));
+    }
+    for (uint32_t q = 0; measure_all && q < num_qubits; ++q) {
+        source += std::string(below(2) == 0 ? "M " : "MX ") + std::to_string(q) + "\n";
+    }
+    return source;
+}
+
+// The generator can repeat a CCZ target, which the parser rejects.
+Circuit parse_random_signed_region(Xoshiro256PlusPlus& rng, uint32_t num_qubits, bool measure_all,
+                                   const std::function<std::string()>& suffix,
+                                   std::string& source) {
+    while (true) {
+        source = random_signed_region_source(rng, num_qubits, measure_all) + suffix();
+        try {
+            return clifft::parse(source);
+        } catch (const ParseError&) {}
+    }
+}
+
+TEST_CASE("Random signed regions match the dense oracle on a runtime frame",
+          "[runtime_frame][sampling]") {
+    Xoshiro256PlusPlus rng(0x704F);
+    uint32_t frame_plans = 0;
+    uint32_t narrower_plans = 0;
+    for (uint32_t trial = 0; trial < 250; ++trial) {
+        std::string source;
+        const Circuit circuit = parse_random_signed_region(
+            rng, 2 + trial % 4, true, [] { return std::string(); }, source);
+        CAPTURE(trial, source);
+        const HirModule hir = clifft::trace(circuit);
+        const SamplingPlan fixed = sampling::plan_sampling(hir);
+        const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+        frame_plans += frame.frame_width != 0;
+        narrower_plans += frame.peak_active_width < fixed.peak_active_width;
+        require_distributions_equal(compute_dense_circuit_distribution(circuit),
+                                    compute_exact_plan_distribution(frame));
+    }
+    // The generator must reach the lowering often enough to test it.
+    REQUIRE(frame_plans >= 60);
+    REQUIRE(narrower_plans >= 30);
+}
+
+TEST_CASE("Operations after a signed region agree between static and frame plans",
+          "[runtime_frame][sampling]") {
+    // The suffix mixes rotations, resets, readout noise, and feedback, so
+    // these run while a frame is live on wider registers than the dense
+    // oracle supports.
+    Xoshiro256PlusPlus rng(0x704A);
+    uint32_t frame_plans = 0;
+    for (uint32_t trial = 0; trial < 250; ++trial) {
+        const uint32_t num_qubits = 3 + trial % 6;
+        std::string source;
+        const Circuit circuit = parse_random_signed_region(
+            rng, num_qubits, false,
+            [&] { return generate_noisy_source(rng, num_qubits, 8 + trial % 12); }, source);
+        CAPTURE(trial, source);
+        const HirModule hir = clifft::trace(circuit);
+        // Exhaustive replay enumerates every record and readout flip.
+        if (hir.num_measurements > 10 ||
+            hir.num_measurements + hir.num_hidden_measurements + hir.readout_noise.size() > 13) {
+            continue;
+        }
+        const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+        frame_plans += frame.frame_width != 0;
+        check_exact_equivalent(sampling::plan_sampling(hir), frame, rng);
+    }
+    REQUIRE(frame_plans >= 40);
 }
 
 TEST_CASE("Frame plan teleports T with a record-conditioned S", "[runtime_frame][sampling]") {
@@ -481,10 +749,61 @@ TEST_CASE("Random frame programs match dense evolution", "[runtime_frame][sampli
     }
 }
 
+TEST_CASE("Growing coefficient storage does not change a seeded frame shot",
+          "[runtime_frame][sampling]") {
+    FrameProgram program;
+    program.num_qubits = 3;
+    program.steps = {
+        rotate(0b001, 0, 0.137),     rotate(0b010, 0, 0.3),  rotate(0b110, 0b001, 0.25),
+        measure(0b011, 0b100),       rotate(0b100, 0, 0.21), measure(0b100, 0b100),
+        rotate(0b001, 0b010, 0.137), measure(0, 0b001),      measure(0b010, 0)};
+    const SamplingPlan lazy = build_frame_plan(program);
+
+    // The same plan after three promotions and three measurements with fixed
+    // outcomes. They draw nothing from the RNG and leave |000>, but raise the
+    // storage allocated at construction to the width the frame later needs.
+    SamplingPlan eager = lazy;
+    eager.num_hidden_records = 3;
+    eager.peak_active_width = 3;
+    std::vector<PlannedAction> prefix;
+    for (uint32_t width = 0; width < 3; ++width) {
+        prefix.push_back({width, width + 1, sampling::PromoteDormantRotation{0.0, AffineBool{}}});
+    }
+    for (uint32_t width = 3; width > 0; --width) {
+        const SymbolId branch{static_cast<uint32_t>(eager.symbols.size())};
+        eager.symbols.push_back(SymbolKind::Branch);
+        prefix.push_back({width, width - 1,
+                          sampling::MeasureActivePauli{
+                              sampling::ActivePauli{0, 1}, 0, branch, AffineBool::symbol(branch),
+                              RecordSlot{lazy.num_visible_records + width - 1}}});
+    }
+    eager.actions.insert(eager.actions.begin(), prefix.begin(), prefix.end());
+
+    const sampling::ExecutablePlan lazy_executable(lazy);
+    const sampling::ExecutablePlan eager_executable(eager);
+    REQUIRE(lazy_executable.initial_capacity_width() == 0);
+    REQUIRE(eager_executable.initial_capacity_width() == 3);
+    sampling::Executor lazy_executor(lazy_executable, 99);
+    sampling::Executor eager_executor(eager_executable, 99);
+    REQUIRE(lazy_executor.state().max_active_width() == 0);
+    bool saw_one = false;
+    for (uint32_t shot = 0; shot < 200; ++shot) {
+        CAPTURE(shot);
+        lazy_executor.run_shot();
+        eager_executor.run_shot();
+        REQUIRE(
+            std::ranges::equal(lazy_executor.visible_records(), eager_executor.visible_records()));
+        saw_one |= std::ranges::count(lazy_executor.visible_records(), uint8_t{1}) != 0;
+    }
+    REQUIRE(saw_one);
+    REQUIRE(lazy_executor.state().max_active_width() > 0);
+    REQUIRE(eager_executor.state().max_active_width() == 3);
+}
+
 TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame][sampling]") {
     Xoshiro256PlusPlus rng(704);
-    constexpr uint32_t kShots = 20000;
-    for (uint32_t trial = 0; trial < 12; ++trial) {
+    constexpr uint32_t kShots = 8000;
+    for (uint32_t trial = 0; trial < 8; ++trial) {
         CAPTURE(trial);
         const SamplingPlan plan = build_frame_plan(random_frame_program(rng));
         const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);

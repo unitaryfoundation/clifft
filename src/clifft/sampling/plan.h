@@ -358,7 +358,8 @@ struct PlannedAction {
     // Validation checks that adjacent actions form one continuous width chain.
     // From the first frame action on, each shot decides its own width and
     // these fields hold an upper bound: a frame rotation can add one active
-    // coordinate, and no later action is assumed to remove one.
+    // coordinate, and no later action is assumed to remove one. Executors
+    // allocate for the width at the first frame action and grow on demand.
     uint32_t active_before = 0;
     uint32_t active_after = 0;
     SamplingAction action;

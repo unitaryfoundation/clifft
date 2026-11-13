@@ -12,6 +12,8 @@
 #include <cmath>
 #include <limits>
 #include <numbers>
+#include <stdexcept>
+#include <string>
 
 namespace clifft::sampling {
 
@@ -38,7 +40,7 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
     : root_plan_(&plan),
       plan_(&plan),
       output_mode_(output_mode),
-      state_(plan.peak_active_width_, plan.initial_active_width_,
+      state_(plan.initial_capacity_width(), plan.initial_active_width_,
              resolve_intra_shot_workers(plan, intra_shot_workers, intra_shot_min_active_width),
              intra_shot_min_active_width),
       symbols_(plan.num_symbols_, 0),
@@ -60,30 +62,61 @@ Executor::Executor(const ExecutablePlan& plan, uint64_t seed, uint32_t intra_sho
     }
 }
 
-void Executor::run_shot() noexcept {
+template <typename Attempt>
+ReplayResult Executor::run_with_activation(Attempt&& attempt) {
+    if (!frame_.has_value()) {
+        return attempt();
+    }
+    // A shot that outgrows its storage stops before the promotion changes the
+    // frame or coefficients. Repeating it from the same RNG position gives the
+    // result it would have had with enough storage from the start.
+    const Xoshiro256PlusPlus start = rng_;
+    for (;;) {
+        const ReplayResult result = attempt();
+        if (!frame_->needs_storage) {
+            return result;
+        }
+        frame_->needs_storage = false;
+        const uint32_t required = state_.active_width() + 1;
+        if (required >= kDenseActiveWidthLimit) {
+            throw std::overflow_error("sampling executor active width would reach " +
+                                      std::to_string(required) + ", but the dense-state limit is " +
+                                      std::to_string(kDenseActiveWidthLimit));
+        }
+        state_.ensure_capacity(required);
+        rng_ = start;
+    }
+}
+
+void Executor::run_shot() {
     plan_ = root_plan_;
     assert(plan_->num_unbound_presampled_symbols_ == 0 &&
            "automatic execution requires every presampled symbol to have a distribution");
-    reset_shot();
-    if (!plan_->noise_action_deadlines_.empty()) {
-        advance_lazy_noise(0);
-    } else {
-        sample_presampled_noise(0, plan_->initial_noise_end_);
-    }
-    (void)execute_actions_for_backend<ShotMode::SampleNoise>({});
+    (void)run_with_activation([&]() noexcept {
+        reset_shot();
+        if (!plan_->noise_action_deadlines_.empty()) {
+            advance_lazy_noise(0);
+        } else {
+            sample_presampled_noise(0, plan_->initial_noise_end_);
+        }
+        return execute_actions_for_backend<ShotMode::SampleNoise>({});
+    });
 }
 
-void Executor::run_shot(std::span<const uint8_t> presampled_values) noexcept {
+void Executor::run_shot(std::span<const uint8_t> presampled_values) {
     plan_ = root_plan_;
-    reset_shot();
-    assign_presampled_values(presampled_values);
-    (void)execute_actions_for_backend<ShotMode::UsePresampledNoise>({});
+    (void)run_with_activation([&]() noexcept {
+        reset_shot();
+        assign_presampled_values(presampled_values);
+        return execute_actions_for_backend<ShotMode::UsePresampledNoise>({});
+    });
 }
 
 void Executor::run_shot(std::span<const uint8_t> presampled_values,
                         std::span<const ReadoutNoiseInput> readout_inputs) noexcept {
     plan_ = root_plan_;
-    assert(!plan_->has_instruments_ && "external inputs require a fixed plan");
+    assert(!plan_->has_instruments_ && !frame_.has_value() &&
+           "external inputs require a fixed plan without a runtime Clifford frame");
     assert(readout_inputs.size() == plan_->num_readout_noise_sites_);
     reset_shot();
     assign_presampled_values(presampled_values);
@@ -94,6 +127,7 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values,
 
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     plan_ = root_plan_;
+    assert(!frame_.has_value() && "fixed-fault execution has no runtime Clifford frame support");
     assert(fault_sampler.num_sites() ==
                plan_->noise_sites_.size() + plan_->num_readout_noise_sites_ &&
            "conditioned sampler must cover every quantum and readout fault site");
@@ -196,16 +230,18 @@ void Executor::return_to_root_plan() noexcept {
 }
 
 ReplayResult Executor::replay_shot(std::span<const uint8_t> forced_records,
-                                   std::span<const uint8_t> presampled_values) noexcept {
+                                   std::span<const uint8_t> presampled_values) {
     plan_ = root_plan_;
     assert(forced_records.size() ==
                static_cast<size_t>(plan_->num_visible_records_) + plan_->num_hidden_records_ &&
            "one forced value is required for every plan record");
     assert(std::ranges::all_of(forced_records, [](uint8_t value) { return value <= 1; }) &&
            "forced records must be Boolean");
-    reset_shot();
-    assign_presampled_values(presampled_values);
-    return execute_actions_for_backend<ShotMode::ReplayRecords>(forced_records);
+    return run_with_activation([&]() noexcept {
+        reset_shot();
+        assign_presampled_values(presampled_values);
+        return execute_actions_for_backend<ShotMode::ReplayRecords>(forced_records);
+    });
 }
 
 void Executor::reset_shot() noexcept {
@@ -756,8 +792,13 @@ void Executor::execute_action(const ExecutablePlan::ExecuteFrameRotation& action
     const bool sign = evaluate(action.sign) ^ axis.sign();
     const uint32_t width = state_.active_width();
     if (const auto dormant = OnlineFrame::dormant_x(axis, width)) {
-        assert(width < state_.max_active_width() &&
-               "the planned width bound must cover every frame promotion");
+        if (width == state_.max_active_width()) {
+            // Activation boundary. Stopping like a discarded shot keeps the
+            // dispatch loop free of another test.
+            frame_->needs_storage = true;
+            discarded_ = true;
+            return;
+        }
         frame_->frame.promote(axis, *dormant, width);
         apply_promotion(state_, action.rotation, sign);
         return;
