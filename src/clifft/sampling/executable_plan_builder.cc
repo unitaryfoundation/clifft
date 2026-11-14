@@ -427,7 +427,14 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
                         records[typed.record] = expand(typed.outcome);
                     } else if constexpr (std::is_same_v<T,
                                                         ExecutablePlan::ExecuteSymbolDefinition>) {
-                        symbols[typed.symbol] = expand(typed.value);
+                        if (input.uses_runtime_frame()) {
+                            // A frame plan names a long sign once so that many
+                            // conditional Cliffords can share it. Keep the name.
+                            typed.value = prepare(expand(typed.value));
+                            append(typed);
+                        } else {
+                            symbols[typed.symbol] = expand(typed.value);
+                        }
                     } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
                         records[typed.record] ^= AffineBool::symbol(SymbolId{typed.flip});
                         typed.source = prepare(expand(typed.source));
