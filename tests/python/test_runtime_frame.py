@@ -2,11 +2,14 @@
 
 The planner option is internal. These tests reach it through the private
 ``_lower_runtime_frame`` binding and compare its programs with ordinary ones
-through the public sampling functions.
+and with Qiskit Aer through the public sampling functions.
 """
 
 import numpy as np
 import pytest
+from qiskit_aer import AerSimulator
+from qiskit_aer.noise import pauli_error
+from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
 from clifft._clifft_core import _lower_runtime_frame
@@ -27,6 +30,15 @@ SIGNED_PAIR = (
 
 # The same structure where the sign comes from a random stabilizer outcome.
 RANDOM_OUTCOME = "H 0 1\nMPP Z0*Z1\nT 0\nT_DAG 1\nH 0 1\nM 0 1\n"
+
+# Each case prepares a stabilizer state, measures a Z-product parity whose
+# outcome is random, and applies diagonal gates whose rotation signs depend on
+# that outcome: (qubits, preparation, parity qubits, gates after the parity).
+PARITY_CASES = {
+    "t-pair": (2, "H 0 1", (0, 1), "T 0\nT_DAG 1\nH 0 1"),
+    "ccz": (3, "H 0 1 2", (0, 1), "CCZ 0 1 2\nH 0 1 2"),
+    "ccz-and-t": (4, "H 0 1 2 3\nCX 2 3", (0, 1), "CCZ 0 1 2\nT 3\nH 0 1 2 3"),
+}
 
 
 def _programs(text: str, postselection_mask: list[int] | None = None) -> tuple:
@@ -104,6 +116,52 @@ def test_record_probabilities_match_the_ordinary_plan() -> None:
     actual = clifft.record_probabilities(frame, records)
     np.testing.assert_allclose(actual, expected, atol=1e-12)
     assert actual.sum() == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize(
+    "num_qubits,preparation,parity,gates", PARITY_CASES.values(), ids=PARITY_CASES.keys()
+)
+def test_record_probabilities_match_qiskit(
+    num_qubits: int, preparation: str, parity: tuple[int, ...], gates: str
+) -> None:
+    """Aer runs the same circuit with the parity copied onto an ancilla."""
+    qubits = " ".join(map(str, range(num_qubits)))
+    product = "*".join(f"Z{q}" for q in parity)
+    fixed, frame = _programs(f"{preparation}\nMPP {product}\n{gates}\nM {qubits}")
+    assert frame.peak_active_width < fixed.peak_active_width
+
+    ancilla = num_qubits
+    copies = " ".join(f"{q} {ancilla}" for q in parity)
+    amplitudes = qiskit_statevector(
+        stim_to_qiskit_noiseless(f"{preparation}\nCX {copies}\n{gates}")
+    )
+    # Record 0 is the parity outcome and record 1 + q is the final measurement
+    # of qubit q. Aer's basis index holds qubit q in bit q and the ancilla on top.
+    records = [
+        str(index >> num_qubits) + "".join(str((index >> q) & 1) for q in range(num_qubits))
+        for index in range(2 << num_qubits)
+    ]
+    actual = clifft.record_probabilities(frame, records)
+    np.testing.assert_allclose(actual, np.abs(amplitudes) ** 2, atol=1e-12)
+
+
+def test_noisy_region_matches_qiskit_density_matrix() -> None:
+    """A bit flip decides whether the CCZ acts as a CZ or as the identity."""
+    preparation, gates, flip = "H 0 2\nCX 0 1", "CCZ 0 1 2\nH 0 1 2", 0.3
+    fixed, frame = _programs(f"{preparation}\nX_ERROR({flip}) 1\n{gates}\nM 0 1 2")
+    assert frame.peak_active_width < fixed.peak_active_width
+
+    circuit = stim_to_qiskit_noiseless(preparation)
+    circuit.append(pauli_error([("X", flip), ("I", 1 - flip)]), [1])
+    circuit = circuit.compose(stim_to_qiskit_noiseless(gates))
+    circuit.save_probabilities()
+    result = AerSimulator(method="density_matrix").run(circuit, shots=1).result()
+    expected = np.asarray(result.data()["probabilities"])
+
+    shots = 200_000
+    frequencies = _pattern_counts(clifft.sample(frame, shots, seed=7).measurements) / shots
+    sigma = np.sqrt(expected * (1 - expected) / shots)
+    assert np.all(np.abs(frequencies - expected) <= 6 * sigma)
 
 
 def test_fixed_fault_sampling_rejects_frame_plans() -> None:
