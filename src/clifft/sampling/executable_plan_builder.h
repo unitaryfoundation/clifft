@@ -49,6 +49,19 @@ class ExecutablePlanBuilder {
     void record_batch_lane_work(batch_detail::BatchWorkEstimate work);
     // Appends one frame Pauli to the plan's packed storage and returns its index.
     [[nodiscard]] uint32_t store_frame_pauli(const FramePauli& pauli);
+
+    // The leading run of frame actions that are mutually commuting conditional
+    // Cliffords. A Pauli commutes with every earlier one exactly when it
+    // commutes with a basis of their span, kept here in echelon form with each
+    // row holding X words followed by Z words.
+    struct CommutingFramePrefix {
+        bool open = true;
+        std::vector<std::vector<uint64_t>> basis;
+        std::vector<uint32_t> pivots;
+
+        // Adds the Pauli and returns true, or closes the run and returns false.
+        [[nodiscard]] bool extend(const FramePauli& pauli);
+    };
     void record_action_origin(uint32_t plan_begin, uint32_t plan_end);
     static void prepare_batch_compaction_costs(ExecutablePlan& output,
                                                std::span<const batch_detail::BatchLaneWork> work);
@@ -115,6 +128,7 @@ class ExecutablePlanBuilder {
     ExecutorBackend backend_ = ExecutorBackend::Scalar;
     ExpressionInterner expressions_;
     std::vector<uint32_t> boundary_noise_starts_;
+    CommutingFramePrefix frame_prefix_;
     std::vector<uint8_t> bound_presampled_symbols_;
     std::vector<uint32_t> symbol_first_actions_;
     batch_detail::BatchWorkEstimate estimated_batch_lane_work_;

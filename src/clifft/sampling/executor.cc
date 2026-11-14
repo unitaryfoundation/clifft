@@ -787,7 +787,15 @@ PauliStringView Executor::map_frame_pauli(uint32_t pauli) noexcept {
 
 void Executor::execute_action(const ExecutablePlan::ExecuteFrameClifford& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
-    if (evaluate(action.condition)) {
+    if (!evaluate(action.condition)) {
+        return;
+    }
+    if (action.fixed_by_frame) {
+        assert(frame_.has_value() && frame_->running &&
+               "frame actions run through run_frame_shot or replay_frame_shot");
+        frame_->changed = true;
+        frame_->frame.rotate_fixed_clifford(plan_->frame_pauli(action.pauli), action.rotation);
+    } else {
         frame_->frame.rotate_clifford(map_frame_pauli(action.pauli), action.rotation);
     }
 }

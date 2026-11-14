@@ -304,14 +304,36 @@ class OnlineFrame {
         if (rotation == CliffordRotation::IDENTITY)
             return;
         for (auto& row : rows) {
-            if (row.view().commutes(p))
-                continue;
-            if (rotation == CliffordRotation::PAULI) {
-                row.negate();
-            } else {
-                row.right_multiply(p);
-                row.add_phase(rotation == CliffordRotation::SQRT ? 3 : 1);
-            }
+            if (!row.view().commutes(p))
+                rotate_row(row, p, rotation);
+        }
+    }
+    // rotate_clifford for an input Pauli p when the frame so far is the
+    // identity composed with rotations that commute with p. The frame then
+    // maps p to itself, and a row anticommutes with p exactly when its
+    // generator does: the X_q image where p has Z on q, the Z_q image where p
+    // has X on q. Only those rows change.
+    void rotate_fixed_clifford(PauliStringView p, CliffordRotation rotation) noexcept {
+        assert(rotation != CliffordRotation::IDENTITY);
+        for (uint32_t w = 0; w < p.x().num_words(); ++w) {
+            for (uint64_t bits = p.z().words[w]; bits != 0; bits &= bits - 1)
+                rotate_row(rows[64 * w + static_cast<uint32_t>(std::countr_zero(bits))], p,
+                           rotation);
+            for (uint64_t bits = p.x().words[w]; bits != 0; bits &= bits - 1)
+                rotate_row(rows[n + 64 * w + static_cast<uint32_t>(std::countr_zero(bits))], p,
+                           rotation);
+        }
+    }
+
+  private:
+    // Conjugates a row that anticommutes with p by the rotation about p.
+    static void rotate_row(PauliString& row, PauliStringView p,
+                           CliffordRotation rotation) noexcept {
+        if (rotation == CliffordRotation::PAULI) {
+            row.negate();
+        } else {
+            row.right_multiply(p);
+            row.add_phase(rotation == CliffordRotation::SQRT ? 3 : 1);
         }
     }
 };
