@@ -23,11 +23,13 @@
 #include "clifft/util/numeric.h"
 
 #include <array>
+#include <concepts>
 #include <cstdint>
 #include <limits>
 #include <optional>
 #include <span>
 #include <string>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -345,6 +347,12 @@ struct InstrumentBoundary {
     InstrumentSiteId site{};
     uint32_t next_noise_site = 0;
     uint32_t symbol_prefix_size = 0;
+};
+
+// Frame actions are the alternatives that name a Pauli on frame coordinates.
+template <typename T>
+concept FrameAction = requires(std::remove_cvref_t<T> action) {
+    { action.pauli } -> std::same_as<FramePauli&>;
 };
 
 using SamplingAction =

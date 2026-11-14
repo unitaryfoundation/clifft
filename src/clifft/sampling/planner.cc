@@ -677,7 +677,6 @@ class FrameRegions {
           symbolic_frame_(symbolic_frame),
           num_hir_symbols_(num_hir_symbols) {}
 
-    [[nodiscard]] bool live() const { return live_; }
     // True when a rotation emitted without the frame promoted a coordinate.
     [[nodiscard]] bool promoted() const { return promoted_; }
 
@@ -705,31 +704,25 @@ class FrameRegions {
         pending_.push_back({operation, half_turns, std::move(op_sign), entry_parity(x, z)});
     }
 
-    // Emits the held-back region. Every other operation that reads or changes
-    // the quantum state calls this first.
-    void flush() {
+    // Emits the held-back region and returns whether a frame is live. Every
+    // other operation that reads or changes the quantum state calls this
+    // first and plans itself as a frame action when the result is true.
+    bool flush() {
         if (pending_.empty()) {
-            return;
+            return live_;
         }
         const size_t lowered = lower_region();
         for (size_t i = lowered; i < pending_.size(); ++i) {
             const PendingRotation& rotation = pending_[i];
-            const auto lines = source_lines(rotation.operation);
-            Pauli body = current_axis(rotation);
-            AffineBool sign = full_sign(rotation) ^ body.sign();
-            body.set_sign(false);
-            if (live_) {
-                rotate({std::move(body), std::move(sign)}, rotation.half_turns, lines);
-            } else {
-                promoted_ |= emit_rotation({std::move(body), std::move(sign)}, rotation.half_turns,
-                                           plan_, active_width_, coordinates_, lines);
-            }
+            emit(current_axis(rotation), full_sign(rotation), rotation.half_turns,
+                 source_lines(rotation.operation));
         }
         pending_.clear();
         entry_rows_.clear();
         entry_signs_.clear();
         entry_symbols_.clear();
         updates_.reset();
+        return live_;
     }
 
     // A rotation after the frame is live. X support outside the frame adds
@@ -799,7 +792,7 @@ class FrameRegions {
         for (PlannedAction& planned : plan_.actions) {
             std::visit(
                 [&](auto& typed) {
-                    if constexpr (requires { typed.pauli.x.resize(words); }) {
+                    if constexpr (FrameAction<decltype(typed)>) {
                         typed.pauli.x.resize(words);
                         typed.pauli.z.resize(words);
                         has_frame_action = true;
@@ -838,6 +831,20 @@ class FrameRegions {
     [[nodiscard]] Pauli current_axis(const PendingRotation& rotation) {
         const HeisenbergOp& op = hir_.ops[rotation.operation];
         return coordinates_.to_current(hir_.destab_mask(op), hir_.stab_mask(op));
+    }
+
+    // Emits a rotation about a signed current-coordinate Pauli: a frame
+    // rotation once a frame is live, a static action before.
+    void emit(Pauli body, AffineBool sign, double half_turns, std::span<const uint32_t> lines) {
+        sign ^= body.sign();
+        body.set_sign(false);
+        ResolvedPauli resolved{std::move(body), std::move(sign)};
+        if (live_) {
+            rotate(std::move(resolved), half_turns, lines);
+        } else {
+            promoted_ |= emit_rotation(std::move(resolved), half_turns, plan_, active_width_,
+                                       coordinates_, lines);
+        }
     }
 
     // Expresses the sign that the symbolic frame at region entry gives a
@@ -1029,17 +1036,8 @@ class FrameRegions {
             if (phase.t == 0) {
                 continue;
             }
-            Pauli body = coordinates_.to_current(phase.axis);
-            ResolvedPauli resolved{Pauli(n), AffineBool(body.sign())};
-            body.set_sign(false);
-            resolved.body = std::move(body);
-            const double half_turns = phase.t == 7 ? -0.25 : 0.25;
-            if (live_) {
-                rotate(std::move(resolved), half_turns, region_lines);
-            } else {
-                promoted_ |= emit_rotation(std::move(resolved), half_turns, plan_, active_width_,
-                                           coordinates_, region_lines);
-            }
+            emit(coordinates_.to_current(phase.axis), AffineBool(), phase.t == 7 ? -0.25 : 0.25,
+                 region_lines);
         }
 
         // Clifford correction. Its rotations commute, so one basis change
@@ -1270,10 +1268,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 break;
             }
             case OpType::PHASE_ROTATION: {
-                if (regions) {
-                    regions->flush();
-                }
-                if (regions && regions->live()) {
+                if (regions && regions->flush()) {
                     regions->rotate(resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
                                                   noise_signs.sign_for(i, next_noise_site),
                                                   coordinates, symbolic_frame),
@@ -1289,10 +1284,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
             case OpType::MEASURE: {
                 const RecordSlot record{static_cast<uint32_t>(op.meas_record_idx())};
                 const SymbolId branch = reserve_symbol(plan);
-                if (regions) {
-                    regions->flush();
-                }
-                if (regions && regions->live()) {
+                if (regions && regions->flush()) {
                     assign_record(
                         record,
                         regions->measure(resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
