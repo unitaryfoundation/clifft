@@ -52,9 +52,8 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       frame_width_(plan.frame_width) {
     frame_entry_peak_width_ = initial_active_width_;
     for (const PlannedAction& planned : plan.actions) {
-        if (std::holds_alternative<ApplyConditionalClifford>(planned.action) ||
-            std::holds_alternative<RotateFramePauli>(planned.action) ||
-            std::holds_alternative<MeasureFramePauli>(planned.action)) {
+        if (std::visit([](const auto& typed) { return FrameAction<decltype(typed)>; },
+                       planned.action)) {
             break;
         }
         frame_entry_peak_width_ = std::max(frame_entry_peak_width_, planned.active_after);
