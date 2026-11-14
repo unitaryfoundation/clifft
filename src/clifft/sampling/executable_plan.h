@@ -7,6 +7,7 @@
 #include "clifft/sampling/outputs.h"
 #include "clifft/sampling/plan.h"
 
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -168,6 +169,16 @@ class ExecutablePlan {
         return MaskView{std::span<const uint64_t>(frame_paulis_)
                             .subspan((size_t{2} * pauli + 1) * frame_words(), frame_words())};
     }
+    // The stored unsigned Hermitian Pauli on frame coordinates.
+    [[nodiscard]] PauliStringView frame_pauli(uint32_t pauli) const noexcept {
+        const MaskView x = frame_pauli_x(pauli);
+        const MaskView z = frame_pauli_z(pauli);
+        unsigned y_count = 0;
+        for (uint32_t w = 0; w < x.num_words(); ++w) {
+            y_count += static_cast<unsigned>(std::popcount(x.words[w] & z.words[w]));
+        }
+        return PauliStringView(x, z, static_cast<uint8_t>(y_count & 3U), frame_width_);
+    }
 
     // Actions retain only this index so repeated affine expressions stay in
     // shared plan storage.
@@ -266,6 +277,10 @@ class ExecutablePlan {
         PreparedExpression condition;
         uint32_t pauli = 0;
         CliffordRotation rotation = CliffordRotation::IDENTITY;
+        // True when every earlier frame action is a conditional Clifford that
+        // commutes with this one. The frame then maps this Pauli to itself, so
+        // the rotation applies to it directly and touches only its support.
+        bool fixed_by_frame = false;
     };
 
     struct ExecuteFrameRotation {

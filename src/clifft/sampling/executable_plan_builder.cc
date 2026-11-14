@@ -858,12 +858,14 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
             } else if constexpr (std::is_same_v<T, ApplyConditionalClifford>) {
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameClifford{
                     prepare_expression(typed.condition), store_frame_pauli(typed.pauli),
-                    typed.rotation});
+                    typed.rotation, frame_prefix_.extend(typed.pauli)});
             } else if constexpr (std::is_same_v<T, RotateFramePauli>) {
+                frame_prefix_.open = false;
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameRotation{
                     prepare_promotion(typed.half_turns), prepare_expression(typed.sign),
                     store_frame_pauli(typed.pauli)});
             } else if constexpr (std::is_same_v<T, MeasureFramePauli>) {
+                frame_prefix_.open = false;
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameMeasurement{
                     prepare_measurement_correction(typed.outcome, index(typed.branch)),
                     index(typed.branch), index(typed.record), store_frame_pauli(typed.pauli)});
@@ -874,6 +876,41 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
         planned.action);
     record_batch_lane_work(
         action_batch_lane_work(output_, output_.actions_.back(), planned.active_before));
+}
+
+bool ExecutablePlanBuilder::CommutingFramePrefix::extend(const FramePauli& pauli) {
+    if (!open) {
+        return false;
+    }
+    const size_t words = pauli.x.size();
+    for (const std::vector<uint64_t>& row : basis) {
+        unsigned parity = 0;
+        for (size_t w = 0; w < words; ++w) {
+            parity ^= static_cast<unsigned>(
+                std::popcount((pauli.x[w] & row[words + w]) ^ (pauli.z[w] & row[w])));
+        }
+        if ((parity & 1U) != 0) {
+            open = false;
+            return false;
+        }
+    }
+    std::vector<uint64_t> reduced(pauli.x);
+    reduced.insert(reduced.end(), pauli.z.begin(), pauli.z.end());
+    for (size_t i = 0; i < basis.size(); ++i) {
+        if (((reduced[pivots[i] / 64] >> (pivots[i] % 64)) & 1U) != 0) {
+            for (size_t w = 0; w < reduced.size(); ++w) {
+                reduced[w] ^= basis[i][w];
+            }
+        }
+    }
+    for (size_t w = 0; w < reduced.size(); ++w) {
+        if (reduced[w] != 0) {
+            pivots.push_back(static_cast<uint32_t>(64 * w + std::countr_zero(reduced[w])));
+            basis.push_back(std::move(reduced));
+            break;
+        }
+    }
+    return true;
 }
 
 uint32_t ExecutablePlanBuilder::store_frame_pauli(const FramePauli& pauli) {

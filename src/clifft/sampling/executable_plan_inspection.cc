@@ -239,7 +239,8 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                                             frame_pauli_z(typed.pauli).words)
                     << " half_turns="
                     << format_double_roundtrip(0.5 * static_cast<double>(typed.rotation))
-                    << " condition=e" << typed.condition.register_id;
+                    << " condition=e" << typed.condition.register_id
+                    << " kernel=" << (typed.fixed_by_frame ? "support" : "mapped");
             },
             [&](const ExecuteFrameRotation& typed) {
                 out << "FRAME_ROTATION "

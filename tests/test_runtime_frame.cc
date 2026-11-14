@@ -741,6 +741,36 @@ TEST_CASE("Conditional Clifford equals a sign flip on a T rotation", "[runtime_f
                                 compute_exact_plan_distribution(build_frame_plan(split)));
 }
 
+TEST_CASE("Leading commuting conditional Cliffords skip the frame map",
+          "[runtime_frame][sampling]") {
+    // X0*X1 and Z0*Z1 commute, so the frame still fixes both. Z0 anticommutes
+    // with X0*X1, which ends the run for it and for everything after it.
+    FrameProgram program;
+    program.num_qubits = 3;
+    program.noise_probabilities = {0.3, 0.4};
+    program.steps = {rotate(0b011, 0, 0.5, {}, {0}),
+                     rotate(0, 0b011, 1.5, {}, {1}),
+                     rotate(0b100, 0b100, 1.0, {}, {0, 1}),
+                     rotate(0, 0b001, 0.5, {}, {0}),
+                     rotate(0b011, 0, 1.5, {}, {1}),
+                     measure(0b001, 0b010),
+                     rotate(0b100, 0, 0.5, {}, {0}),
+                     measure(0b010, 0b001),
+                     measure(0b100, 0)};
+    check_frame_program(program);
+
+    const sampling::ExecutablePlan executable(build_frame_plan(program));
+    const auto uses_support = [&](size_t action) {
+        return executable.inspect_action(action).find("kernel=support") != std::string::npos;
+    };
+    REQUIRE(uses_support(0));
+    REQUIRE(uses_support(1));
+    REQUIRE(uses_support(2));
+    REQUIRE_FALSE(uses_support(3));
+    REQUIRE_FALSE(uses_support(4));
+    REQUIRE_FALSE(uses_support(6));
+}
+
 TEST_CASE("Random frame programs match dense evolution", "[runtime_frame][sampling]") {
     Xoshiro256PlusPlus rng(20261113);
     for (uint32_t trial = 0; trial < 300; ++trial) {
