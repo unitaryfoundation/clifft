@@ -638,6 +638,10 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
 // Region axes are tracked as multiword parity masks of this many bits.
 constexpr uint32_t kMaxRegionAxes = 128;
 
+// An entry sign with more terms than this is named by one derived symbol that
+// every conditional Clifford needing it shares.
+constexpr size_t kInlineEntrySignTerms = 16;
+
 // Plans T regions and later operations for SamplingPlanOptions::runtime_frame.
 //
 // T rotations are held back while they commute, so a region can be reduced as
@@ -653,20 +657,36 @@ constexpr uint32_t kMaxRegionAxes = 128;
 // actions on a runtime frame. A region without such factors is reduced the
 // same way and needs no frame. Once a frame is live, each shot decides which
 // frame coordinates are active, so later coefficient work on them is planned
-// as frame actions and active_width is an upper bound.
+// as frame actions and active_width is an upper bound. A later region is
+// reduced again only when it does not touch the frame's coordinates.
+//
+// Signs are kept factored while a region is held back. The symbolic frame at
+// region entry contributes one sign per independent axis, and every other
+// axis is a parity of those; updates made inside the region are tracked
+// separately. A state-preparation history shared by a thousand rotations is
+// then stored once per independent axis instead of once per rotation.
 class FrameRegions {
   public:
     FrameRegions(const HirModule& hir, SamplingPlan& plan, uint32_t& active_width,
-                 CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame)
+                 CoordinateFrame& coordinates, SymbolicPauliFrame& symbolic_frame,
+                 uint32_t num_hir_symbols)
         : hir_(hir),
           plan_(plan),
           active_width_(active_width),
           coordinates_(coordinates),
-          symbolic_frame_(symbolic_frame) {}
+          symbolic_frame_(symbolic_frame),
+          num_hir_symbols_(num_hir_symbols) {}
 
     [[nodiscard]] bool live() const { return live_; }
     // True when a rotation emitted without the frame promoted a coordinate.
     [[nodiscard]] bool promoted() const { return promoted_; }
+
+    // Mirrors a symbolic-frame update made while a region is held back.
+    void note_frame_update(MaskView x, MaskView z, const AffineBool& condition) {
+        if (updates_.has_value()) {
+            updates_->apply(x, z, condition);
+        }
+    }
 
     // op_sign is the rotation's own sign at its circuit position.
     void add_t_gate(size_t operation, double half_turns, AffineBool op_sign) {
@@ -678,13 +698,11 @@ class FrameRegions {
             })) {
             flush();
         }
-        op_sign ^= symbolic_frame_.sign_for(x, z);
-        PendingRotation rotation{operation, half_turns, std::move(op_sign)};
-        if (live_) {
-            rotate(resolve(rotation), half_turns, source_lines(operation));
-        } else {
-            pending_.push_back(std::move(rotation));
+        if (pending_.empty()) {
+            updates_.emplace(hir_.num_qubits, num_hir_symbols_);
         }
+        op_sign ^= updates_->sign_for(x, z);
+        pending_.push_back({operation, half_turns, std::move(op_sign), entry_parity(x, z)});
     }
 
     // Emits the held-back region. Every other operation that reads or changes
@@ -697,14 +715,21 @@ class FrameRegions {
         for (size_t i = lowered; i < pending_.size(); ++i) {
             const PendingRotation& rotation = pending_[i];
             const auto lines = source_lines(rotation.operation);
+            Pauli body = current_axis(rotation);
+            AffineBool sign = full_sign(rotation) ^ body.sign();
+            body.set_sign(false);
             if (live_) {
-                rotate(resolve(rotation), rotation.half_turns, lines);
+                rotate({std::move(body), std::move(sign)}, rotation.half_turns, lines);
             } else {
-                promoted_ |= emit_rotation(resolve(rotation), rotation.half_turns, plan_,
-                                           active_width_, coordinates_, lines);
+                promoted_ |= emit_rotation({std::move(body), std::move(sign)}, rotation.half_turns,
+                                           plan_, active_width_, coordinates_, lines);
             }
         }
         pending_.clear();
+        entry_rows_.clear();
+        entry_signs_.clear();
+        entry_symbols_.clear();
+        updates_.reset();
     }
 
     // A rotation after the frame is live. X support outside the frame adds
@@ -762,10 +787,13 @@ class FrameRegions {
         return outcome;
     }
 
-    // Records the final frame width and gives every frame Pauli that many
-    // words. A plan whose regions left no frame action needs no frame.
+    // Records the derived symbols and the final frame width, and gives every
+    // frame Pauli that many words. A plan whose regions left no frame action
+    // needs no frame.
     void finish() {
-        assert(pending_.empty());
+        assert(pending_.empty() && plan_.symbols.size() == num_hir_symbols_);
+        plan_.symbols.resize(static_cast<size_t>(num_hir_symbols_) + num_derived_symbols_,
+                             SymbolKind::Derived);
         const size_t words = (static_cast<size_t>(frame_width_) + 63) / 64;
         bool has_frame_action = false;
         for (PlannedAction& planned : plan_.actions) {
@@ -786,8 +814,20 @@ class FrameRegions {
     struct PendingRotation {
         size_t operation = 0;
         double half_turns = 0.0;
-        // Sign of the physical Pauli at the rotation's circuit position.
+        // The rotation's own sign and the symbolic-frame updates made between
+        // region entry and its circuit position.
         AffineBool sign;
+        // Entry signs whose parity completes the sign, as indices into
+        // entry_signs_ held in an AffineBool's term list.
+        AffineBool entry;
+    };
+
+    // One row of the echelon basis over the exact masks of the region's axes.
+    struct EntryRow {
+        Pauli body;
+        uint32_t pivot = 0;
+        // The parity of entry signs that gives this row's sign.
+        AffineBool entry;
     };
 
     [[nodiscard]] std::span<const uint32_t> source_lines(size_t operation) const {
@@ -800,11 +840,78 @@ class FrameRegions {
         return coordinates_.to_current(hir_.destab_mask(op), hir_.stab_mask(op));
     }
 
-    [[nodiscard]] ResolvedPauli resolve(const PendingRotation& rotation) {
-        Pauli body = current_axis(rotation);
-        AffineBool sign = rotation.sign ^ body.sign();
-        body.set_sign(false);
-        return {std::move(body), std::move(sign)};
+    // Expresses the sign that the symbolic frame at region entry gives a
+    // Pauli as a parity of entry signs. The sign is linear in the Pauli's
+    // exact mask, so an axis that is a product of earlier ones reuses theirs,
+    // and an independent axis adds its own. Two axes that differ by a
+    // stabilizer of the reference state are independent here: a fault that
+    // flipped that stabilizer gives them different signs.
+    [[nodiscard]] AffineBool entry_parity(MaskView x, MaskView z) {
+        Pauli body(hir_.num_qubits);
+        body.mut_x().xor_with(x);
+        body.mut_z().xor_with(z);
+        AffineBool parity;
+        for (const EntryRow& row : entry_rows_) {
+            if (optimizer_detail::body_bit(body, row.pivot)) {
+                body.mut_x().xor_with(row.body.x());
+                body.mut_z().xor_with(row.body.z());
+                parity ^= row.entry;
+            }
+        }
+        if (body.x().is_zero() && body.z().is_zero()) {
+            return parity;
+        }
+        // The frame at entry is the current one without the updates since.
+        const AffineBool own =
+            AffineBool::symbol(SymbolId{static_cast<uint32_t>(entry_signs_.size())});
+        entry_signs_.push_back(symbolic_frame_.sign_for(x, z) ^ updates_->sign_for(x, z));
+        const uint32_t pivot = optimizer_detail::pivot_of(body);
+        entry_rows_.push_back({std::move(body), pivot, parity ^ own});
+        return own;
+    }
+
+    // The sign on the reference trajectory, where every symbol is false.
+    [[nodiscard]] bool reference_sign(const PendingRotation& rotation) const {
+        bool sign = rotation.sign.constant();
+        for (SymbolId entry : rotation.entry.terms()) {
+            sign ^= entry_signs_[index(entry)].constant();
+        }
+        return sign;
+    }
+
+    // The complete sign, for a rotation emitted without a conditional Clifford.
+    [[nodiscard]] AffineBool full_sign(const PendingRotation& rotation) const {
+        AffineBool sign = rotation.sign;
+        for (SymbolId entry : rotation.entry.terms()) {
+            sign ^= entry_signs_[index(entry)];
+        }
+        return sign;
+    }
+
+    // The symbol-dependent part of the sign. A long entry sign appears as its
+    // derived symbol, which is defined in the plan on first use.
+    [[nodiscard]] AffineBool sign_condition(const PendingRotation& rotation,
+                                            std::span<const uint32_t> lines) {
+        AffineBool condition = AffineBool::from_canonical_terms(false, rotation.sign.terms());
+        entry_symbols_.resize(entry_signs_.size());
+        for (SymbolId entry : rotation.entry.terms()) {
+            const std::vector<SymbolId>& terms = entry_signs_[index(entry)].terms();
+            if (terms.size() <= kInlineEntrySignTerms) {
+                condition ^= AffineBool::from_canonical_terms(false, terms);
+                continue;
+            }
+            std::optional<SymbolId>& symbol = entry_symbols_[index(entry)];
+            if (!symbol.has_value()) {
+                symbol = SymbolId{num_hir_symbols_ + num_derived_symbols_++};
+                append_action(plan_,
+                              PlannedAction{active_width_, active_width_,
+                                            DefineSymbol{*symbol, AffineBool::from_canonical_terms(
+                                                                      false, terms)}},
+                              lines);
+            }
+            condition ^= AffineBool::symbol(*symbol);
+        }
+        return condition;
     }
 
     // Restriction of a current-coordinate Pauli to the frame coordinates. Z
@@ -823,10 +930,12 @@ class FrameRegions {
     }
 
     // Coordinates that rotating about these physical Paulis in order would
-    // promote, counted on a copy of the coordinate frame.
-    [[nodiscard]] uint32_t count_promotions(std::span<const Pauli> axes) const {
+    // promote, counted on a copy of the coordinate frame. Coordinates from
+    // first_dormant on are dormant.
+    [[nodiscard]] uint32_t count_promotions(std::span<const Pauli> axes,
+                                            uint32_t first_dormant) const {
         CoordinateFrame trial = coordinates_;
-        uint32_t width = active_width_;
+        uint32_t width = first_dormant;
         for (const Pauli& axis : axes) {
             Pauli body = trial.to_current(axis);
             body.set_sign(false);
@@ -835,7 +944,7 @@ class FrameRegions {
                 ++width;
             }
         }
-        return width - active_width_;
+        return width - first_dormant;
     }
 
     // Tries to replace a leading part of the pending region by its reduced T
@@ -843,24 +952,32 @@ class FrameRegions {
     // many rotations that consumed. Zero leaves the plan unchanged.
     size_t lower_region() {
         const uint32_t n = hir_.num_qubits;
-        // The reference state is stabilized by Z on each dormant coordinate
-        // and by nothing known on the active ones.
-        KnownStabilizers dormant;
-        for (uint32_t q = active_width_; q < n; ++q) {
-            Pauli z(n);
-            z.set_pauli(q, false, true);
-            dormant.insert(std::move(z));
-        }
+        // Coordinates below first_dormant hold the active state before a frame
+        // starts and the frame afterwards. The rest are dormant |0>.
+        const uint32_t first_dormant = live_ ? frame_width_ : active_width_;
         std::vector<phase_detail::wide::AxisRotation> rotations;
         std::vector<Pauli> signed_axes;
         rotations.reserve(pending_.size());
         signed_axes.reserve(pending_.size());
         for (const PendingRotation& rotation : pending_) {
             Pauli axis = current_axis(rotation);
+            // The frame's coordinates have no reference state shared by every
+            // shot, so a region that touches them keeps its signed rotations.
+            if (live_ && (last_x_below(axis, frame_width_).has_value() ||
+                          first_z_below(axis, frame_width_).has_value())) {
+                return 0;
+            }
             signed_axes.push_back(coordinates_.to_initial(axis));
-            // The reference trajectory keeps only the constant part of the sign.
-            axis.set_sign(axis.sign() ^ rotation.sign.constant());
+            axis.set_sign(axis.sign() ^ reference_sign(rotation));
             rotations.push_back({std::move(axis), rotation.half_turns < 0});
+        }
+        // The reference state is stabilized by Z on each dormant coordinate
+        // and by nothing known on the others.
+        KnownStabilizers dormant;
+        for (uint32_t q = first_dormant; q < n; ++q) {
+            Pauli z(n);
+            z.set_pauli(q, false, true);
+            dormant.insert(std::move(z));
         }
         phase_detail::wide::Budget budget;
         const auto rewrite =
@@ -869,8 +986,8 @@ class FrameRegions {
             return 0;
         }
 
-        // Physical Paulis stay valid across the coordinate changes below.
-        // A phase exp(-i pi c P / 8) split into c = t + clifford.
+        // Physical Paulis stay valid across the coordinate changes below. A
+        // phase exp(-i pi c P / 8) is split into c = t + clifford.
         struct Phase {
             Pauli axis;
             uint8_t t;         // 0, 1 for T, or 7 for T_DAG
@@ -887,11 +1004,11 @@ class FrameRegions {
                 core_axes.push_back(phases.back().axis);
             }
         }
-        const uint32_t core_promotions = count_promotions(core_axes);
+        const uint32_t core_promotions = count_promotions(core_axes, first_dormant);
         const uint32_t signed_promotions =
-            count_promotions(std::span(signed_axes).first(rewrite->end));
+            count_promotions(std::span(signed_axes).first(rewrite->end), first_dormant);
         if (core_promotions >= signed_promotions ||
-            active_width_ + core_promotions >= kDenseActiveWidthLimit) {
+            (!live_ && active_width_ + core_promotions >= kDenseActiveWidthLimit)) {
             return 0;
         }
 
@@ -906,22 +1023,28 @@ class FrameRegions {
             region_lines.erase(duplicates.begin(), duplicates.end());
         }
 
-        // T core with reference signs, using the ordinary static actions.
+        // T core with reference signs: ordinary static actions before a frame
+        // starts, frame rotations with a fixed sign once one is live.
         for (const Phase& phase : phases) {
             if (phase.t == 0) {
                 continue;
             }
             Pauli body = coordinates_.to_current(phase.axis);
-            AffineBool sign(body.sign());
+            ResolvedPauli resolved{Pauli(n), AffineBool(body.sign())};
             body.set_sign(false);
-            promoted_ |=
-                emit_rotation({std::move(body), std::move(sign)}, phase.t == 7 ? -0.25 : 0.25,
-                              plan_, active_width_, coordinates_, region_lines);
+            resolved.body = std::move(body);
+            const double half_turns = phase.t == 7 ? -0.25 : 0.25;
+            if (live_) {
+                rotate(std::move(resolved), half_turns, region_lines);
+            } else {
+                promoted_ |= emit_rotation(std::move(resolved), half_turns, plan_, active_width_,
+                                           coordinates_, region_lines);
+            }
         }
 
         // Clifford correction. Its rotations commute, so one basis change
-        // applies them all: the coefficients and dormant |0> coordinates keep
-        // their values in the rotated coordinates.
+        // applies them all: the coefficients, the frame, and the dormant |0>
+        // coordinates keep their values in the rotated coordinates.
         Tableau correction(n);
         bool has_correction = false;
         for (const Phase& phase : phases) {
@@ -940,25 +1063,31 @@ class FrameRegions {
             coordinates_.change_basis(correction);
         }
 
-        // Give each sign-dependent axis an X generator inside the frame. The
-        // frame starts on the active coordinates and grows by one dormant
-        // coordinate per independent axis outside them.
-        uint32_t width = active_width_;
+        // Give each sign-dependent axis an X generator inside the frame. A new
+        // frame starts on the active coordinates; either way it grows by one
+        // dormant coordinate per independent axis outside it.
+        std::vector<AffineBool> conditions;
+        conditions.reserve(rewrite->end);
         for (size_t i = 0; i < rewrite->end; ++i) {
-            if (pending_[i].sign.terms().empty()) {
+            conditions.push_back(sign_condition(pending_[i], source_lines(pending_[i].operation)));
+        }
+        if (!live_) {
+            frame_width_ = active_width_;
+        }
+        for (size_t i = 0; i < rewrite->end; ++i) {
+            if (conditions[i].terms().empty()) {
                 continue;
             }
             Pauli body = current_axis(pending_[i]);
             body.set_sign(false);
-            if (const auto pivot = first_x_at_or_above(body, width)) {
-                coordinates_.promote_dormant(body, width, *pivot);
-                ++width;
+            if (const auto pivot = first_x_at_or_above(body, frame_width_)) {
+                coordinates_.promote_dormant(body, frame_width_, *pivot);
+                ++frame_width_;
             }
         }
-        frame_width_ = width;
         for (size_t i = 0; i < rewrite->end; ++i) {
             const PendingRotation& rotation = pending_[i];
-            if (rotation.sign.terms().empty()) {
+            if (conditions[i].terms().empty()) {
                 continue;
             }
             const Pauli body = current_axis(rotation);
@@ -969,16 +1098,15 @@ class FrameRegions {
             }
             // With reference sign c and angle direction d, the sign flip
             // leaves exp(+i pi/4 d (-1)^c P) about the physical Pauli P.
-            const bool negative = (rotation.half_turns < 0) != rotation.sign.constant();
-            append_action(
-                plan_,
-                PlannedAction{active_width_, active_width_,
-                              ApplyConditionalClifford{
-                                  std::move(pauli),
-                                  negative != body.sign() ? CliffordRotation::SQRT
-                                                          : CliffordRotation::SQRT_DAG,
-                                  AffineBool::from_canonical_terms(false, rotation.sign.terms())}},
-                source_lines(rotation.operation));
+            const bool negative = (rotation.half_turns < 0) != reference_sign(rotation);
+            append_action(plan_,
+                          PlannedAction{active_width_, active_width_,
+                                        ApplyConditionalClifford{std::move(pauli),
+                                                                 negative != body.sign()
+                                                                     ? CliffordRotation::SQRT
+                                                                     : CliffordRotation::SQRT_DAG,
+                                                                 std::move(conditions[i])}},
+                          source_lines(rotation.operation));
             live_ = true;
         }
         if (!live_) {
@@ -992,7 +1120,17 @@ class FrameRegions {
     uint32_t& active_width_;
     CoordinateFrame& coordinates_;
     SymbolicPauliFrame& symbolic_frame_;
+    // Derived symbols take the ids after the ones the HIR defines.
+    uint32_t num_hir_symbols_;
+    uint32_t num_derived_symbols_ = 0;
+
+    // The held-back region.
     std::vector<PendingRotation> pending_;
+    std::optional<SymbolicPauliFrame> updates_;
+    std::vector<EntryRow> entry_rows_;
+    std::vector<AffineBool> entry_signs_;
+    std::vector<std::optional<SymbolId>> entry_symbols_;
+
     uint32_t frame_width_ = 0;
     bool live_ = false;
     bool promoted_ = false;
@@ -1098,8 +1236,16 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     uint32_t active_width = plan.initial_active_width;
     std::optional<FrameRegions> regions;
     if (options.runtime_frame && hir.instrument_sites.empty() && hir.num_exp_vals == 0) {
-        regions.emplace(hir, plan, active_width, coordinates, symbolic_frame);
+        regions.emplace(hir, plan, active_width, coordinates, symbolic_frame,
+                        requirements.symbol_count);
     }
+    // The symbolic frame takes every Pauli correction that depends on the shot.
+    const auto apply_frame_pauli = [&](MaskView x, MaskView z, const AffineBool& condition) {
+        symbolic_frame.apply(x, z, condition);
+        if (regions) {
+            regions->note_frame_update(x, z, condition);
+        }
+    };
     uint32_t detector_index = 0;
     uint32_t next_noise_site = 0;
     uint32_t next_instrument_site = 0;
@@ -1165,8 +1311,8 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
             }
             case OpType::CONDITIONAL_PAULI: {
                 const RecordSlot controller{static_cast<uint32_t>(op.controlling_meas())};
-                symbolic_frame.apply(hir.destab_mask(op), hir.stab_mask(op),
-                                     require_record(controller, i));
+                apply_frame_pauli(hir.destab_mask(op), hir.stab_mask(op),
+                                  require_record(controller, i));
                 break;
             }
             case OpType::NOISE: {
@@ -1185,7 +1331,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     plan.symbols.push_back(SymbolKind::Presampled);
                     plan_site.outcomes.push_back(PresampledNoiseOutcome{symbol, channel.prob});
                     const PauliMaskView mask = hir.noise_channel_masks.at(channel.mask);
-                    symbolic_frame.apply(mask.x(), mask.z(), AffineBool::symbol(symbol));
+                    apply_frame_pauli(mask.x(), mask.z(), AffineBool::symbol(symbol));
                 }
                 break;
             }
@@ -1300,12 +1446,14 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
 
     if (regions) {
         regions->flush();
-        regions->finish();
         final_coordinates_changed |= regions->promoted();
     }
 
     if (plan.symbols.size() != requirements.symbol_count) {
         throw std::logic_error("sampling planner symbol prepass disagrees with HIR lowering");
+    }
+    if (regions) {
+        regions->finish();
     }
     if (supports_final_state_queries != requirements.supports_final_state_queries) {
         throw std::logic_error("sampling planner final-state prepass disagrees with HIR lowering");

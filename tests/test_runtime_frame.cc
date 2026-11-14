@@ -444,6 +444,55 @@ std::vector<SignedRegionCase> signed_region_cases() {
          "T 2\n"
          "MX 1 2\n"
          "DETECTOR rec[-2] rec[-3]\n"},
+        // Qubits 2 and 3 are untouched while the first pair's frame is live,
+        // so their region is reduced as well and adds no active coordinate.
+        {"second factory on fresh qubits",
+         "H 0 2\n"
+         "CX 0 1 2 3\n"
+         "X_ERROR(0.3) 0\n"
+         "T 0\n"
+         "T_DAG 1\n"
+         "MPP X0*X1\n"
+         "X_ERROR(0.2) 2\n"
+         "T 2\n"
+         "T_DAG 3\n"
+         "MPP X2*X3\n"
+         "MPP Y2*X3\n"
+         "M 0 1 2 3\n"},
+        // The second factory keeps one T on qubit 4 and folds two T gates on
+        // qubit 5 into S, both while the first factory's frame is live.
+        {"second factory with a T core and a Clifford remainder",
+         "H 0 2 4 5\n"
+         "CX 0 1 2 3\n"
+         "X_ERROR(0.3) 0\n"
+         "T 0\n"
+         "T_DAG 1\n"
+         "MPP Y0*X1\n"
+         "X_ERROR(0.2) 3\n"
+         "T 2\n"
+         "T_DAG 3\n"
+         "T 4\n"
+         "T 5\n"
+         "X_ERROR(0.25) 5\n"
+         "T 5\n"
+         "H 5\n"
+         "MPP X2*X3*X4\n"
+         "M 5\n"
+         "MX 4\n"
+         "M 0 2\n"},
+        // The record is always one, so the feedback X is part of the reference
+        // trajectory: it makes Z1 = -Z2 there, and the two T gates cancel.
+        {"feedback from a record that is always one",
+         "X 0\n"
+         "M 0\n"
+         "H 1\n"
+         "CX 1 2\n"
+         "CX rec[-1] 1\n"
+         "X_ERROR(0.3) 2\n"
+         "T 1 2\n"
+         "MPP X1*X2\n"
+         "MPP Y1*X2\n"
+         "M 1 2\n"},
         {"postselected detector after a signed region",
          "H 0 1 2\n"
          "X_ERROR(0.2) 0\n"
@@ -518,6 +567,82 @@ TEST_CASE("Frame planning replaces signed promotions with conditional Cliffords"
                         planned.action);
                 })) == test.conditional_cliffords);
     }
+}
+
+TEST_CASE("Frame planning reduces a later region on fresh coordinates",
+          "[runtime_frame][sampling]") {
+    const auto count = [](const SamplingPlan& plan, auto matches) {
+        return std::ranges::count_if(plan.actions, matches);
+    };
+    const auto is_conditional = [](const PlannedAction& planned) {
+        return std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+    };
+    const auto is_frame_rotation = [](const PlannedAction& planned) {
+        return std::holds_alternative<sampling::RotateFramePauli>(planned.action);
+    };
+    const std::string first = "H 0 2\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nMPP X0*X1\n";
+
+    // Qubits 2 and 3 are outside the live frame: the pair cancels again.
+    const SamplingPlan fresh = sampling::plan_sampling(
+        clifft::trace(clifft::parse(first + "CX 2 3\nX_ERROR(0.2) 2\nT 2\nT_DAG 3\nM 0 1 2 3\n")),
+        {.runtime_frame = true});
+    REQUIRE(fresh.peak_active_width == 0);
+    REQUIRE(count(fresh, is_conditional) == 2);
+    REQUIRE(count(fresh, is_frame_rotation) == 0);
+
+    // The same pair entangled with qubit 1 touches the frame and keeps its
+    // signed rotations.
+    const SamplingPlan overlapping = sampling::plan_sampling(
+        clifft::trace(clifft::parse(first + "CX 1 2\nCX 2 3\nX_ERROR(0.2) 2\nT 2\nT_DAG 3\n"
+                                            "M 0 1 2 3\n")),
+        {.runtime_frame = true});
+    REQUIRE(count(overlapping, is_conditional) == 1);
+    REQUIRE(count(overlapping, is_frame_rotation) == 2);
+}
+
+TEST_CASE("Long entry signs are defined once and shared", "[runtime_frame][sampling]") {
+    // Twenty-two faults reach each of Z0 and Z1 before the region, and Z0*Z2
+    // sees those of Z0 and two more. Each of the three independent axes gets
+    // one derived symbol for that history instead of repeating it in every
+    // condition, and the second Z0*Z2 rotation reuses the first one's.
+    std::string source = "H 0 2\n";
+    const auto faults = [&](uint32_t count, const char* qubit) {
+        for (uint32_t i = 0; i < count; ++i) {
+            source += std::string("X_ERROR(0.05) ") + qubit + "\n";
+        }
+    };
+    faults(12, "0");
+    source += "CX 0 1\n";
+    faults(10, "0");
+    faults(10, "1");
+    faults(2, "2");
+    source +=
+        "T 0\nT_DAG 1\nTPP Z0*Z2\nX_ERROR(0.2) 2\nTPP_DAG Z0*Z2\n"
+        "MPP X0*X1\nMPP Y0*X1*X2\nM 0 1\nMX 2\n";
+    const HirModule hir = clifft::trace(clifft::parse(source));
+    const SamplingPlan fixed = sampling::plan_sampling(hir);
+    const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+    REQUIRE(frame.peak_active_width < fixed.peak_active_width);
+
+    size_t definitions = 0;
+    size_t conditionals = 0;
+    for (const PlannedAction& planned : frame.actions) {
+        definitions += std::holds_alternative<sampling::DefineSymbol>(planned.action);
+        if (const auto* clifford =
+                std::get_if<sampling::ApplyConditionalClifford>(&planned.action)) {
+            ++conditionals;
+            REQUIRE(clifford->condition.terms().size() <= 4);
+        }
+    }
+    REQUIRE(definitions == 3);
+    REQUIRE(conditionals == 4);
+
+    Xoshiro256PlusPlus rng(0x1D);
+    check_exact_equivalent(fixed, frame, rng, 96);
+    // Count-only compaction must keep the shared definitions usable.
+    const sampling::ExecutablePlan executable(frame);
+    const sampling::ExecutablePlan compact = executable.compact_outputs({}, false, true);
+    REQUIRE(compact.inspect().find("DEFINE_SYMBOL") != std::string::npos);
 }
 
 TEST_CASE("Frame planning reduces a region without sign flips and adds no frame",
