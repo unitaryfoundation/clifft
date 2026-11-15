@@ -151,10 +151,15 @@ class FixedBuilder {
         // Status can suppress even a probability-one event. Peephole fusion
         // preserves each noise outcome and readout site without assuming its
         // probability, so their external inputs remain valid after rewriting.
-        PeepholeFusionPass{}.run(hir);
+        // The runtime-frame planner reduces T regions itself and works on
+        // the traced circuit.
+        const bool runtime_frame = request_.requirements().runtime_frame;
+        if (!runtime_frame) {
+            PeepholeFusionPass{}.run(hir);
+        }
         sampling::SamplingPlan plan;
         try {
-            plan = sampling::plan_sampling(hir);
+            plan = sampling::plan_sampling(hir, {.runtime_frame = runtime_frame});
         } catch (const std::overflow_error&) {
             // The fixed candidate can exceed the planner's width limit even
             // when optimized trajectory continuations fit within it.
@@ -776,7 +781,9 @@ FixedNonComputationalResult sample_fixed_configured(const detail::FixedNonComput
             worker->shots = 0;
             return worker;
         },
-        [&](const auto& worker, ShotRange range) noexcept {
+        // A shot on a runtime-frame plan can throw where it grows its
+        // coefficient storage.
+        [&, frame = data.plan->uses_runtime_frame()](const auto& worker, ShotRange range) {
             for (uint32_t shot = range.begin; shot < range.end; ++shot) {
                 if (data.dynamic_inputs) {
                     std::ranges::fill(worker->noise, 0);
@@ -787,7 +794,11 @@ FixedNonComputationalResult sample_fixed_configured(const detail::FixedNonComput
                     derive_state(root, shot, kFixedNonComputationalExecutorDomain);
                 worker->executor.reseed_full(quantum_seed[0], quantum_seed[1], quantum_seed[2],
                                              quantum_seed[3]);
-                if (data.dynamic_inputs) {
+                if (frame) {
+                    data.dynamic_inputs
+                        ? worker->executor.run_frame_shot(worker->noise, worker->readout)
+                        : worker->executor.run_frame_shot();
+                } else if (data.dynamic_inputs) {
                     worker->executor.run_shot(worker->noise, worker->readout);
                 } else {
                     worker->executor.run_shot();

@@ -90,6 +90,11 @@ class Executor {
     void run_shot(std::span<const uint8_t> presampled_values,
                   std::span<const ReadoutNoiseInput> readout_inputs) noexcept;
 
+    // run_shot(presampled_values, readout_inputs) for a plan with a runtime
+    // Clifford frame.
+    void run_frame_shot(std::span<const uint8_t> presampled_values,
+                        std::span<const ReadoutNoiseInput> readout_inputs);
+
     // Draw one exact conditioned set of fault sites, choose a Pauli channel
     // within each selected quantum site, and force selected readout flips.
     void run_shot(KFaultSampler& fault_sampler) noexcept;

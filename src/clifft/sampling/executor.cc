@@ -131,6 +131,14 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values,
     readout_inputs_ = {};
 }
 
+void Executor::run_frame_shot(std::span<const uint8_t> presampled_values,
+                              std::span<const ReadoutNoiseInput> readout_inputs) {
+    (void)run_with_activation([&]() noexcept {
+        run_shot(presampled_values, readout_inputs);
+        return ReplayResult{};
+    });
+}
+
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     plan_ = root_plan_;
     assert(fault_sampler.num_sites() ==
