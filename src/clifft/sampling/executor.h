@@ -94,6 +94,9 @@ class Executor {
     // within each selected quantum site, and force selected readout flips.
     void run_shot(KFaultSampler& fault_sampler) noexcept;
 
+    // run_shot(fault_sampler) for a plan with a runtime Clifford frame.
+    void run_frame_shot(KFaultSampler& fault_sampler);
+
     // Continue a trapped shot in a plan compiled for the selected trajectory.
     // Storage may grow here, before dispatch resumes. A forced record supplies
     // the source chosen by a trap-only dormant instrument to the continuation's

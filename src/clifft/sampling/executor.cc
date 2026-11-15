@@ -145,6 +145,15 @@ void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     forced_fault_cursor_ = 0;
 }
 
+void Executor::run_frame_shot(KFaultSampler& fault_sampler) {
+    // A fault draw depends only on the RNG stream, so a repeated shot selects
+    // the same sites.
+    (void)run_with_activation([&]() noexcept {
+        run_shot(fault_sampler);
+        return ReplayResult{};
+    });
+}
+
 void Executor::resume(const ExecutablePlan& continuation,
                       std::optional<ForcedTraceOut> forced_trace_out) {
     if (!pending_trap_.has_value()) {

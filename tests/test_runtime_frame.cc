@@ -12,12 +12,14 @@
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
+#include "clifft/sampling/sampler.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/xoshiro.h"
 
 #include "dense_circuit_oracle.h"
 
 #include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -1013,6 +1015,75 @@ TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame
             const double observed = counts.contains(bits) ? double(counts[bits]) / kShots : 0.0;
             const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
             REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
+        }
+    }
+}
+
+TEST_CASE("Fixed-fault sampling on a frame plan follows the static plan",
+          "[runtime_frame][sampling]") {
+    // Faults before the T region decide its rotation signs, and readout
+    // faults flip the reported records.
+    const std::string body =
+        "H 0 2\n"
+        "CX 0 1\n"
+        "X_ERROR(0.2) 0\n"
+        "Z_ERROR(0.3) 2\n"
+        "DEPOLARIZE1(0.1) 1\n"
+        "T 0\nT_DAG 1\nT 2\n"
+        "H 0 1 2\n"
+        "M(0.05) 0 1 2\n";
+    constexpr uint32_t kShots = 40000;
+    // Two-sample bound at six standard deviations for a count out of kShots.
+    const auto require_close = [&](uint64_t a, uint64_t b) {
+        const double pooled = static_cast<double>(a + b) / (2.0 * kShots);
+        const double sigma = std::sqrt(2.0 * pooled * (1.0 - pooled) / kShots);
+        REQUIRE(std::abs(static_cast<double>(a) - static_cast<double>(b)) / kShots <=
+                6.0 * sigma + 1e-12);
+    };
+
+    SECTION("record rows") {
+        const HirModule hir = clifft::trace(clifft::parse(body));
+        const SamplingPlan frame_plan = sampling::plan_sampling(hir, {.runtime_frame = true});
+        REQUIRE(frame_plan.frame_width != 0);
+        const sampling::ExecutablePlan fixed(sampling::plan_sampling(hir));
+        const sampling::ExecutablePlan frame(frame_plan);
+        for (uint32_t k = 0; k <= 3; ++k) {
+            CAPTURE(k);
+            const auto histogram = [&](const sampling::ExecutablePlan& plan, uint64_t seed) {
+                const sampling::SamplingResult result = sampling::sample_k(plan, kShots, k, seed);
+                std::array<uint64_t, 8> counts{};
+                for (uint32_t shot = 0; shot < kShots; ++shot) {
+                    const size_t row = size_t{3} * shot;
+                    ++counts[result.measurements[row] | (result.measurements[row + 1] << 1) |
+                             (result.measurements[row + 2] << 2)];
+                }
+                return counts;
+            };
+            const auto expected = histogram(fixed, 705 + k);
+            const auto actual = histogram(frame, 805 + k);
+            for (size_t pattern = 0; pattern < expected.size(); ++pattern) {
+                CAPTURE(pattern);
+                require_close(expected[pattern], actual[pattern]);
+            }
+        }
+    }
+
+    SECTION("survivor counts") {
+        const HirModule hir = clifft::trace(
+            clifft::parse(body + "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2] rec[-3]\n"));
+        const std::vector<uint8_t> mask = {1};
+        const SamplingPlan frame_plan =
+            sampling::plan_sampling(hir, {.postselection_mask = mask, .runtime_frame = true});
+        REQUIRE(frame_plan.frame_width != 0);
+        const sampling::ExecutablePlan fixed(
+            sampling::plan_sampling(hir, {.postselection_mask = mask}));
+        const sampling::ExecutablePlan frame(frame_plan);
+        for (uint32_t k = 0; k <= 3; ++k) {
+            CAPTURE(k);
+            const auto expected = sampling::sample_k_survivors(fixed, kShots, k, 905 + k);
+            const auto actual = sampling::sample_k_survivors(frame, kShots, k, 1005 + k);
+            require_close(expected.passed_shots, actual.passed_shots);
+            require_close(expected.observable_ones.at(0), actual.observable_ones.at(0));
         }
     }
 }
