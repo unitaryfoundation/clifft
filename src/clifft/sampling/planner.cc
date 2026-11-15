@@ -642,11 +642,26 @@ constexpr uint32_t kMaxRegionAxes = 128;
 // every conditional Clifford needing it shares.
 constexpr size_t kInlineEntrySignTerms = 16;
 
+// A phase rotation of 1/4 or 7/4 half-turns modulo two is a T or T_DAG gate up
+// to global phase. trace() emits parameterized gates such as R_Z(0.25) in that
+// form. Returns the signed quarter turn, or no value for any other angle.
+std::optional<double> quarter_turn(double alpha) {
+    const double reduced = alpha - 2.0 * std::floor(alpha / 2.0);
+    if (std::abs(reduced - 0.25) < kRotationCanonicalizationTolerance) {
+        return 0.25;
+    }
+    if (std::abs(reduced - 1.75) < kRotationCanonicalizationTolerance) {
+        return -0.25;
+    }
+    return std::nullopt;
+}
+
 // Plans T regions and later operations for SamplingPlanOptions::runtime_frame.
 //
-// T rotations are held back while they commute, so a region can be reduced as
-// one phase polynomial. Relative to the reference trajectory, where every
-// symbol is false, a rotation whose sign carries the symbol parity t splits as
+// T rotations, including phase rotations by a quarter turn, are held back
+// while they commute, so a region can be reduced as one phase polynomial.
+// Relative to the reference trajectory, where every symbol is false, a
+// rotation whose sign carries the symbol parity t splits as
 //
 //   exp(-i pi/8 (-1)^t P) = exp(+i pi/4 t P) exp(-i pi/8 P).
 //
@@ -1268,6 +1283,10 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 break;
             }
             case OpType::PHASE_ROTATION: {
+                if (const auto quarter = regions ? quarter_turn(op.alpha()) : std::nullopt) {
+                    regions->add_t_gate(i, *quarter, noise_signs.sign_for(i, next_noise_site));
+                    break;
+                }
                 if (regions && regions->flush()) {
                     regions->rotate(resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
                                                   noise_signs.sign_for(i, next_noise_site),

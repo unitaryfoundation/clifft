@@ -569,6 +569,32 @@ TEST_CASE("Frame planning replaces signed promotions with conditional Cliffords"
     }
 }
 
+TEST_CASE("Quarter-turn phase rotations join a signed region", "[runtime_frame][sampling]") {
+    // trace() leaves a parameterized quarter turn as a phase rotation. Each
+    // spelling plans like the T gates it equals up to global phase.
+    const std::string before = "H 0 2\nCX 0 1\nX_ERROR(0.2) 0\nZ_ERROR(0.3) 2\n";
+    const std::string after = "H 0 1 2\nM 0 1 2\n";
+    const SamplingPlan t_gates = sampling::plan_sampling(
+        clifft::trace(clifft::parse(before + "T 0\nT_DAG 1\nTPP Z1*Z2\n" + after)),
+        {.runtime_frame = true});
+    REQUIRE(t_gates.frame_width != 0);
+    const std::vector<std::string> spellings = {
+        "R_Z(0.25) 0\nR_Z(-0.25) 1\nR_ZZ(0.25) 1 2\n",
+        // The same angles modulo two half-turns.
+        "R_Z(2.25) 0\nR_Z(1.75) 1\nR_PAULI(-3.75) Z1*Z2\n",
+    };
+    for (const std::string& rotations : spellings) {
+        CAPTURE(rotations);
+        const Circuit circuit = clifft::parse(before + rotations + after);
+        const HirModule hir = clifft::trace(circuit);
+        REQUIRE(hir.num_t_gates() == 0);
+        const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+        REQUIRE(frame.inspect() == t_gates.inspect());
+        require_distributions_equal(compute_dense_circuit_distribution(circuit),
+                                    compute_exact_plan_distribution(frame));
+    }
+}
+
 TEST_CASE("Frame planning reduces a later region on fresh coordinates",
           "[runtime_frame][sampling]") {
     const auto count = [](const SamplingPlan& plan, auto matches) {

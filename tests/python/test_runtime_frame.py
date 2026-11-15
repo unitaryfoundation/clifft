@@ -36,6 +36,7 @@ RANDOM_OUTCOME = "H 0 1\nMPP Z0*Z1\nT 0\nT_DAG 1\nH 0 1\nM 0 1\n"
 # that outcome: (qubits, preparation, parity qubits, gates after the parity).
 PARITY_CASES = {
     "t-pair": (2, "H 0 1", (0, 1), "T 0\nT_DAG 1\nH 0 1"),
+    "rz-pair": (2, "H 0 1", (0, 1), "R_Z(0.25) 0\nR_Z(1.75) 1\nH 0 1"),
     "ccz": (3, "H 0 1 2", (0, 1), "CCZ 0 1 2\nH 0 1 2"),
     "ccz-and-t": (4, "H 0 1 2 3\nCX 2 3", (0, 1), "CCZ 0 1 2\nT 3\nH 0 1 2 3"),
 }
