@@ -28,15 +28,13 @@ Clifft chooses whether that budget is better spent across shots or within a
 wide shot. `sample()` and `sample_survivors()` can also share coefficient
 evolution between shots that follow the same quantum trajectory. This is useful
 for sufficiently large postselected workloads and noiseless circuits with a
-shared unitary prefix. Short calls and uncertain cases
-use ordinary scalar or packed execution. Requested expectation-value rows use
-ordinary execution so every probe is retained.
+shared unitary prefix. Short calls and uncertain cases use ordinary scalar or
+packed execution. Requested expectation-value rows use ordinary execution so
+every probe is retained.
 
-Shared execution supports every record choice and bit-packed output. Survivor
-collection stores only accepted rows and preserves their order and the pairing
-between measurements, detectors, and observables. Calls can run concurrently on
-the same `Program` and reuse its preparation. A seeded call replays independently
-of earlier calls.
+Calls can run concurrently on the same `Program` and reuse its preparation.
+For a fixed seed and execution configuration, results are independent of earlier
+calls. [Benchmark before overriding](#benchmark-before-overriding) the defaults.
 
 ## Common controls
 
@@ -69,9 +67,10 @@ The execution mechanisms are:
 - **Packed execution** represents several shots as SIMD lanes within one
   worker.
 - **Shared execution** keeps per-shot classical data while reusing coefficient
-  states across equivalent trajectories. Each worker has a 64 MiB state budget;
-  classical storage and output rows are additional. Capacity fits even when
-  every shot needs its own state, and is capped at 8192 lanes.
+  states across equivalent trajectories. The default state budget is 64 MiB per
+  worker; classical storage and output rows are additional. Automatic and tuned
+  capacities fit even when every shot needs its own state, and are capped at
+  8192 lanes.
 
 Packed and shared execution cannot be combined with intra-shot workers.
 
@@ -116,9 +115,10 @@ before the requested shots run. Keep these points in mind:
 The selected capacity and timings are returned in `result.batch_tuning`.
 Calibration compares capacities within the automatically selected execution
 path. For ordinary scalar or packed execution, reuse its capacity with
-`batch_size=result.batch_tuning.batch_size`. A numeric capacity selects ordinary
-execution and does not reproduce an automatically shared call. Retune when
-the workload or machine changes; selections are not cached automatically.
+`batch_size=result.batch_tuning.batch_size`. For shared `sample()` or
+`sample_survivors()` calls, a numeric capacity selects ordinary execution and
+does not reproduce the calibrated call. Retune when the workload or machine
+changes; selections are not cached automatically.
 
 ??? note "Calibration report details"
 
@@ -153,22 +153,18 @@ the workload or machine changes; selections are not cached automatically.
     `elapsed_seconds`, and `shots_per_second`. `used_warmup` indicates that
     throughput comes from the first probe alone; setup time is excluded.
 
-    To reproduce the worker allocation as well as the batch size, pass
+    For ordinary execution, reproduce the worker allocation as well as the
+    batch size by passing
     `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
-    nonempty call and preserve any explicit intra-shot threshold.
+    nonempty call and preserving any explicit intra-shot threshold.
 
 ## Retaining a shared survivor sampler
 
-Many shots in a noisy circuit follow the same quantum trajectory.
-`SurvivorSampler` shares quantum state evolution across those shots, reducing
-repeated work and state memory. It also retains worker storage across calls
-and rejects shots that fail noise-only necessary conditions before quantum
-evolution. The selected detectors still determine final acceptance; they are
-checked as soon as their measurement records are ready, so rejected shots skip
-later evolution. The first sampler built from a `Program` prepares the
-count-only plan, noise metadata, and early checks on that program. Later
-samplers built from the same program reuse them, and each sampler owns its
-workers.
+For repeated count-only sampling, `SurvivorSampler` retains worker storage
+between calls to avoid rebuilding it. It also exposes controls for trajectory
+sharing, noise preparation, and per-worker state memory. Shared
+`sample_survivors()` calls reuse preparation on the `Program`; choose a retained
+sampler when worker reuse or these controls are useful.
 
 !!! note "Interface under review"
     The constructor options and defaults are being reviewed and may change
@@ -225,11 +221,12 @@ much larger classical batches than ordinary packed execution:
   (classical buffers and compiled plans are separate). The limit does not
   shrink as threads are added, so state storage can reach
   `max_worker_state_bytes * threads` when every lane diverges; states are
-  allocated only as trajectories split. Before an action, Clifft checks a
-  conservative bound on the states its possible splits could require. If that
-  bound exceeds the budget, `.sample()` raises `RuntimeError`, even if the
-  sampled outcomes would have needed fewer states. Reduce `batch_size` or
-  raise `max_worker_state_bytes` before retrying.
+  allocated as trajectories split. Automatic and tuned capacities fit one
+  state per lane within this budget. With a larger explicit capacity, Clifft
+  checks a conservative bound on the states an action's possible splits could
+  require. If that bound exceeds the budget, `.sample()` raises `RuntimeError`,
+  even if the sampled outcomes would have needed fewer states. Reduce
+  `batch_size` or raise `max_worker_state_bytes` before retrying.
 
 The default budget holds 8192 states through active width 8, 2730 at width 10,
 and 341 at width 13. For wider circuits, raise `max_worker_state_bytes` first
@@ -356,14 +353,14 @@ sampling repeats its results within the same build. Automatic batching considers
 the thread budget, so changing `threads` or `thread_layout` can change batch
 boundaries and sampled rows. With `threads="auto"`, the available worker count
 can differ between machines, so the same seed need not produce the same rows.
-To preserve rows and survivor order while changing the number of cross-shot
-workers, pin a numeric `batch_size`.
+With a numeric `batch_size`, changing only the number of cross-shot workers
+preserves rows and survivor order within ordinary execution.
 
 Untuned selection depends only on the program and call arguments, including the
 requested outputs and worker layout. Cold, warm, and concurrent first use make
-the same choices. Automatic calls can select shared execution and produce
-different seeded rows from earlier versions; an explicit numeric batch size
-keeps the ordinary execution path.
+the same choices. For `sample()` and `sample_survivors()`, automatic calls can
+select shared execution; an explicit numeric batch size selects ordinary
+execution.
 
 Scalar, packed, and shared execution use separate random streams, and different
 capacities can produce different rows. Changing `keep_records` can also change
@@ -372,10 +369,13 @@ individual seeded rows while preserving the requested output distribution.
 complete execution configuration fixed when exact seeded replay is required.
 
 Timing-based calibration can select a different capacity on repeated calls,
-even with the same seed. For debugging, pin the reported numeric batch size
-instead of requesting calibration again. Calibration uses separate random
-streams from the requested shots. Omitting `seed` continues to use hardware
-entropy.
+even with the same seed. For ordinary execution, pin the reported numeric batch
+size to replay a calibrated run. If `sample()` or `sample_survivors()` calibrated
+shared execution, that numeric setting switches to ordinary execution and does
+not replay the calibrated call. Use a fixed numeric capacity from the start
+when debugging requires repeatable rows.
+Calibration uses separate random streams from the requested shots. Omitting
+`seed` uses hardware entropy.
 
 ### Memory tradeoffs
 
