@@ -165,6 +165,18 @@ def test_noisy_region_matches_qiskit_density_matrix() -> None:
     assert np.all(np.abs(frequencies - expected) <= 6 * sigma)
 
 
+def test_calibration_keeps_frame_plans_on_the_scalar_executor() -> None:
+    _, frame = _programs(SIGNED_PAIR, postselection_mask=[1])
+    result = clifft.sample_survivors(
+        frame, 4096, seed=5, batch_size="tune", tuning_budget_seconds=0.05
+    )
+    report = result.batch_tuning
+    assert report.batch_size == 1
+    assert report.stop_reason == "single_candidate"
+    pinned = clifft.sample_survivors(frame, 4096, seed=5)
+    assert result.passed_shots == pinned.passed_shots
+
+
 def test_fixed_fault_sampling_rejects_frame_plans() -> None:
     _, frame = _programs(SIGNED_PAIR)
     with pytest.raises(ValueError, match="runtime Clifford frame"):
