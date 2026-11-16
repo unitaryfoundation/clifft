@@ -108,10 +108,6 @@ void expand_bits_to_bytes(uint64_t word, size_t count, uint8_t* destination) noe
 // clang and GCC.
 constexpr size_t kDirectCopyColumns = 16;
 
-// One or two columns are cheaper to copy across lanes, avoiding a tiny inner
-// column loop for every row. Wider tiles benefit from vectorizing across columns.
-constexpr size_t kColumnFirstCopyColumns = 2;
-
 }  // namespace
 
 void xor_bit_rows_into_columns(std::span<const uint64_t> rows, size_t stride, uint32_t lanes,
@@ -180,16 +176,14 @@ static void transpose_rows(const PackedBitColumns& columns, size_t num_columns, 
                "transposed rows must lie within the output");
     }
 #endif
-    if (!bit_packed && num_columns <= kColumnFirstCopyColumns) {
-        for (size_t column = 0; column < num_columns; ++column) {
-            const auto words = columns.column(column);
-            for (size_t first = 0; first < lanes; first += 64) {
-                const size_t count = std::min<size_t>(64, lanes - first);
-                const uint64_t bits = words[first >> 6];
-                for (size_t i = 0; i < count; ++i) {
-                    output[row_index(first + i) * stride + column] =
-                        static_cast<uint8_t>((bits >> i) & 1);
-                }
+    // A single column needs no inner column loop or tile transposition.
+    if (!bit_packed && num_columns == 1) {
+        const auto words = columns.column(0);
+        for (size_t first = 0; first < lanes; first += 64) {
+            const size_t count = std::min<size_t>(64, lanes - first);
+            const uint64_t bits = words[first >> 6];
+            for (size_t i = 0; i < count; ++i) {
+                output[row_index(first + i) * stride] = static_cast<uint8_t>((bits >> i) & 1);
             }
         }
         return;
