@@ -96,6 +96,12 @@ program while exercising automatic selection, worker construction, and row
 collection on every call. Untimed checks verify that automatic selection uses
 shared execution and retains the expected number of detector rows.
 
+`sample_native_surface_d7_*` measures the same complete calls on the width-zero
+d7/r7 surface-code fixture, where all sampling work is classical: aggregate
+counts with every detector postselected, and bit-packed detector/observable
+rows without postselection. Untimed checks require packed execution and the
+expected survivors.
+
 ## External input execution
 
 `--benchmark_filter='^external_inputs_'` compares reusable scalar and packed
