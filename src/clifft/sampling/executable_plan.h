@@ -85,8 +85,8 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_exp_vals() const { return num_exp_vals_; }
     [[nodiscard]] bool has_postselection() const { return has_postselection_; }
     [[nodiscard]] uint32_t num_postselected_detectors() const noexcept;
-    // Whether new active coordinates are introduced after measurement begins.
-    [[nodiscard]] bool has_promotions_after_measurement() const noexcept;
+    // Whether unitary evolution precedes measurement apart from minor squeezed teardowns.
+    [[nodiscard]] bool has_reusable_unitary_prefix() const noexcept;
     // Early checks can skip coefficient work in the requested output mode.
     [[nodiscard]] bool has_early_postselection(BatchOutputMode output_mode) const noexcept {
         return postselection_remaining_lane_work_.for_output_mode(output_mode) != 0;

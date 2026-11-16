@@ -8,7 +8,7 @@ import numpy as np
 import numpy.typing as npt
 
 if TYPE_CHECKING:
-    from clifft._clifft_core import BatchTuningReport
+    from clifft._clifft_core import BatchTuningReport, SamplingExecution
 
 
 class SampleResult:
@@ -22,6 +22,7 @@ class SampleResult:
         retained_shots: number of retained rows, or zero for count-only sampling
         bit_packed: whether uint8 rows use little-endian b8 packing
         batch_tuning: calibration report when batch_size="tune", otherwise None
+        execution: effective CPU execution settings summary, or None on GPU backends
 
     Omitted outputs have zero rows and keep their declared column width. Outputs
     with no declared columns have shape (retained_shots, 0). Bit packing changes
@@ -52,6 +53,7 @@ class SampleResult:
         "logical_errors",
         "observable_ones",
         "batch_tuning",
+        "execution",
         "retained_shots",
         "bit_packed",
     )
@@ -70,6 +72,7 @@ class SampleResult:
         *,
         retained_shots: int | None = None,
         bit_packed: bool = False,
+        execution: SamplingExecution | None = None,
     ) -> None:
         self.retained_shots = (
             max(measurements.shape[0], detectors.shape[0], observables.shape[0])
@@ -78,6 +81,7 @@ class SampleResult:
         )
         self.bit_packed = bit_packed
         self.batch_tuning = batch_tuning
+        self.execution = execution
         self.measurements = measurements
         self.detectors = detectors
         self.observables = observables

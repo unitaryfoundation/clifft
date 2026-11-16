@@ -244,7 +244,7 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
     if (candidates.empty()) {
         return candidates;
     }
-    for (const uint32_t capacity : {1u, 64u, 256u, 1024u, 4096u, kMaxAutoSharedBatchShots}) {
+    for (const uint32_t capacity : {64u, 256u, 1024u, 4096u, kMaxAutoSharedBatchShots}) {
         append(capacity);
     }
     return candidates;

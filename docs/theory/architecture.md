@@ -133,7 +133,7 @@ entrance checks does not guarantee acceptance: the original selected detector
 checks still decide it. Each runs after its last contributing record write,
 allowing rejected shots to skip later evolution. On first use, a `Program`
 builds the requested-output plan, noise metadata, entrance checks, and any
-grouping key, and shares them, immutable, across samplers and concurrent calls.
+grouping key, and shares them, immutable, across concurrent calls.
 Native sampling selects execution from the program and call arguments before
 requesting preparation. Workers hold all mutable state and are created on the
 threads that run them. Completed survivor batches retain only their accepted
@@ -147,8 +147,8 @@ with sampled noise, branches, coefficients, and RNG position intact. The budget
 check uses a conservative bound on possible splits, so it may raise before the
 actual number of states needed is known.
 
-Noncomputational trajectories use a separate execution path; `SurvivorSampler`
-does not support leakage or loss instrument continuations. In that path, an
+Noncomputational trajectories use a separate execution path; compiled CPU
+sampling does not support leakage or loss instrument continuations. In that path, an
 instrument may stop at an explicit boundary, prepare a trajectory-specific
 suffix, grow reusable storage if necessary, and resume without losing live
 coefficients, records, symbols, or RNG position. See

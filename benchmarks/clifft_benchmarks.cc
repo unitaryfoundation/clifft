@@ -32,23 +32,10 @@
 #include "clifft/noncomp/program.h"
 #endif
 
-#if __has_include("clifft/api/survivor_sampler.h")
-#define CLIFFT_BENCHMARK_HAS_SURVIVOR_SAMPLER
-#include "clifft/api/survivor_sampler.h"
-#endif
-
-#if __has_include("clifft/api/sampling_preparation.h")
-#define CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
-#include "clifft/api/sampling_preparation.h"
-#endif
-
-#if __has_include("clifft/sampling/outputs.h")
-#define CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
-#endif
-
 #if __has_include("clifft/api/sampler.h")
 #define CLIFFT_BENCHMARK_HAS_NATIVE_SAMPLER
 #include "clifft/api/sampler.h"
+#include "clifft/api/sampling_preparation.h"
 #endif
 
 #include <array>
@@ -285,7 +272,7 @@ void compile_reconstruction_msc_d5(benchmark::State& state) {
         }
     }
     for ([[maybe_unused]] auto _ : state) {
-        const auto program = compile();
+        auto program = compile();
         benchmark::DoNotOptimize(program);
     }
 }
@@ -495,7 +482,7 @@ void sample_cultivation_d5(benchmark::State& state) {
     }
 }
 
-#ifdef CLIFFT_BENCHMARK_HAS_SURVIVOR_SAMPLER
+#ifdef CLIFFT_BENCHMARK_HAS_NATIVE_SAMPLER
 constexpr uint32_t kSharedBatchCapacity = 8192;
 constexpr uint32_t kSharedInitialStates = 128;
 constexpr uint32_t kSharedShots = 65536;
@@ -518,7 +505,6 @@ const Program& shared_cultivation_program() {
     return program;
 }
 
-#ifdef CLIFFT_BENCHMARK_HAS_NATIVE_SAMPLER
 // Complete calls include worker construction and survivor row collection.
 void sample_native_cultivation_d5(benchmark::State& state, sampling::SamplingOutputs outputs) {
     const auto& program = shared_cultivation_program<5>();
@@ -547,36 +533,23 @@ BENCHMARK_CAPTURE(sample_native_cultivation_d5, full, sampling::SamplingOutputs(
 BENCHMARK_CAPTURE(sample_native_cultivation_d5, packed_syndromes,
                   sampling::SamplingOutputs(sampling::RecordOutputs::Syndromes, true))
     ->Name("sample_native_cultivation_d5_packed_syndromes_65536_shots");
-#endif
 
 // Count-only calls use the public API's selected preparation before worker setup.
-// The older API samples the selected compiled plan directly.
 void sample_count_only_msc(benchmark::State& state, bool fixed_faults,
                            std::optional<uint32_t> batch_size) {
     const auto& program = shared_cultivation_program<3>();
-#ifdef CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
     const auto& preparation = program.sampling_preparation(
         false,
         {.early_postselection = false, .fixed_faults = fixed_faults, .survivor_counts = true});
     const auto& plan = preparation.plan();
     const auto* noise = &preparation.noise(sampling::BatchNoiseMode::Dense);
-#else
-    const auto& plan = fixed_faults ? program.original() : program.sampling_plan(false);
-#endif
     constexpr uint32_t shots = 200'000;
     for ([[maybe_unused]] auto _ : state) {
-#ifdef CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
         auto result = fixed_faults
                           ? sampling::sample_k_survivors(plan, shots, 3, 73, false, 1, std::nullopt,
                                                          batch_size, std::nullopt, noise)
                           : sampling::sample_survivors(plan, shots, 73, false, 1, std::nullopt,
                                                        batch_size, std::nullopt, noise);
-#else
-        auto result = fixed_faults ? sampling::sample_k_survivors(plan, shots, 3, 73, false, 1,
-                                                                  std::nullopt, batch_size)
-                                   : sampling::sample_survivors(plan, shots, 73, false, 1,
-                                                                std::nullopt, batch_size);
-#endif
         benchmark::DoNotOptimize(result);
     }
     state.SetItemsProcessed(state.iterations() * shots);
@@ -595,27 +568,12 @@ BENCHMARK_CAPTURE(sample_count_only_msc, fixed_faults_packed, true, uint32_t{256
 // reads: count-only plan, noise metadata, early checks, and optional grouping key.
 class SharedPreparation {
   public:
-#ifdef CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
     SharedPreparation(const Program& program, sampling::BatchNoiseMode mode, bool group)
-#ifdef CLIFFT_BENCHMARK_HAS_SELECTIVE_OUTPUTS
         : preparation_(program.sampling_plan(false), false, true, true),
-#else
-        : preparation_(program.sampling_plan(false), false, true),
-#endif
           plan_(preparation_.plan()),
           noise_(preparation_.noise(mode)),
           checks_(preparation_.checks()),
-          key_(group ? &preparation_.sharing_key() : nullptr) {
-    }
-#else
-    SharedPreparation(const Program& program, sampling::BatchNoiseMode mode, bool group)
-        : compact_(program.sampling_plan(false).compact_outputs(true, mode)),
-          plan_(compact_),
-          noise_(compact_, mode),
-          checks_(compact_),
-          owned_key_(group ? std::optional<sampling::SharingKey>(compact_) : std::nullopt),
-          key_(owned_key_ ? &*owned_key_ : nullptr) {}
-#endif
+          key_(group ? &preparation_.sharing_key() : nullptr) {}
 
     const sampling::ExecutablePlan& plan() const { return plan_; }
     const sampling::PreparedBatchNoise& noise() const { return noise_; }
@@ -623,36 +581,15 @@ class SharedPreparation {
     const sampling::SharingKey* key() const { return key_; }
 
   private:
-#ifdef CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
     SamplingPreparation preparation_;
     const sampling::ExecutablePlan& plan_;
     const sampling::PreparedBatchNoise& noise_;
     const sampling::EarlyPostselection& checks_;
-#else
-    sampling::ExecutablePlan compact_;
-    const sampling::ExecutablePlan& plan_;
-    sampling::PreparedBatchNoise noise_;
-    sampling::EarlyPostselection checks_;
-    std::optional<sampling::SharingKey> owned_key_;
-#endif
     const sampling::SharingKey* key_;
 };
 
-// SurvivorSampler is not movable, so each caller receives it by guaranteed
-// elision. Older revisions select compact outputs with an explicit argument.
-SurvivorSampler make_shared_sampler(const Program& program, sampling::BatchNoiseMode mode,
-                                    bool group) {
-#ifdef CLIFFT_BENCHMARK_HAS_SAMPLING_PREPARATION
-    return SurvivorSampler(program, kSharedBatchCapacity, 1, kSharedInitialStates, mode, true, true,
-                           group);
-#else
-    return SurvivorSampler(program, kSharedBatchCapacity, 1, kSharedInitialStates, mode, true, true,
-                           true, group);
-#endif
-}
-
-// Inspect the same prepared execution outside timing: a configured sampler
-// alone does not establish that noise rejection and state sharing do useful work.
+// Inspect the same prepared execution outside timing: a configured call alone
+// does not establish that noise rejection and state sharing do useful work.
 bool validate_shared_cultivation(benchmark::State& state, const Program& program,
                                  sampling::BatchNoiseMode mode, bool group,
                                  bool expect_reconstruction) {
@@ -687,9 +624,14 @@ void sample_shared_cultivation(benchmark::State& state, sampling::BatchNoiseMode
     if (!validate_shared_cultivation(state, program, mode, group, Distance != 3)) {
         return;
     }
-    auto sampler = make_shared_sampler(program, mode, group);
-    const auto warmup = sampler.sample(kSharedShots, 731);
-    if (warmup.total_shots != kSharedShots || warmup.passed_shots == 0 ||
+    const SamplingOptions options{.threads = 1,
+                                  .batch_size = kSharedBatchCapacity,
+                                  .sharing = true,
+                                  .group_by_noise = group,
+                                  .noise_preparation = mode};
+    const auto warmup = clifft::sample_survivors(program, kSharedShots, 731, false, options);
+    if (warmup.execution.executor != sampling::SamplingExecutor::Shared ||
+        warmup.total_shots != kSharedShots || warmup.passed_shots == 0 ||
         warmup.passed_shots >= warmup.total_shots ||
         warmup.observable_ones.size() != program.original().num_observables()) {
         state.SkipWithError("unexpected shared survivor counts");
@@ -697,30 +639,35 @@ void sample_shared_cultivation(benchmark::State& state, sampling::BatchNoiseMode
     }
     uint64_t seed = 732;
     for ([[maybe_unused]] auto _ : state) {
-        auto result = sampler.sample(kSharedShots, seed++);
+        auto result = clifft::sample_survivors(program, kSharedShots, seed++, false, options);
         benchmark::DoNotOptimize(result);
     }
     state.SetItemsProcessed(state.iterations() * kSharedShots);
 }
 
-// Repeated sampler construction from the retained Program. With Program reuse
-// this row times worker allocation plus a lookup of the shared preparation;
-// compilation is excluded.
+// Repeated worker construction from the retained Program. With Program reuse
+// this row times per-call worker allocation plus lookup of the shared
+// preparation; compilation and sampling dispatch are excluded.
 void prepare_shared_cultivation_d5(benchmark::State& state) {
     const auto& program = shared_cultivation_program<5>();
     constexpr auto mode = sampling::BatchNoiseMode::SiteRows;
     if (!validate_shared_cultivation(state, program, mode, true, true)) {
         return;
     }
-    // Prepare the Program before timing, so the loop measures repeated
-    // construction whichever benchmarks ran earlier in the process.
+    const auto make_worker = [&] {
+        const auto& preparation = program.sampling_preparation(
+            false, {.early_postselection = true, .survivor_counts = true});
+        return sampling::SharingExecutor(preparation.plan(), preparation.noise(mode),
+                                         preparation.checks(), kSharedBatchCapacity,
+                                         kSharedInitialStates, true, &preparation.sharing_key());
+    };
     {
-        auto warm = make_shared_sampler(program, mode, true);
+        auto warm = make_worker();
         benchmark::DoNotOptimize(warm);
     }
     for ([[maybe_unused]] auto _ : state) {
-        auto sampler = make_shared_sampler(program, mode, true);
-        benchmark::DoNotOptimize(sampler);
+        auto worker = make_worker();
+        benchmark::DoNotOptimize(worker);
     }
 }
 

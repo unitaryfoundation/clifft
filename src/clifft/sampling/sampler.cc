@@ -550,6 +550,7 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
     result.execution.batch_size = policy.lane_capacity;
     result.execution.shot_workers = policy.worker_count;
     result.execution.intra_shot_workers = layout.intra_shot_workers;
+    result.execution.outputs = outputs;
     if (policy.lane_capacity > 1) {
         result.execution.noise_preparation = noise ? noise->mode() : BatchNoiseMode::Dense;
     }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "clifft/sampling/batch/policy.h"
+#include "clifft/sampling/outputs.h"
 
 #include <cstdint>
 #include <optional>
@@ -17,9 +18,9 @@ struct SamplingExecution {
     uint32_t batch_size = 1;
     uint32_t shot_workers = 1;
     uint32_t intra_shot_workers = 1;
+    SamplingOutputs outputs;
     std::optional<BatchNoiseMode> noise_preparation;
     bool group_by_noise = false;
-    bool early_postselection = false;
     std::optional<uint64_t> max_worker_state_bytes;
 
     friend bool operator==(const SamplingExecution&, const SamplingExecution&) = default;

@@ -46,9 +46,11 @@ calls. [Benchmark before overriding](#benchmark-before-overriding) the defaults.
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
 
-The four standard sampling functions accept all five controls. `SurvivorSampler`
-uses cross-shot workers and accepts `threads`, `batch_size` (defaulting to
-`8192`), and `tuning_budget_seconds`. For leakage and loss,
+The four standard sampling functions accept all five controls, and `sample()`,
+`sample_detectors()`, and `sample_survivors()` also accept the keyword-only
+[shared trajectory controls](#shared-trajectory-execution) (`sharing`,
+`group_by_noise`, `noise_preparation`, and `max_worker_state_bytes`). For
+leakage and loss,
 `clifft.noncomp.sample()` and `NonComputationalProgram.sample()` accept
 cross-shot `threads`, `batch_size` (`"auto"`, `"tune"`, or a positive integer),
 and `tuning_budget_seconds`. Compile-once fixed execution supports batching and
@@ -112,13 +114,14 @@ before the requested shots run. Keep these points in mind:
   and warns that calibration could not fit. Fewer workers or fewer retained
   record types can make calibration fit; a longer time budget does not help.
 
-The selected capacity and timings are returned in `result.batch_tuning`.
-Calibration compares capacities within the automatically selected execution
-path. For ordinary scalar or packed execution, reuse its capacity with
-`batch_size=result.batch_tuning.batch_size`. For shared `sample()` or
-`sample_survivors()` calls, a numeric capacity selects ordinary execution and
-does not reproduce the calibrated call. Retune when the workload or machine
-changes; selections are not cached automatically.
+The selected capacity and timings are returned in `result.batch_tuning`, and the
+resolved settings appear on `result.execution`. Calibration compares capacities
+within the selected execution path. To reproduce a calibrated run, pass
+`batch_size=result.execution.batch_size` together with
+`sharing=(result.execution.executor == "shared")` and any explicit noise or
+grouping overrides; a numeric `batch_size` with `sharing="auto"` selects
+ordinary execution and does not reproduce a shared call. Retune when the
+workload or machine changes; selections are not cached automatically.
 
 ??? note "Calibration report details"
 
@@ -153,22 +156,27 @@ changes; selections are not cached automatically.
     `elapsed_seconds`, and `shots_per_second`. `used_warmup` indicates that
     throughput comes from the first probe alone; setup time is excluded.
 
-    For ordinary execution, reproduce the worker allocation as well as the
-    batch size by passing
+    To reproduce the worker allocation as well as the batch size, pass
     `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
-    nonempty call and preserving any explicit intra-shot threshold.
+    nonempty call along with `sharing=(result.execution.executor == "shared")`
+    and preserve any explicit intra-shot threshold.
 
-## Retaining a shared survivor sampler
+## Shared trajectory execution
 
-For repeated count-only sampling, `SurvivorSampler` retains worker storage
-between calls to avoid rebuilding it. It also exposes controls for trajectory
-sharing, noise preparation, and per-worker state memory. Shared
-`sample_survivors()` calls reuse preparation on the `Program`; choose a retained
-sampler when worker reuse or these controls are useful.
+Many shots in a noisy or postselected circuit follow the same quantum
+trajectory, and noiseless circuits with measurements share their unitary prefix
+before branching. Shared execution reuses quantum state evolution across
+equivalent shots while keeping per-shot classical records, and discards
+postselected shots that fail noise-only entrance checks or completed detector
+checks before later evolution.
 
-!!! note "Interface under review"
-    The constructor options and defaults are being reviewed and may change
-    before release.
+`sample()`, `sample_detectors()`, and `sample_survivors()` select shared
+execution automatically on eligible postselected workloads and noiseless
+unitary-prefix circuits when `sharing="auto"` and `batch_size="auto"`. On first
+use, `Program` caches the requested output plan, noise metadata, entrance
+checks, and any grouping key; later or concurrent calls on the same `Program`
+reuse that immutable preparation and allocate their own workers per call. Pass
+keyword overrides when benchmarking or pinning shared settings:
 
 ```python
 import clifft
@@ -179,82 +187,74 @@ program = clifft.compile(
     postselection_mask=[1],
     reconstruction=True,
 )
-sampler = clifft.SurvivorSampler(
+result = clifft.sample_survivors(
     program,
-    batch_size=8192,
+    shots=100_000,
+    seed=42,
     threads=2,
-    initial_states=128,
-    noise_preparation=clifft.NoisePreparation.SITE_SPARSE,
+    batch_size=8192,
+    sharing=True,
+    group_by_noise=True,
+    noise_preparation=clifft.NoisePreparation.SITE_ROWS,
 )
-result = sampler.sample(100_000, seed=42)
-print(result.passed_shots, result.observable_ones)
+print(result.passed_shots, result.execution.executor, result.execution.batch_size)
 ```
 
-`SurvivorSampler.sample()` returns a `SampleResult` populated with aggregate
-survivor, logical-error, and observable counts (its per-shot arrays are empty).
-Use `clifft.sample_survivors(..., keep_records=True)` when you need retained
-per-shot rows, `clifft.sample_k_survivors()` for fixed-fault conditioning, or
-`clifft.noncomp` for leakage and loss instruments. Circuits with zero active
-width run directly on the packed classical executor.
+Use `sample_k()` or `sample_k_survivors()` for fixed-fault conditioning, and
+`clifft.noncomp` for leakage and loss instruments. Shared execution is
+incompatible with retained `EXP_VAL` probes (`keep_records=True` on a circuit
+containing `EXP_VAL`), `batch_size=1`, and intra-shot thread layouts. Circuits
+whose selected plan has zero active width have no quantum state to share; with
+`sharing=True`, they run on the packed classical executor under the shared
+batching and noise policy (`result.execution.executor == "packed"`).
 
 ### Batch size and state memory
 
-Because equivalent shots share quantum states, `SurvivorSampler` can often run
-much larger classical batches than ordinary packed execution:
+Because equivalent shots share quantum states, shared execution can run larger
+classical batches than ordinary packed execution:
 
-- **`batch_size`** (default `8192`): Sets the classical batch capacity per
-  worker. Larger batches share each quantum state among more shots and amortize
-  classical noise preparation. `"auto"` selects a capacity up to 8192 for each
-  `.sample()` call, sized so every lane could split into its own quantum state
-  within `max_worker_state_bytes`. Short calls get smaller batches so each
-  requested thread receives one, down to 1024 lanes per thread; below that,
-  fewer threads run fuller batches. `"tune"` times a few capacities up to the
-  `"auto"` limit on the first nonzero `.sample()` call, using separate trial
-  shots, and reuses the winner on subsequent calls. An explicit capacity can
-  exceed the `"auto"` limit when you know trajectories share states.
-- **`initial_states`** (default `128`): Number of quantum states preallocated
-  per worker (capped by `max_worker_state_bytes`). If trajectory splitting
-  needs more states mid-batch, the worker pauses before the next action to grow
-  its state pool without discarding in-progress shots.
+- **`batch_size`**: With `sharing="auto"` or `False`, a numeric `batch_size`
+  keeps ordinary execution (clamped to 2048 lanes, or scalar at `1`). Pass
+  `sharing=True` with a numeric `batch_size` to request an explicit shared
+  batch capacity. With `batch_size="auto"`, shared execution chooses a capacity
+  up to 8192 for the call, sized so every lane could split into its own quantum
+  state within `max_worker_state_bytes`. Short calls get smaller batches so each
+  requested worker receives one, down to 1024 lanes per worker; below that,
+  fewer workers run fuller batches. `batch_size="tune"` measures candidate
+  capacities up to that safe limit for the call. An explicit shared capacity can
+  exceed the safe limit when you know trajectories share states.
 - **`max_worker_state_bytes`** (default `64 MiB`): Memory limit per worker for
   quantum coefficient storage, measurement-collapse scratch, and page alignment
-  (classical buffers and compiled plans are separate). The limit does not
-  shrink as threads are added, so state storage can reach
-  `max_worker_state_bytes * threads` when every lane diverges; states are
-  allocated as trajectories split. Automatic and tuned capacities fit one
-  state per lane within this budget. With a larger explicit capacity, Clifft
-  checks a conservative bound on the states an action's possible splits could
-  require. If that bound exceeds the budget, `.sample()` raises `RuntimeError`,
-  even if the sampled outcomes would have needed fewer states. Reduce
-  `batch_size` or raise `max_worker_state_bytes` before retrying.
+  (classical buffers, output rows, and compiled plans are separate). The limit
+  applies per worker rather than across all threads, so state storage can reach
+  `max_worker_state_bytes * shot_workers` when every lane diverges; states are
+  allocated at explicit suspension boundaries as trajectories split. Automatic
+  and tuned capacities fit one state per lane within this budget. With a larger
+  explicit capacity, Clifft checks a conservative bound on the states an
+  action's possible splits could require; if that bound exceeds the budget, the
+  call raises `RuntimeError` and leaves the `Program` reusable, even if the
+  sampled outcomes would have needed fewer states. Reduce `batch_size` or raise
+  `max_worker_state_bytes` before retrying.
 
 The default budget holds 8192 states through active width 8, 2730 at width 10,
-and 341 at width 13. For wider circuits, raise `max_worker_state_bytes` first
-if the additional memory is acceptable; `"auto"` and `"tune"` then consider
+and 341 at width 13. For wider circuits, raise `max_worker_state_bytes` if the
+additional per-worker memory is acceptable so `"auto"` and `"tune"` can consider
 larger batches.
 
-### Noise preparation and sharing controls
+### Sharing and noise overrides
 
-| Option | Default | When to change |
+| Option | Default | Meaning and when to change |
 |---|---|---|
-| `noise_preparation` | `NoisePreparation.SITE_SPARSE` | `SITE_SPARSE` updates affected expressions directly per noise site. Try `SITE_ROWS` when individual faults touch many expressions, `DENSE` for high noise rates, or `SPARSE` to preserve `DENSE` RNG draw order. |
-| `group_by_noise` | `False` | Set `True` to partition surviving shots once before quantum evolution by their effect on future rotation signs. Avoids per-rotation sign scans, though it can create more initial states and split measurements earlier. Ignored when `sharing=False`. |
-| `sharing` | `True` | Set `False` to give each surviving shot its own quantum state when almost every trajectory diverges. |
-| `early_postselection` | `True` | Set `False` when postselection rarely rejects shots and entrance-check setup is not worthwhile. |
+| `sharing` | `"auto"` | `"auto"` lets Clifft choose; `True` requires shared execution (or packed classical batches at width zero); `False` keeps ordinary scalar or packed execution, such as when sparse postselection rejects few shots and most trajectories diverge. |
+| `group_by_noise` | `"auto"` | `"auto"` resolves to `False`. Set `True` (with `sharing=True`) to partition shots upfront by their effect on future rotation signs, avoiding per-rotation sign scans at the cost of earlier measurement splits. |
+| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path and `DENSE` on the ordinary packed path. Try `NoisePreparation.SITE_ROWS` when individual faults touch many expressions, or `NoisePreparation.DENSE` for high noise rates. |
+| `max_worker_state_bytes` | `67108864` | Per-worker quantum state pool limit (64 MiB) when `result.execution.executor == "shared"`. |
 
-The first sampler built from a program pays for the shared preparation,
-including the grouping key when `group_by_noise=True`. Later samplers from that
-program reuse it and only allocate workers. When benchmarking, measure first
-construction, repeated construction, and `.sample()` throughput separately.
-
-With a fixed `seed`, numeric `batch_size`, and `noise_preparation`, `.sample()`
-returns identical counts regardless of `threads`, when the state pool grows, or
-whether an earlier sampler already prepared the program. `"auto"` can choose a
-different capacity when the worker budget changes, and `"tune"` depends on
-measured timings. To replay a calibrated run, reuse
-`result.batch_tuning.batch_size` as a numeric capacity. Calls on a single
-`SurvivorSampler` instance serialize; use separate instances to sample
-concurrently from multiple Python threads.
+Inspection of the resolved choices is available on `result.execution`
+(`SamplingExecution`), including `executor` (`"scalar"`, `"packed"`, or
+`"shared"`), `batch_size`, `shot_workers`, `intra_shot_workers`, resolved
+`keep_records` and `bit_packed`, `noise_preparation`, `group_by_noise`, and
+`max_worker_state_bytes`.
 
 ## Power-user tuning
 
@@ -359,23 +359,25 @@ preserves rows and survivor order within ordinary execution.
 Untuned selection depends only on the program and call arguments, including the
 requested outputs and worker layout. Cold, warm, and concurrent first use make
 the same choices. For `sample()` and `sample_survivors()`, automatic calls can
-select shared execution; an explicit numeric batch size selects ordinary
-execution.
+select shared execution; pass `sharing=False` or an ordinary numeric
+`batch_size` (with `sharing="auto"`) to select ordinary execution, or pass
+`sharing=True` to pin shared execution.
 
 Scalar, packed, and shared execution use separate random streams, and different
-capacities can produce different rows. Changing `keep_records` can also change
-individual seeded rows while preserving the requested output distribution.
-`bit_packed` only changes array storage and preserves the sampled bits. Keep the
-complete execution configuration fixed when exact seeded replay is required.
+capacities or noise preparations can produce different rows (`SITE_SPARSE` and
+`SITE_ROWS` share a random stream, whereas `DENSE` uses its own). Changing
+`keep_records` can also change individual seeded rows while preserving the
+requested output distribution. `bit_packed` only changes array storage and
+preserves the sampled bits. Keep the complete execution configuration fixed when
+exact seeded replay is required.
 
 Timing-based calibration can select a different capacity on repeated calls,
-even with the same seed. For ordinary execution, pin the reported numeric batch
-size to replay a calibrated run. If `sample()` or `sample_survivors()` calibrated
-shared execution, that numeric setting switches to ordinary execution and does
-not replay the calibrated call. Use a fixed numeric capacity from the start
-when debugging requires repeatable rows.
-Calibration uses separate random streams from the requested shots. Omitting
-`seed` uses hardware entropy.
+even with the same seed. To replay a calibrated run for debugging, pin the
+settings recorded on `result.execution` (`batch_size=result.execution.batch_size`
+and `sharing=(result.execution.executor == "shared")`) instead of requesting
+calibration again; passing a numeric `batch_size` alone without `sharing=True`
+selects ordinary execution. Calibration uses separate random streams from the
+requested shots. Omitting `seed` uses hardware entropy.
 
 ### Memory tradeoffs
 

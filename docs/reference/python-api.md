@@ -37,11 +37,9 @@ compatibility limits.
 
 ::: clifft.sample_k_survivors
 
-Repeated count-only jobs can retain worker storage with `SurvivorSampler`, which
-also exposes controls for sharing, noise preparation, and state memory. See the guide
-for [when to use it and how to configure it](../guide/cpu-execution.md#retaining-a-shared-survivor-sampler).
-
-::: clifft.SurvivorSampler
+`sample()`, `sample_detectors()`, and `sample_survivors()` also accept
+[shared trajectory controls](../guide/cpu-execution.md#shared-trajectory-execution)
+and `NoisePreparation` layouts.
 
 ::: clifft.NoisePreparation
 
@@ -134,6 +132,8 @@ directional overrides, and circuit annotation ordering.
 ## Result Types
 
 ::: clifft.SampleResult
+
+::: clifft.SamplingExecution
 
 ::: clifft.BatchTuningReport
 

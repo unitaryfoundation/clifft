@@ -19,7 +19,11 @@ _SAMPLING_SIGNATURES = {
         "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
         "tuning_budget_seconds: float | None = None, "
         "keep_records: bool | typing.Literal['all', 'syndromes', 'measurements'] = True, "
-        "bit_packed: bool = False) -> clifft.SampleResult"
+        "bit_packed: bool = False, "
+        "sharing: bool | typing.Literal['auto'] = 'auto', "
+        "group_by_noise: bool | typing.Literal['auto'] = 'auto', "
+        "noise_preparation: NoisePreparation | typing.Literal['auto'] = 'auto', "
+        "max_worker_state_bytes: int = 67108864) -> clifft.SampleResult"
     ),
     "sample_k": (
         "def sample_k(program: Program, shots: int, k: int, seed: int | None = None, "
@@ -49,7 +53,11 @@ _SAMPLING_SIGNATURES = {
         "intra_shot_min_active_width: int | None = None, "
         "batch_size: int | typing.Literal['auto', 'tune'] = 'auto', *, "
         "tuning_budget_seconds: float | None = None, "
-        "bit_packed: bool = False) -> clifft.SampleResult"
+        "bit_packed: bool = False, "
+        "sharing: bool | typing.Literal['auto'] = 'auto', "
+        "group_by_noise: bool | typing.Literal['auto'] = 'auto', "
+        "noise_preparation: NoisePreparation | typing.Literal['auto'] = 'auto', "
+        "max_worker_state_bytes: int = 67108864) -> clifft.SampleResult"
     ),
 }
 
@@ -130,6 +138,16 @@ def test_sampling_signature_matches_public_contract(
     signatures = function.__nb_signature__
     assert len(signatures) == 1
     assert signatures[0][0] == expected_signature
+
+
+def test_sampling_execution_and_noise_preparation_exports() -> None:
+    """Test public NoisePreparation members and SamplingExecution summary."""
+    assert set(clifft.NoisePreparation.__members__) == {"DENSE", "SITE_SPARSE", "SITE_ROWS"}
+    result = clifft.sample(clifft.compile("M 0"), 1)
+    assert isinstance(result.execution, clifft.SamplingExecution)
+    assert result.execution.executor == "scalar"
+    assert result.execution.keep_records == "all"
+    assert not result.execution.bit_packed
 
 
 def test_hir_pass_manager_add_has_valid_keyword_name() -> None:

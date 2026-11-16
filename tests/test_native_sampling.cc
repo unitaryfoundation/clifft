@@ -250,7 +250,8 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
     REQUIRE(cold.execution.executor == SamplingExecutor::Shared);
     REQUIRE(cold.execution.batch_size == 8192);
     REQUIRE(cold.execution.shot_workers == 2);
-    REQUIRE(cold.execution.early_postselection);
+    REQUIRE(cold.execution.outputs == SamplingOutputs(true));
+    REQUIRE(cold.execution.max_worker_state_bytes == kDefaultSharedWorkerStateBudget);
     const auto& plan = program.sampling_plan(true);
     REQUIRE_FALSE(should_share_sampling(plan, 1024, true, {2, 1}, kDefaultSharedWorkerStateBudget));
     REQUIRE_FALSE(
@@ -271,20 +272,32 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
     auto unitary = trace(parse("H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0 1 2 3 4 5 6 7"));
     const Program terminal{ExecutablePlan(plan_sampling(unitary))};
     REQUIRE(terminal.original().peak_active_width() == 8);
-    REQUIRE_FALSE(terminal.original().has_promotions_after_measurement());
+    REQUIRE(terminal.original().has_reusable_unitary_prefix());
     REQUIRE(clifft::sample(terminal, 256, 42).execution.executor == SamplingExecutor::Shared);
     REQUIRE(clifft::sample(terminal, 16, 42).execution.executor != SamplingExecutor::Shared);
     const auto branching_hir =
         trace(parse("H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0\nH 0\nT 0\nM 0 1 2 3 4 5 6 7"));
     const Program branching{ExecutablePlan(plan_sampling(branching_hir))};
-    REQUIRE(branching.original().has_promotions_after_measurement());
+    REQUIRE_FALSE(branching.original().has_reusable_unitary_prefix());
     REQUIRE(clifft::sample(branching, 256, 42).execution.executor != SamplingExecutor::Shared);
+    const auto dormant_feedback_hir = trace(parse(
+        "H 0 1 2 3 4 5 6 7 8\nT 0 1 2 3 4 5 6 7\nM 8\nCX rec[-1] 0\nH 0\nT 0\nM 0 1 2 3 4 5 6 7"));
+    const Program dormant_feedback{ExecutablePlan(plan_sampling(dormant_feedback_hir))};
+    REQUIRE_FALSE(dormant_feedback.original().has_reusable_unitary_prefix());
+    REQUIRE(clifft::sample(dormant_feedback, 256, 42).execution.executor !=
+            SamplingExecutor::Shared);
+    const auto heavy_suffix_hir =
+        trace(parse("H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0 1\n"
+                    "H 2 3 4 5 6 7\nT 2 3 4 5 6 7\nH 2 3 4 5 6 7\nT 2 3 4 5 6 7\nM 2 3 4 5 6 7"));
+    const Program heavy_suffix{ExecutablePlan(plan_sampling(heavy_suffix_hir))};
+    REQUIRE_FALSE(heavy_suffix.original().has_reusable_unitary_prefix());
+    REQUIRE(clifft::sample(heavy_suffix, 256, 42).execution.executor != SamplingExecutor::Shared);
 
     const auto qv_source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/qv10.stim");
     auto qv_hir = trace(qv_source);
     default_hir_pass_manager().run(qv_hir);
     const auto qv = Program::compile(qv_source, qv_hir, true);
-    REQUIRE_FALSE(qv.sampling_plan(true).has_promotions_after_measurement());
+    REQUIRE(qv.sampling_plan(true).has_reusable_unitary_prefix());
     REQUIRE(clifft::sample(qv, 256, 42).execution.executor == SamplingExecutor::Shared);
 }
 
@@ -450,4 +463,63 @@ TEST_CASE("Native shared counts calibrate a baseline with more than eight worker
     REQUIRE(baseline.batch_size == 8192);
     REQUIRE(baseline.shot_workers == 9);
     REQUIRE(result.batch_tuning->stop_reason != "single_candidate");
+}
+
+TEST_CASE("Native forced sharing on width zero plans uses packed batches under shared policy") {
+    auto hir =
+        trace(parse("H 0\nCX 0 1\nDEPOLARIZE2(0.07) 0 1\nM(0.13) 0 1\n"
+                    "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"));
+    hir.postselection.mask = {1};
+    hir.postselection.expected_detectors = {1};
+    const Program program{ExecutablePlan(plan_sampling(hir))};
+    REQUIRE(program.sampling_plan(false).peak_active_width() == 0);
+
+    const auto short_shared =
+        clifft::sample_survivors(program, 17, 19, false, {.sharing = true, .group_by_noise = true});
+    REQUIRE(short_shared.execution.executor == SamplingExecutor::Packed);
+    REQUIRE(short_shared.execution.batch_size == 17);
+    REQUIRE(short_shared.execution.noise_preparation == BatchNoiseMode::SiteSparse);
+    REQUIRE_FALSE(short_shared.execution.group_by_noise);
+    REQUIRE_FALSE(short_shared.execution.max_worker_state_bytes.has_value());
+
+    const auto wide_shared = clifft::sample_survivors(
+        program, 8192, 19, {RecordOutputs::Syndromes, true},
+        {.batch_size = 8192, .sharing = true, .noise_preparation = BatchNoiseMode::Dense});
+    REQUIRE(wide_shared.execution.executor == SamplingExecutor::Packed);
+    REQUIRE(wide_shared.execution.batch_size == 8192);
+    REQUIRE(wide_shared.execution.outputs == SamplingOutputs(RecordOutputs::Syndromes, true));
+
+    const auto tuned = clifft::sample_survivors(program, 4097, 19, false,
+                                                {.tuning_budget_seconds = 0.01, .sharing = true});
+    REQUIRE(tuned.execution.executor == SamplingExecutor::Packed);
+    REQUIRE(tuned.batch_tuning.has_value());
+    REQUIRE(tuned.execution.batch_size == tuned.batch_tuning->batch_size);
+
+    const Program active = row_program(true);
+    for (const auto* candidate : {&program, &active}) {
+        REQUIRE_THROWS_AS(
+            clifft::sample_survivors(*candidate, 65, 1, false, {.group_by_noise = true}),
+            std::invalid_argument);
+        REQUIRE_THROWS_AS(clifft::sample_survivors(*candidate, 65, 1, false,
+                                                   {.sharing = false, .group_by_noise = true}),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(
+            clifft::sample_survivors(*candidate, 65, 1, false,
+                                     {.batch_size = 1, .noise_preparation = BatchNoiseMode::Dense}),
+            std::invalid_argument);
+        REQUIRE_FALSE(
+            clifft::sample_survivors(*candidate, 65, 1, false,
+                                     {.batch_size = 1, .sharing = false, .group_by_noise = false})
+                .execution.group_by_noise);
+    }
+
+    const auto dense = clifft::sample_survivors(
+        active, 1301, 7, true,
+        {.batch_size = 65, .sharing = true, .noise_preparation = BatchNoiseMode::Dense});
+    auto sparse = clifft::sample_survivors(
+        active, 1301, 7, true,
+        {.batch_size = 65, .sharing = true, .noise_preparation = BatchNoiseMode::Sparse});
+    REQUIRE(sparse.execution.noise_preparation == BatchNoiseMode::Sparse);
+    sparse.execution.noise_preparation = BatchNoiseMode::Dense;
+    require_same(dense, sparse);
 }

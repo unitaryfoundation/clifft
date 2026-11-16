@@ -1,6 +1,7 @@
 #include "clifft/sampling/executable_plan.h"
 
 #include "clifft/sampling/executable_plan_builder.h"
+#include "clifft/util/numeric.h"
 
 #include <algorithm>
 #include <cassert>
@@ -20,17 +21,68 @@ uint32_t ExecutablePlan::num_postselected_detectors() const noexcept {
     return count;
 }
 
-bool ExecutablePlan::has_promotions_after_measurement() const noexcept {
+bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
+    uint32_t width = initial_active_width_;
     bool measured = false;
+    uint64_t prefix_work = 0;
+    uint64_t suffix_work = 0;
+    const auto add_work = [&](uint64_t work) noexcept {
+        uint64_t& target = measured ? suffix_work : prefix_work;
+        target = saturating_add_u64(target, work);
+    };
     for (const auto& action : actions_) {
-        if (std::holds_alternative<ExecuteActiveMeasurement>(action) ||
-            std::holds_alternative<ExecuteDormantMeasurement>(action)) {
-            measured = true;
-        } else if (measured && std::holds_alternative<ExecutePromotion>(action)) {
-            return true;
+        const bool rejected = std::visit(
+            [&](const auto& typed) noexcept {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, ExecuteActiveMeasurement>) {
+                    measured = true;
+                    --width;
+                    return false;
+                } else if constexpr (std::is_same_v<T, ExecuteDormantMeasurement>) {
+                    measured = true;
+                    // Dormant random outcomes split groups without reducing active width
+                    // when classical feedback feeds them into later expressions.
+                    return !expression_dependencies_.dependent_registers(typed.branch).empty();
+                } else if constexpr (std::is_same_v<T, ExecutePromotion>) {
+                    if (measured) {
+                        return true;
+                    }
+                    add_work(saturating_multiply_u64(uint64_t{1} << width, 4));
+                    ++width;
+                    return false;
+                } else if constexpr (std::is_same_v<T, ExecuteRotation>) {
+                    add_work(saturating_multiply_u64(uint64_t{1} << width, 4));
+                    return false;
+                } else if constexpr (std::is_same_v<T, ExecuteFusedRotation>) {
+                    const auto& rot = fused_rotations_[typed.rotation_index].rotation();
+                    add_work(saturating_multiply_u64(uint64_t{1} << rot.active_width,
+                                                     uint64_t{2} << rot.orbit_rank));
+                    return false;
+                } else if constexpr (std::is_same_v<T, ExecuteDynamicFusedRotation>) {
+                    const auto& rot =
+                        dynamic_fused_rotations_[typed.rotation_index].variants.front().rotation();
+                    add_work(saturating_multiply_u64(uint64_t{1} << rot.active_width,
+                                                     uint64_t{2} << rot.orbit_rank));
+                    return false;
+                } else if constexpr (std::is_same_v<T, ExecuteClassicalRecord> ||
+                                     std::is_same_v<T, ExecuteSymbolDefinition> ||
+                                     std::is_same_v<T, ExecuteReadoutNoise> ||
+                                     std::is_same_v<T, ExecuteDetector> ||
+                                     std::is_same_v<T, ExecuteObservable> ||
+                                     std::is_same_v<T, ExecuteExpectation> ||
+                                     std::is_same_v<T, ExecuteInstrument> ||
+                                     std::is_same_v<T, ExecuteBoundary>) {
+                    return false;
+                } else {
+                    static_assert(!sizeof(T*), "Unhandled ExecutablePlan action alternative");
+                }
+            },
+            action);
+        if (rejected) {
+            return false;
         }
     }
-    return false;
+    return prefix_work != 0 && suffix_work <= prefix_work;
 }
 
 PreparedFusedRotationExecution::PreparedFusedRotationExecution(PreparedFusedRotation rotation,

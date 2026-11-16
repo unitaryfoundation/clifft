@@ -49,34 +49,37 @@ not measure sampling.
 ### Shared survivor sampling
 
 Shared execution can reduce repeated coefficient evolution, but its preparation
-cost matters for short jobs. `--benchmark_filter='^(sample|prepare)_shared_'`
-keeps first-use preparation, repeated sampler construction, and retained
-sampling visible as separate canary rows.
+and worker setup costs matter for short jobs.
+`--benchmark_filter='^(sample|prepare)_shared_'` keeps first-use preparation,
+per-call worker construction, and pinned shared sampling visible as separate
+canary rows.
 These cases reuse the noisy cultivation fixtures, postselect all detectors,
 and request aggregate survivor and observable counts with raw parities.
 
 The d3 sampling case covers packed dormant measurements and rare symmetric
 readout. Both d3 and d5 use upfront noise grouping and site-row noise. The d7
 sampling case covers incremental sharing and site-sparse noise. Two further
-cases measure d5 grouped first-use preparation and repeated sampler
+cases measure d5 grouped first-use preparation and repeated worker
 construction. These are fixed configurations for regression monitoring.
 Choosing defaults and attributing gains to individual options require separate
-comparisons. All use FP64, one worker, capacity 8192, and an initial
-reservation of 128 states. Reconstruction is requested for all cases and
-selected for d5 and d7; d3 uses its original width-four plan.
+comparisons. All use FP64, one worker, and capacity 8192. Reconstruction is
+requested for all cases and selected for d5 and d7; d3 uses its original
+width-four plan.
 
 Each fixture's `Program` is compiled once per process and reused across
 calibration and repetitions. `sample_shared_*` times 65,536 attempts per call
-after warming one retained `SurvivorSampler`; compilation and construction are
-excluded, while aggregate result allocation and destruction are included.
+through `clifft::sample_survivors` with `sharing = true` after warming the
+`Program`'s shared preparation; compilation and first-use preparation are
+excluded, while per-call worker construction, aggregate result allocation, and
+destruction are included.
 `prepare_shared_cultivation_d5_first_use_compact_grouped` times one independent
 build of the immutable preparation per iteration: the count-only plan, site-row
 noise metadata, early checks, and the grouping key. It builds no workers and
 excludes Program compilation and reconstruction.
-`prepare_shared_cultivation_d5_compact_grouped` times repeated sampler
-construction and destruction from the retained `Program`, which reuses the
-program's preparation and allocates workers. Neither prepare row runs sampling
-in the timed loop. Existing `compile_plan_*` rows measure their own
+`prepare_shared_cultivation_d5_compact_grouped` times repeated per-call
+`SharingExecutor` worker construction and destruction from the retained
+`Program`, reusing the program's cached preparation. Neither prepare row runs
+sampling in the timed loop. Existing `compile_plan_*` rows measure their own
 original-plan workloads separately.
 
 Untimed checks require the expected reconstruction selection, nonzero active
@@ -87,12 +90,11 @@ timed calls. The `reconstructed` counter reports which plan was selected.
 Throughput counts attempted shots. There are no timing assertions.
 
 `sample_native_cultivation_d5_*` measures complete calls through the native
-automatic sampler for aggregate counts, full survivor rows, and bit-packed
-detector/observable rows. It reuses immutable preparation on the program but
-constructs workers and collects results on every call. Untimed checks verify
-that automatic selection actually uses shared execution and retains the
-expected number of detector rows. These cases expose worker startup and row
-collection costs that the retained-sampler cases exclude.
+automatic sampler (`sharing` unset) for aggregate counts, full survivor rows,
+and bit-packed detector/observable rows. It reuses immutable preparation on the
+program while exercising automatic selection, worker construction, and row
+collection on every call. Untimed checks verify that automatic selection uses
+shared execution and retains the expected number of detector rows.
 
 ## External input execution
 
