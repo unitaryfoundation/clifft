@@ -244,10 +244,9 @@ class OnlineFrame {
         localize_x(p, dormant);
         coordinate_swap(dormant, active_width);
     }
-    // Follows a dense measurement of the active Pauli a that collapsed onto
-    // branch and removed coordinate `removed` from a state of the given width.
-    void finish_active_measurement(ActivePauli a, uint32_t removed, uint32_t width,
-                                   bool branch) noexcept {
+    // Changes coordinates so that the active Pauli a of a state of the given
+    // width becomes Z on coordinate `removed`.
+    void localize_measured(ActivePauli a, uint32_t removed, uint32_t width) noexcept {
         body.mut_x().zero_out();
         body.mut_z().zero_out();
         if (width) {
@@ -263,6 +262,13 @@ class OnlineFrame {
                 if (q != removed && ((a.z >> q) & 1))
                     coordinate_cx(q, removed);
         }
+    }
+    // Follows a dense measurement of the active Pauli a that collapsed onto
+    // branch and removed coordinate `removed` from a state of the given width.
+    // The branch only negates the rows with Z on the localized coordinate.
+    void finish_active_measurement(ActivePauli a, uint32_t removed, uint32_t width,
+                                   bool branch) noexcept {
+        localize_measured(a, removed, width);
         if (branch)
             coordinate_x(removed);
         compact(removed, width);

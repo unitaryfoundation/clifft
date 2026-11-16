@@ -44,7 +44,11 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_
       signed_sines_(storage.signed_sine_entries, 0.0),
       probability_zero_(storage.probability_zero_entries, 0.0),
       probability_one_(storage.probability_one_entries, 0.0),
-      lane_values_(storage.lane_value_entries, 0.0) {}
+      lane_values_(storage.lane_value_entries, 0.0) {
+    if (plan.uses_runtime_frame()) {
+        throw std::invalid_argument("packed sampling does not support runtime Clifford frames");
+    }
+}
 
 void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept {
     assert(sampling_mode_ == BatchSamplingMode::Ordinary &&
@@ -245,15 +249,15 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteBoundary&) noexc
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameClifford&) noexcept {
-    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRotation&) noexcept {
-    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameMeasurement&) noexcept {
-    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
 bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detector) const noexcept {

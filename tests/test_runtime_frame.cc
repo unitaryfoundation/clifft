@@ -9,10 +9,12 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/early_postselection.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
+#include "clifft/sampling/sharing_executor.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/xoshiro.h"
 
@@ -1017,6 +1019,189 @@ TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame
             REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
         }
     }
+}
+
+// Programs that start with conditional Cliffords the frame fixes, which
+// shared execution handles apart from the general case.
+std::vector<FrameProgram> leading_clifford_programs() {
+    std::vector<FrameProgram> programs(3);
+    // X0, Z1 and Y2 commute, so the frame fixes all three and each one negates
+    // the rows that anticommute with it. Z0 and Z2 then read their noise bits.
+    // Z1 only adds a phase to |0>, so the X1 measurements after the quarter
+    // turn about Y1 must not depend on its bit.
+    programs[0].num_qubits = 3;
+    programs[0].noise_probabilities = {0.3, 0.6, 0.2};
+    programs[0].steps = {rotate(0b001, 0, 1.0, {}, {0}),
+                         rotate(0, 0b010, 1.0, {}, {1}),
+                         rotate(0b100, 0b100, 1.0, {}, {2}),
+                         measure(0, 0b001),
+                         measure(0, 0b100),
+                         rotate(0b010, 0b010, 0.5),
+                         measure(0b010, 0),
+                         measure(0b010, 0)};
+    // Two commuting quarter turns, then a Pauli and turns the frame no longer fixes.
+    programs[1].num_qubits = 3;
+    programs[1].noise_probabilities = {0.3, 0.4};
+    programs[1].steps = {rotate(0b011, 0, 0.5, {}, {0}),
+                         rotate(0, 0b011, 1.5, {}, {1}),
+                         rotate(0b100, 0b100, 1.0, {}, {0, 1}),
+                         rotate(0, 0b001, 0.5, {}, {0}),
+                         rotate(0b011, 0, 1.5, {}, {1}),
+                         measure(0b001, 0b010),
+                         rotate(0b100, 0, 0.5, {}, {0}),
+                         measure(0b010, 0b001),
+                         measure(0b100, 0)};
+    // A run of six commuting quarter turns about X-type Paulis. Four noise
+    // bits choose which of them fire, so a batch holds many sets; X2 fires in
+    // every shot, so no shot keeps the tableau the run started from. The T
+    // rotation and the measurements then act through each set's tableau.
+    programs[2].num_qubits = 4;
+    programs[2].noise_probabilities = {0.3, 0.45, 0.2, 0.5};
+    programs[2].steps = {rotate(0b0001, 0, 0.5, {}, {0}),
+                         rotate(0b0010, 0, 1.5, {}, {1}),
+                         rotate(0b0011, 0, 0.5, {}, {2}),
+                         rotate(0b1100, 0, 1.5, {}, {3}),
+                         rotate(0b0100, 0, 0.5),
+                         rotate(0b1000, 0, 0.5, {}, {0, 1}),
+                         rotate(0, 0b0101, 0.25),
+                         measure(0b0001, 0b0001),
+                         measure(0, 0b0010),
+                         measure(0b0100, 0b0100),
+                         measure(0, 0b1000),
+                         measure(0b0011, 0b1100)};
+    return programs;
+}
+
+// Visible records of one finished shared batch, one bit pattern per shot.
+std::vector<uint64_t> shared_record_patterns(const sampling::SharingExecutor& executor,
+                                             uint32_t num_records) {
+    std::vector<uint64_t> patterns(executor.surviving_shots());
+    for (uint32_t lane = 0; lane < patterns.size(); ++lane) {
+        for (uint32_t record = 0; record < num_records; ++record) {
+            patterns[lane] |= uint64_t{executor.measurement(lane, record)} << record;
+        }
+    }
+    return patterns;
+}
+
+TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_frame][sampling]") {
+    constexpr uint32_t kCapacity = 500;
+    constexpr uint32_t kBatches = 16;
+    constexpr uint32_t kShots = kCapacity * kBatches;
+    uint64_t splits = 0;
+    uint32_t shared_batches = 0;
+    uint64_t seed = 2000;
+    const auto check = [&](const FrameProgram& program) {
+        const SamplingPlan plan = build_frame_plan(program);
+        const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+        std::map<uint64_t, double> expected;
+        for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+            expected[entry.outcome.visible_records] = entry.probability;
+        }
+
+        const sampling::ExecutablePlan executable(plan);
+        const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection checks(executable);
+        sampling::SharingExecutor executor(executable, noise, checks, kCapacity, 1, true, nullptr,
+                                           sampling::kDefaultSharedWorkerStateBudget,
+                                           sampling::BatchOutputMode::Rows);
+        const SeedRoot root = seed_root_from_seed(seed++);
+        std::map<uint64_t, uint32_t> counts;
+        for (uint32_t batch = 0; batch < kBatches; ++batch) {
+            executor.run_batch(root, batch * kCapacity, kCapacity);
+            REQUIRE(executor.surviving_shots() == kCapacity);
+            splits += executor.num_splits();
+            shared_batches += executor.peak_groups() < kCapacity;
+            for (uint64_t bits : shared_record_patterns(executor, plan.num_visible_records)) {
+                ++counts[bits];
+            }
+        }
+        for (const auto& [bits, count] : counts) {
+            CAPTURE(bits);
+            REQUIRE(expected.contains(bits));
+        }
+        for (const auto& [bits, probability] : expected) {
+            CAPTURE(bits, probability);
+            const double observed = counts.contains(bits) ? double(counts[bits]) / kShots : 0.0;
+            const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
+            REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
+        }
+    };
+
+    SECTION("leading conditional Cliffords") {
+        for (const FrameProgram& program : leading_clifford_programs()) {
+            check(program);
+        }
+        REQUIRE(splits > 0);
+    }
+    SECTION("record-conditioned correction") {
+        check(t_teleportation(0.3, true));
+        check(t_teleportation(0.3, false));
+    }
+    SECTION("random programs") {
+        Xoshiro256PlusPlus rng(705);
+        for (uint32_t trial = 0; trial < 24; ++trial) {
+            CAPTURE(trial);
+            check(random_frame_program(rng));
+        }
+        REQUIRE(splits > 0);
+        REQUIRE(shared_batches > 0);
+    }
+}
+
+TEST_CASE("Shared frame groups give every shot the result of its own frame",
+          "[runtime_frame][sampling]") {
+    // A shot's draws do not depend on its group, so sharing a tableau and a
+    // state must reproduce the run where every shot keeps its own.
+    Xoshiro256PlusPlus rng(7051);
+    constexpr uint32_t kCapacity = 193;
+    uint64_t boundaries = 0;
+    uint64_t splits = 0;
+    uint64_t merges = 0;
+    uint32_t shared_batches = 0;
+    bool saw_one = false;
+    std::vector<FrameProgram> programs = leading_clifford_programs();
+    while (programs.size() < 60) {
+        programs.push_back(random_frame_program(rng));
+    }
+    for (uint32_t trial = 0; trial < programs.size(); ++trial) {
+        CAPTURE(trial);
+        const SamplingPlan plan = build_frame_plan(programs[trial]);
+        const sampling::ExecutablePlan executable(plan);
+        const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection checks(executable);
+        const auto make = [&](uint32_t initial_states, bool share) {
+            return sampling::SharingExecutor(
+                executable, noise, checks, kCapacity, initial_states, share, nullptr,
+                sampling::kDefaultSharedWorkerStateBudget, sampling::BatchOutputMode::Rows);
+        };
+        sampling::SharingExecutor growing = make(1, true);
+        sampling::SharingExecutor reserved = make(kCapacity, true);
+        sampling::SharingExecutor independent = make(kCapacity, false);
+        for (uint32_t shots : {kCapacity, 1u, 64u, 65u}) {
+            CAPTURE(shots);
+            const SeedRoot root = seed_root_from_seed(3000 + trial);
+            growing.run_batch(root, 11, shots);
+            reserved.run_batch(root, 11, shots);
+            independent.run_batch(root, 11, shots);
+            boundaries += growing.storage_boundaries();
+            splits += growing.num_splits();
+            merges += growing.num_merges();
+            shared_batches += shots == kCapacity && growing.peak_groups() < shots;
+            REQUIRE(independent.peak_groups() == shots);
+            REQUIRE(independent.num_merges() == 0);
+            const auto expected = shared_record_patterns(independent, plan.num_visible_records);
+            REQUIRE(expected.size() == shots);
+            REQUIRE(shared_record_patterns(growing, plan.num_visible_records) == expected);
+            REQUIRE(shared_record_patterns(reserved, plan.num_visible_records) == expected);
+            saw_one |= std::ranges::any_of(expected, [](uint64_t bits) { return bits != 0; });
+        }
+    }
+    REQUIRE(boundaries > 0);
+    REQUIRE(splits > 0);
+    REQUIRE(merges > 0);
+    REQUIRE(shared_batches > 0);
+    REQUIRE(saw_one);
 }
 
 TEST_CASE("Fixed-fault sampling on a frame plan follows the static plan",
