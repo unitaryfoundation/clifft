@@ -255,6 +255,11 @@ detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
                                  std::is_same_v<T, InstrumentBoundary>) {
                 throw std::invalid_argument(
                     "CUDA execution does not support transition instruments");
+            } else if constexpr (std::is_same_v<T, ApplyConditionalClifford> ||
+                                 std::is_same_v<T, RotateFramePauli> ||
+                                 std::is_same_v<T, MeasureFramePauli>) {
+                throw std::invalid_argument(
+                    "CUDA execution does not support runtime Clifford frames");
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }

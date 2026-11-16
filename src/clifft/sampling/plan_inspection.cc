@@ -68,6 +68,20 @@ std::string_view symbol_kind_name(SymbolKind kind) {
     return "unknown";
 }
 
+std::string_view clifford_rotation_name(CliffordRotation rotation) {
+    switch (rotation) {
+        case CliffordRotation::IDENTITY:
+            return "identity";
+        case CliffordRotation::SQRT:
+            return "sqrt";
+        case CliffordRotation::PAULI:
+            return "pauli";
+        case CliffordRotation::SQRT_DAG:
+            return "sqrt_dag";
+    }
+    return "unknown";
+}
+
 std::string_view instrument_mode_name(InstrumentMode mode) {
     switch (mode) {
         case InstrumentMode::Classical:
@@ -183,6 +197,19 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
                 out << "INSTRUMENT_BOUNDARY site=" << index(typed.site)
                     << " next_noise_site=" << typed.next_noise_site
                     << " symbol_prefix_size=" << typed.symbol_prefix_size;
+            } else if constexpr (std::is_same_v<T, ApplyConditionalClifford>) {
+                out << "CONDITIONAL_CLIFFORD " << format_pauli_product(typed.pauli.x, typed.pauli.z)
+                    << " rotation=" << clifford_rotation_name(typed.rotation)
+                    << " condition=" << format_expression(typed.condition, max_expression_terms);
+            } else if constexpr (std::is_same_v<T, RotateFramePauli>) {
+                out << "ROTATE_FRAME " << format_pauli_product(typed.pauli.x, typed.pauli.z)
+                    << " half_turns=" << format_double_roundtrip(typed.half_turns)
+                    << " sign=" << format_expression(typed.sign, max_expression_terms);
+            } else if constexpr (std::is_same_v<T, MeasureFramePauli>) {
+                out << "MEASURE_FRAME " << format_pauli_product(typed.pauli.x, typed.pauli.z)
+                    << " branch=s" << index(typed.branch)
+                    << " outcome=" << format_expression(typed.outcome, max_expression_terms)
+                    << " record=r" << index(typed.record);
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }
@@ -223,8 +250,11 @@ std::string SamplingPlan::inspect() const {
 
     std::ostringstream out;
     out << "sampling_plan qubits=" << num_qubits << " initial_width=" << initial_active_width
-        << " peak_width=" << peak_active_width << " visible_records=" << num_visible_records
-        << " hidden_records=" << num_hidden_records
+        << " peak_width=" << peak_active_width;
+    if (frame_width != 0) {
+        out << " frame_width=" << frame_width;
+    }
+    out << " visible_records=" << num_visible_records << " hidden_records=" << num_hidden_records
         << " noise_sites=" << presampled_noise_sites.size()
         << " instrument_sites=" << instrument_distributions.size() << " detectors=" << num_detectors
         << " observables=" << num_observables << " exp_vals=" << num_exp_vals

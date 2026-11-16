@@ -7,6 +7,7 @@
 #include "clifft/sampling/outputs.h"
 #include "clifft/sampling/plan.h"
 
+#include <bit>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
@@ -78,6 +79,15 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
+    // True when the plan carries a runtime Clifford frame. Such plans run on
+    // the scalar Executor only.
+    [[nodiscard]] bool uses_runtime_frame() const { return frame_width_ != 0; }
+    // Coefficient capacity an executor allocates up front. For a frame plan
+    // this is the peak width up to the first frame action; peak_active_width
+    // is then an upper bound that few shots may reach.
+    [[nodiscard]] uint32_t initial_capacity_width() const {
+        return uses_runtime_frame() ? frame_entry_peak_width_ : peak_active_width_;
+    }
     [[nodiscard]] uint32_t num_visible_records() const { return num_visible_records_; }
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
     [[nodiscard]] uint32_t num_detectors() const { return num_detectors_; }
@@ -155,6 +165,26 @@ class ExecutablePlan {
     friend class ExecutablePlanBuilder;
 
     [[nodiscard]] std::vector<AffineBool> affine_registers() const;
+
+    [[nodiscard]] uint32_t frame_words() const noexcept { return (frame_width_ + 63) / 64; }
+    [[nodiscard]] MaskView frame_pauli_x(uint32_t pauli) const noexcept {
+        return MaskView{std::span<const uint64_t>(frame_paulis_)
+                            .subspan(size_t{2} * pauli * frame_words(), frame_words())};
+    }
+    [[nodiscard]] MaskView frame_pauli_z(uint32_t pauli) const noexcept {
+        return MaskView{std::span<const uint64_t>(frame_paulis_)
+                            .subspan((size_t{2} * pauli + 1) * frame_words(), frame_words())};
+    }
+    // The stored unsigned Hermitian Pauli on frame coordinates.
+    [[nodiscard]] PauliStringView frame_pauli(uint32_t pauli) const noexcept {
+        const MaskView x = frame_pauli_x(pauli);
+        const MaskView z = frame_pauli_z(pauli);
+        unsigned y_count = 0;
+        for (uint32_t w = 0; w < x.num_words(); ++w) {
+            y_count += static_cast<unsigned>(std::popcount(x.words[w] & z.words[w]));
+        }
+        return PauliStringView(x, z, static_cast<uint8_t>(y_count & 3U), frame_width_);
+    }
 
     // Actions retain only this index so repeated affine expressions stay in
     // shared plan storage.
@@ -244,6 +274,32 @@ class ExecutablePlan {
     struct ExecuteClassicalRecord {
         PreparedExpression outcome;
         uint32_t record = 0;
+    };
+
+    // Actions on the runtime Clifford frame. Each names its Pauli by an index
+    // into frame_paulis_; the executor maps that Pauli through the frame and
+    // then chooses the frame update or coefficient kernel for the shot.
+    struct ExecuteFrameClifford {
+        PreparedExpression condition;
+        uint32_t pauli = 0;
+        CliffordRotation rotation = CliffordRotation::IDENTITY;
+        // True when every earlier frame action is a conditional Clifford that
+        // commutes with this one. The frame then maps this Pauli to itself, so
+        // the rotation applies to it directly and touches only its support.
+        bool fixed_by_frame = false;
+    };
+
+    struct ExecuteFrameRotation {
+        PreparedPromotion rotation;
+        PreparedExpression sign;
+        uint32_t pauli = 0;
+    };
+
+    struct ExecuteFrameMeasurement {
+        PreparedExpression correction;
+        uint32_t branch = 0;
+        uint32_t record = 0;
+        uint32_t pauli = 0;
     };
 
     struct ExecuteSymbolDefinition {
@@ -383,7 +439,8 @@ class ExecutablePlan {
                      ExecutePromotion, ExecuteActiveMeasurement, ExecuteDormantMeasurement,
                      ExecuteClassicalRecord, ExecuteSymbolDefinition, ExecuteReadoutNoise,
                      ExecuteDetector, ExecuteObservable, ExecuteExpectation, ExecuteInstrument,
-                     ExecuteBoundary>;
+                     ExecuteBoundary, ExecuteFrameClifford, ExecuteFrameRotation,
+                     ExecuteFrameMeasurement>;
 
     // Immutable plan metadata and externally visible dimensions.
     uint32_t num_qubits_ = 0;
@@ -437,6 +494,12 @@ class ExecutablePlan {
     std::vector<PreparedDynamicFusedRotationExecution> dynamic_fused_rotations_;
     std::vector<Action> actions_;
     std::vector<PlanActionRange> action_plan_ranges_;
+
+    // Runtime Clifford frame. Frame Paulis are each stored as their X words
+    // followed by their Z words.
+    uint32_t frame_width_ = 0;
+    uint32_t frame_entry_peak_width_ = 0;
+    std::vector<uint64_t> frame_paulis_;
 };
 
 }  // namespace clifft::sampling

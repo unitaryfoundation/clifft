@@ -23,6 +23,7 @@ std::vector<size_t> EarlyPostselection::schedule(const ExecutablePlan& plan, boo
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
                               std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement> ||
                               std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord> ||
                               std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
                     record_ready[typed.record] = i + 1;
@@ -137,7 +138,8 @@ EarlyPostselection::EarlyPostselection(const ExecutablePlan& plan, bool enabled)
             [&](const auto& typed) {
                 using T = std::decay_t<decltype(typed)>;
                 if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement> ||
-                              std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement>) {
+                              std::is_same_v<T, ExecutablePlan::ExecuteDormantMeasurement> ||
+                              std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement>) {
                     records[typed.record] =
                         expand(typed.correction) ^ AffineBool::symbol(SymbolId{typed.branch});
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteClassicalRecord>) {

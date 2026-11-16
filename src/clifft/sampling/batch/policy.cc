@@ -159,7 +159,7 @@ bool automatic_batch_eligible(const ExecutablePlan& plan, uint32_t shots,
     (void)external_input_steps;
     return false;
 #else
-    if (intra_shot_workers > 1 || plan.has_instruments()) {
+    if (intra_shot_workers > 1 || plan.has_instruments() || plan.uses_runtime_frame()) {
         return false;
     }
     if (shots < kDefaultMinAutoBatchShots) {
@@ -212,7 +212,7 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
-    if (shots == 0 || plan.has_instruments()) {
+    if (shots == 0 || plan.has_instruments() || plan.uses_runtime_frame()) {
         return {};
     }
 #if defined(__EMSCRIPTEN__)

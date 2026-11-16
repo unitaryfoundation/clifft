@@ -73,6 +73,11 @@ bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
                                      std::is_same_v<T, ExecuteInstrument> ||
                                      std::is_same_v<T, ExecuteBoundary>) {
                     return false;
+                } else if constexpr (std::is_same_v<T, ExecuteFrameClifford> ||
+                                     std::is_same_v<T, ExecuteFrameRotation> ||
+                                     std::is_same_v<T, ExecuteFrameMeasurement>) {
+                    // A runtime Clifford frame keeps the plan on the scalar executor.
+                    return true;
                 } else {
                     static_assert(!sizeof(T*), "Unhandled ExecutablePlan action alternative");
                 }
@@ -123,7 +128,16 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       num_observables_(plan.num_observables),
       num_exp_vals_(plan.num_exp_vals),
       final_tableau_(plan.final_tableau),
-      instrument_distributions_(plan.instrument_distributions) {
+      instrument_distributions_(plan.instrument_distributions),
+      frame_width_(plan.frame_width) {
+    frame_entry_peak_width_ = initial_active_width_;
+    for (const PlannedAction& planned : plan.actions) {
+        if (std::visit([](const auto& typed) { return FrameAction<decltype(typed)>; },
+                       planned.action)) {
+            break;
+        }
+        frame_entry_peak_width_ = std::max(frame_entry_peak_width_, planned.active_after);
+    }
     // Keep construction-only lowering state out of the immutable executable.
     ExecutablePlanBuilder::build(*this, plan);
 }
