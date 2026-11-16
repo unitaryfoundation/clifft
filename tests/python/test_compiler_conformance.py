@@ -689,13 +689,14 @@ def test_reusable_sharing_preserves_noisy_aggregate_masses(
     for detector, selected in enumerate(mask or []):
         if selected:
             expected[((np.arange(1024) >> (6 + detector)) & 1) != 0] = 0
-    sampler = clifft.SurvivorSampler(
+    result = clifft.sample_survivors(
         program,
+        8193,
+        seed=803,
         batch_size=65,
-        initial_states=1,
         threads=2,
+        sharing=True,
         noise_preparation=preparation,
         group_by_noise=group,
     )
-    result = sampler.sample(8193, seed=803)
     _assert_noisy_survivors(result, expected, 8193, keep_records=False)

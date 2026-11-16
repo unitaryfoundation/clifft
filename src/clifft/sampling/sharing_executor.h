@@ -15,8 +15,8 @@ namespace clifft::sampling {
 // data with SharingExecutor's groups and pool of coefficient states. An optional
 // SharingKey, prepared before execution, groups shots upfront by noise effects
 // on future rotation signs. SharingExecutor applies prepared actions to each
-// group and splits it when needed; SurvivorSampler retains the workers and
-// their storage across sampling calls.
+// group and splits it when needed; each sampling call owns its workers and
+// their storage.
 
 // Default bound on the coefficients, collapse scratch, and page alignment of
 // the states one shared worker holds. States are allocated as trajectories

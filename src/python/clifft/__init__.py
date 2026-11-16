@@ -50,8 +50,8 @@ from clifft._clifft_core import (
     Qasm2Import,
     RemoveNoisePass,
     RotationSimplificationPass,
+    SamplingExecution,
     StatevectorSqueezePass,
-    SurvivorSampler,
     Target,
     _basis_probabilities_from_bitmasks,
     _record_probabilities_from_records,
@@ -100,6 +100,10 @@ def sample_detectors(
     separate_observables: Literal[False] = False,
     bit_packed: Literal[False] = False,
     tuning_budget_seconds: float | None = None,
+    sharing: bool | Literal["auto"] = "auto",
+    group_by_noise: bool | Literal["auto"] = "auto",
+    noise_preparation: NoisePreparation | Literal["auto"] = "auto",
+    max_worker_state_bytes: int = 67108864,
 ) -> npt.NDArray[np.bool_]: ...
 
 
@@ -116,6 +120,10 @@ def sample_detectors(
     separate_observables: Literal[True],
     bit_packed: Literal[False] = False,
     tuning_budget_seconds: float | None = None,
+    sharing: bool | Literal["auto"] = "auto",
+    group_by_noise: bool | Literal["auto"] = "auto",
+    noise_preparation: NoisePreparation | Literal["auto"] = "auto",
+    max_worker_state_bytes: int = 67108864,
 ) -> tuple[npt.NDArray[np.bool_], npt.NDArray[np.bool_]]: ...
 
 
@@ -132,6 +140,10 @@ def sample_detectors(
     separate_observables: Literal[False] = False,
     bit_packed: Literal[True],
     tuning_budget_seconds: float | None = None,
+    sharing: bool | Literal["auto"] = "auto",
+    group_by_noise: bool | Literal["auto"] = "auto",
+    noise_preparation: NoisePreparation | Literal["auto"] = "auto",
+    max_worker_state_bytes: int = 67108864,
 ) -> npt.NDArray[np.uint8]: ...
 
 
@@ -148,6 +160,10 @@ def sample_detectors(
     separate_observables: Literal[True],
     bit_packed: Literal[True],
     tuning_budget_seconds: float | None = None,
+    sharing: bool | Literal["auto"] = "auto",
+    group_by_noise: bool | Literal["auto"] = "auto",
+    noise_preparation: NoisePreparation | Literal["auto"] = "auto",
+    max_worker_state_bytes: int = 67108864,
 ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.uint8]]: ...
 
 
@@ -164,6 +180,10 @@ def sample_detectors(
     separate_observables: bool = False,
     bit_packed: bool = False,
     tuning_budget_seconds: float | None = None,
+    sharing: bool | Literal["auto"] = "auto",
+    group_by_noise: bool | Literal["auto"] = "auto",
+    noise_preparation: NoisePreparation | Literal["auto"] = "auto",
+    max_worker_state_bytes: int = 67108864,
 ) -> (
     npt.NDArray[np.bool_]
     | npt.NDArray[np.uint8]
@@ -184,6 +204,10 @@ def sample_detectors(
     separate_observables: bool = False,
     bit_packed: bool = False,
     tuning_budget_seconds: float | None = None,
+    sharing: bool | Literal["auto"] = "auto",
+    group_by_noise: bool | Literal["auto"] = "auto",
+    noise_preparation: NoisePreparation | Literal["auto"] = "auto",
+    max_worker_state_bytes: int = 67108864,
 ) -> (
     npt.NDArray[np.bool_]
     | npt.NDArray[np.uint8]
@@ -198,8 +222,9 @@ def sample_detectors(
     Arrays share the sampling result's storage. Values follow the program's
     ``normalize_syndromes``, ``expected_detectors``, and ``expected_observables``
     compilation settings; by default they are raw parities, not reference-normalized
-    detection events. Other options follow ``sample``. For postselected programs,
-    use ``sample_survivors(..., keep_records="syndromes")``.
+    detection events. Other options, including ``sharing``, ``group_by_noise``,
+    ``noise_preparation``, and ``max_worker_state_bytes``, follow ``sample``.
+    For postselected programs, use ``sample_survivors(..., keep_records="syndromes")``.
     """
     result: SampleResult = sample(
         program,
@@ -212,6 +237,10 @@ def sample_detectors(
         tuning_budget_seconds=tuning_budget_seconds,
         keep_records="syndromes",
         bit_packed=bit_packed,
+        sharing=sharing,
+        group_by_noise=group_by_noise,
+        noise_preparation=noise_preparation,
+        max_worker_state_bytes=max_worker_state_bytes,
     )
     if bit_packed:
         if separate_observables:
@@ -531,8 +560,8 @@ __all__ = [
     "RemoveNoisePass",
     "RotationSimplificationPass",
     "SampleResult",
+    "SamplingExecution",
     "StatevectorSqueezePass",
-    "SurvivorSampler",
     "Target",
     "active_width_trace",
     "basis_probabilities",

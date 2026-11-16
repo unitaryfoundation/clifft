@@ -1,5 +1,5 @@
+#include "clifft/api/sampler.h"
 #include "clifft/api/sampling_preparation.h"
-#include "clifft/api/survivor_sampler.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
@@ -561,6 +561,10 @@ TEST_CASE("Automatic shared policy sizes batches to the call and its workers") {
         {8192, 4096, 8, kMinAutoSharedLanesPerWorker, 4},
         {8192, 100, 8, 100, 1},
         {8192, 100, 1, 100, 1},
+        // Zero-shot and single-shot calls keep a non-scalar batch size when safe >= 2.
+        {8192, 0, 8, 2, 0},
+        {8192, 1, 8, 2, 1},
+        {1, 0, 1, 1, 0},
         // The safe capacity still bounds a single worker.
         {5, 100, 1, 5, 1},
     }));
@@ -577,13 +581,14 @@ TEST_CASE("Shared tuning candidates start at the baseline and stay within the sa
                                                       {8192, 1 << 20, 16},
                                                       {341, 65536, 4},
                                                       {8192, 100, 2},
+                                                      {8192, 1, 2},
                                                       {1, 100, 1}}));
     const auto candidates = shared_tuning_candidates(safe, shots, workers);
     const auto baseline = resolve_shared_execution_policy(safe, shots, workers);
     REQUIRE_FALSE(candidates.empty());
     REQUIRE(candidates.front().policy.lane_capacity == baseline.lane_capacity);
     REQUIRE(candidates.front().policy.worker_count == baseline.worker_count);
-    const uint32_t limit = std::min(safe, shots);
+    const uint32_t limit = std::min(safe, std::max(shots, std::min(safe, uint32_t{2})));
     bool reaches_limit = false;
     for (size_t i = 0; i < candidates.size(); ++i) {
         const auto& policy = candidates[i].policy;
@@ -614,23 +619,38 @@ TEST_CASE("Automatic survivor sampling replays the per-worker capacity at any wo
     const uint64_t budget = 7 * State::storage_bytes(width);
     const uint32_t threads = GENERATE(1u, 2u, 5u);
     const auto mode = BatchNoiseMode::SiteSparse;
-    SurvivorSampler automatic(program, std::nullopt, threads, 128, mode, true, true, false, budget);
-    SurvivorSampler numeric(program, 7, threads, 128, mode, true, true, false, budget);
-    const auto expected = numeric.sample(1301, 31);
-    const auto result = automatic.sample(1301, 31);
+    const auto expected = clifft::sample_survivors(program, 1301, 31, false,
+                                                   {.threads = threads,
+                                                    .batch_size = 7,
+                                                    .sharing = true,
+                                                    .noise_preparation = mode,
+                                                    .max_worker_state_bytes = budget});
+    const auto result = clifft::sample_survivors(program, 1301, 31, false,
+                                                 {.threads = threads,
+                                                  .sharing = true,
+                                                  .noise_preparation = mode,
+                                                  .max_worker_state_bytes = budget});
+    REQUIRE(result.execution.executor == SamplingExecutor::Shared);
+    REQUIRE(result.execution.sharing);
+    REQUIRE(result.execution.batch_size == 7);
     REQUIRE(result.passed_shots == expected.passed_shots);
     REQUIRE(result.observable_ones == expected.observable_ones);
-    REQUIRE_THROWS_AS(SurvivorSampler(program, std::nullopt, threads, 128, mode, true, true, false,
-                                      State::storage_bytes(width) - 1),
-                      std::invalid_argument);
+    REQUIRE_THROWS_AS(
+        clifft::sample_survivors(program, 1301, 31, false,
+                                 {.threads = threads,
+                                  .sharing = true,
+                                  .noise_preparation = mode,
+                                  .max_worker_state_bytes = 2 * State::storage_bytes(width) - 1}),
+        std::invalid_argument);
 }
 
-TEST_CASE("Survivor construction rejects instruments in each preparation path") {
+TEST_CASE("Native sampling rejects instruments across ordinary and shared paths") {
     const auto options = test::source_dependent_jump_options();
     const auto hir = trace(parse("LEVEL_TRANSITION[jump] 0"), &options);
     const Program program{ExecutablePlan(plan_sampling(hir))};
-    const bool early = GENERATE(false, true);
-    REQUIRE_THROWS_AS(SurvivorSampler(program, 65, 1, 1, BatchNoiseMode::SiteSparse, true, early),
+    const std::optional<bool> sharing =
+        GENERATE(std::optional<bool>{}, std::optional<bool>{false}, std::optional<bool>{true});
+    REQUIRE_THROWS_AS(clifft::sample_survivors(program, 65, 1, false, {.sharing = sharing}),
                       std::invalid_argument);
 }
 

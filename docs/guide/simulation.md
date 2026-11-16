@@ -104,9 +104,10 @@ probes. To retain rows for each survivor, choose the outputs described in
 
 Marked detectors are checked during execution. Clifft discards a shot as soon
 as it can determine that the shot fails, avoiding later work that cannot
-contribute to the surviving sample. For repeated count-only runs over the same
-compiled program, see
-[`SurvivorSampler`](cpu-execution.md#retaining-a-shared-survivor-sampler).
+contribute to the surviving sample. Compiled `Program` instances cache prepared
+plans, noise metadata, and entrance checks across calls; see
+[Shared trajectory execution](cpu-execution.md#shared-trajectory-execution) for
+trajectory sharing and override controls.
 
 ### Select and pack outputs
 
@@ -173,6 +174,12 @@ rows and contain `uint8` values of `0` or `1`, or `b8` bytes when
 Omitted arrays have zero rows and keep their declared column width, adjusted
 for bit packing. Arrays with no declared columns always have shape
 `(result.retained_shots, 0)`.
+
+`result.execution` holds a read-only `SamplingExecution` summary of the CPU
+settings used for the call (`executor`, `sharing`, `batch_size`, `shot_workers`,
+`intra_shot_workers`, `keep_records`, `bit_packed`, `noise_preparation`,
+`group_by_noise`, and `max_worker_state_bytes`), and `result.batch_tuning`
+holds the `BatchTuningReport` when `batch_size="tune"` was requested.
 
 ### Detectors and observables
 

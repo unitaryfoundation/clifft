@@ -30,6 +30,8 @@ struct SamplingOutputs {
     [[nodiscard]] constexpr size_t stride(size_t columns) const {
         return bit_packed ? columns / 8 + (columns % 8 != 0) : columns;
     }
+
+    friend constexpr bool operator==(const SamplingOutputs&, const SamplingOutputs&) = default;
 };
 
 }  // namespace clifft::sampling
