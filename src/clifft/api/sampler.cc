@@ -19,11 +19,6 @@ namespace {
 
 using namespace sampling;
 
-constexpr uint32_t kMaxInitialSharedStates = 128;
-// Bound upfront state preallocation per worker on wide plans; additional states
-// grow at explicit suspension boundaries when trajectories split.
-constexpr uint64_t kInitialSharedStateBytes = 512 * 1024;
-
 // One call owns its mutable workers. Rows are collected only after a batch
 // finishes dispatch, and batch indices keep collection independent of scheduling.
 struct SharedWorker {
@@ -50,12 +45,9 @@ struct SharedWorker {
             return Executor(std::in_place_type<BatchExecutor>, plan, execution.batch_size, mode,
                             BatchSamplingMode::Ordinary, &noise);
         }
-        const uint32_t initial_states = static_cast<uint32_t>(std::min<uint64_t>(
-            {execution.batch_size, kMaxInitialSharedStates,
-             std::max<uint64_t>(
-                 1, kInitialSharedStateBytes / State::storage_bytes(plan.peak_active_width()))}));
         return Executor(std::in_place_type<SharingExecutor>, plan, noise, *checks,
-                        execution.batch_size, initial_states, true, key,
+                        execution.batch_size,
+                        initial_shared_states(plan.peak_active_width(), execution.batch_size), key,
                         *execution.max_worker_state_bytes, mode);
     }
 };
@@ -181,14 +173,25 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
     if (options.group_by_noise == true && options.sharing != true) {
         throw std::invalid_argument("group_by_noise=True requires sharing=True");
     }
+    if (options.sharing == true) {
+        if (!kPackedBatchExecutionAvailable) {
+            throw std::invalid_argument(
+                "sharing=True is unavailable in builds without packed batch execution");
+        }
+        if (outputs.expectations() && compiled.num_exp_vals() != 0) {
+            throw std::invalid_argument(
+                "sharing=True is incompatible with retained EXP_VAL outputs");
+        }
+        if (options.batch_size == 1) {
+            throw std::invalid_argument("sharing=True is incompatible with scalar batch_size=1");
+        }
+        if (layout.intra_shot_workers > 1) {
+            throw std::invalid_argument("sharing=True is incompatible with intra-shot workers");
+        }
+    }
     const bool supported = kPackedBatchExecutionAvailable &&
                            !(outputs.expectations() && compiled.num_exp_vals() != 0) &&
                            options.batch_size != 1 && layout.intra_shot_workers == 1;
-    if (options.sharing == true && !supported) {
-        throw std::invalid_argument(
-            "shared execution requires packed batch support and no expectation probes, scalar "
-            "override, or intra-shot workers");
-    }
 
     const uint32_t workers = std::max(uint32_t{1}, layout.shot_workers);
     const uint32_t width = compiled.peak_active_width();
@@ -197,18 +200,41 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         shared =
             should_share_sampling(compiled, shots, outputs, layout, options.max_worker_state_bytes);
     }
-    if (shared && width != 0 && options.max_worker_state_bytes < State::storage_bytes(width)) {
+    if (shared && width != 0 && options.max_worker_state_bytes / State::storage_bytes(width) < 2) {
         if (options.sharing == true) {
-            throw std::invalid_argument("max_worker_state_bytes cannot hold one shared state");
+            throw std::invalid_argument(
+                "max_worker_state_bytes must hold at least two shared states");
         }
         shared = false;
+    }
+    const auto mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
+    const auto shared_noise_mode = options.noise_preparation.value_or(BatchNoiseMode::SiteSparse);
+    const SamplingPreparation* shared_preparation = nullptr;
+    uint32_t safe = 0;
+    if (shared) {
+        shared_preparation = &program.sampling_preparation(
+            outputs,
+            {.early_postselection = compiled.has_postselection(), .survivor_counts = survivors});
+        assert(shared_preparation->plan().peak_active_width() == width &&
+               "output preparation must preserve compiled peak active width");
+        const auto& noise = shared_preparation->noise(shared_noise_mode);
+        const auto* key = width != 0 && options.group_by_noise.value_or(false)
+                              ? &shared_preparation->sharing_key()
+                              : nullptr;
+        safe = max_safe_shared_capacity(shared_preparation->plan(), noise, key,
+                                        options.max_worker_state_bytes, mode);
+        if (safe < 2) {
+            if (options.sharing == true) {
+                throw std::invalid_argument(
+                    "shared execution requires capacity for at least two lanes");
+            }
+            shared = false;
+        }
     }
     if (!shared) {
         const auto& preparation = program.sampling_preparation(
             outputs, {.early_postselection = false, .survivor_counts = survivors});
         const PreparedBatchNoise* noise = nullptr;
-        const auto mode =
-            outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
         const bool tuning_packed = options.tuning_budget_seconds.value_or(0) > 0 && shots > 1 &&
                                    layout.intra_shot_workers == 1;
         if (shots != 0 && options.batch_size != 1 &&
@@ -228,32 +254,28 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         }
     }
 
+    const auto& preparation = *shared_preparation;
     SamplingExecution execution;
     execution.executor = width == 0 ? SamplingExecutor::Packed : SamplingExecutor::Shared;
+    execution.sharing = true;
     execution.outputs = outputs;
     if (width != 0) {
         execution.max_worker_state_bytes = options.max_worker_state_bytes;
         execution.group_by_noise = options.group_by_noise.value_or(false);
     }
-    execution.noise_preparation = options.noise_preparation.value_or(BatchNoiseMode::SiteSparse);
-    const auto& preparation = program.sampling_preparation(
-        outputs,
-        {.early_postselection = compiled.has_postselection(), .survivor_counts = survivors});
-    assert(preparation.plan().peak_active_width() == width &&
-           "output preparation must preserve compiled peak active width");
-    const auto& noise = preparation.noise(*execution.noise_preparation);
-    const auto* key = execution.group_by_noise ? &preparation.sharing_key() : nullptr;
-    const auto mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
-    const uint32_t safe = max_safe_shared_capacity(preparation.plan(), noise, key,
-                                                   options.max_worker_state_bytes, mode);
+    execution.noise_preparation = shared_noise_mode;
     auto policy = resolve_shared_execution_policy(safe, shots, workers);
-    if (options.batch_size && shots != 0) {
-        policy.lane_capacity = std::min(*options.batch_size, shots);
-        policy.worker_count = static_cast<uint32_t>(std::min<uint64_t>(
-            workers, (uint64_t{shots} + policy.lane_capacity - 1) / policy.lane_capacity));
+    if (options.batch_size) {
+        if (shots == 0) {
+            policy.lane_capacity = *options.batch_size;
+        } else {
+            policy.lane_capacity = std::min(*options.batch_size, std::max(shots, uint32_t{2}));
+            policy.worker_count = static_cast<uint32_t>(std::min<uint64_t>(
+                workers, (uint64_t{shots} + policy.lane_capacity - 1) / policy.lane_capacity));
+        }
     }
     execution.batch_size = policy.lane_capacity;
-    execution.shot_workers = shots == 0 ? 0 : policy.worker_count;
+    execution.shot_workers = policy.worker_count;
     std::optional<BatchTuningReport> tuning;
     if (options.tuning_budget_seconds) {
         tuning.emplace();

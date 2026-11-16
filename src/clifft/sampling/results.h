@@ -15,6 +15,7 @@ enum class SamplingExecutor { Scalar, Packed, Shared };
 // Effective CPU settings, recorded after selection and any capacity tuning.
 struct SamplingExecution {
     SamplingExecutor executor = SamplingExecutor::Scalar;
+    bool sharing = false;
     uint32_t batch_size = 1;
     uint32_t shot_workers = 1;
     uint32_t intra_shot_workers = 1;

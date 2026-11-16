@@ -118,10 +118,10 @@ The selected capacity and timings are returned in `result.batch_tuning`, and the
 resolved settings appear on `result.execution`. Calibration compares capacities
 within the selected execution path. To reproduce a calibrated run, pass
 `batch_size=result.execution.batch_size` together with
-`sharing=(result.execution.executor == "shared")` and any explicit noise or
-grouping overrides; a numeric `batch_size` with `sharing="auto"` selects
-ordinary execution and does not reproduce a shared call. Retune when the
-workload or machine changes; selections are not cached automatically.
+`sharing=result.execution.sharing` and any explicit noise or grouping
+overrides; a numeric `batch_size` with `sharing="auto"` selects ordinary
+execution and does not reproduce a shared call. Retune when the workload or
+machine changes; selections are not cached automatically.
 
 ??? note "Calibration report details"
 
@@ -158,8 +158,8 @@ workload or machine changes; selections are not cached automatically.
 
     To reproduce the worker allocation as well as the batch size, pass
     `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
-    nonempty call along with `sharing=(result.execution.executor == "shared")`
-    and preserve any explicit intra-shot threshold.
+    nonempty call along with `sharing=result.execution.sharing` and preserve
+    any explicit intra-shot threshold.
 
 ## Shared trajectory execution
 
@@ -206,7 +206,8 @@ incompatible with retained `EXP_VAL` probes (`keep_records=True` on a circuit
 containing `EXP_VAL`), `batch_size=1`, and intra-shot thread layouts. Circuits
 whose selected plan has zero active width have no quantum state to share; with
 `sharing=True`, they run on the packed classical executor under the shared
-batching and noise policy (`result.execution.executor == "packed"`).
+batching and noise policy (`result.execution.executor == "packed"` and
+`result.execution.sharing is True`).
 
 ### Batch size and state memory
 
@@ -228,13 +229,14 @@ classical batches than ordinary packed execution:
   (classical buffers, output rows, and compiled plans are separate). The limit
   applies per worker rather than across all threads, so state storage can reach
   `max_worker_state_bytes * shot_workers` when every lane diverges; states are
-  allocated at explicit suspension boundaries as trajectories split. Automatic
-  and tuned capacities fit one state per lane within this budget. With a larger
-  explicit capacity, Clifft checks a conservative bound on the states an
-  action's possible splits could require; if that bound exceeds the budget, the
-  call raises `RuntimeError` and leaves the `Program` reusable, even if the
-  sampled outcomes would have needed fewer states. Reduce `batch_size` or raise
-  `max_worker_state_bytes` before retrying.
+  allocated at explicit suspension boundaries as trajectories split. With
+  `sharing=True` on nonzero-width plans, the budget must hold at least two
+  states. Automatic and tuned capacities fit one state per lane within this
+  budget. With a larger explicit capacity, Clifft checks a conservative bound
+  on the states an action's possible splits could require; if that bound
+  exceeds the budget, the call raises `RuntimeError` and leaves the `Program`
+  reusable, even if the sampled outcomes would have needed fewer states. Reduce
+  `batch_size` or raise `max_worker_state_bytes` before retrying.
 
 The default budget holds 8192 states through active width 8, 2730 at width 10,
 and 341 at width 13. For wider circuits, raise `max_worker_state_bytes` if the
@@ -247,14 +249,14 @@ larger batches.
 |---|---|---|
 | `sharing` | `"auto"` | `"auto"` lets Clifft choose; `True` requires shared execution (or packed classical batches at width zero); `False` keeps ordinary scalar or packed execution, such as when sparse postselection rejects few shots and most trajectories diverge. |
 | `group_by_noise` | `"auto"` | `"auto"` resolves to `False`. Set `True` (with `sharing=True`) to partition shots upfront by their effect on future rotation signs, avoiding per-rotation sign scans at the cost of earlier measurement splits. |
-| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path and `DENSE` on the ordinary packed path. Try `NoisePreparation.SITE_ROWS` when individual faults touch many expressions, or `NoisePreparation.DENSE` for high noise rates. |
+| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path and `DENSE` on the ordinary packed path. `SPARSE` shares `DENSE`'s random stream while skipping non-firing faults when few faults occur per batch; `SITE_ROWS` accumulates per-shot fault effects before transposing when individual faults touch many expressions. |
 | `max_worker_state_bytes` | `67108864` | Per-worker quantum state pool limit (64 MiB) when `result.execution.executor == "shared"`. |
 
 Inspection of the resolved choices is available on `result.execution`
 (`SamplingExecution`), including `executor` (`"scalar"`, `"packed"`, or
-`"shared"`), `batch_size`, `shot_workers`, `intra_shot_workers`, resolved
-`keep_records` and `bit_packed`, `noise_preparation`, `group_by_noise`, and
-`max_worker_state_bytes`.
+`"shared"`), `sharing`, `batch_size`, `shot_workers`, `intra_shot_workers`,
+resolved `keep_records` and `bit_packed`, `noise_preparation`, `group_by_noise`,
+and `max_worker_state_bytes`.
 
 ## Power-user tuning
 
@@ -365,19 +367,19 @@ select shared execution; pass `sharing=False` or an ordinary numeric
 
 Scalar, packed, and shared execution use separate random streams, and different
 capacities or noise preparations can produce different rows (`SITE_SPARSE` and
-`SITE_ROWS` share a random stream, whereas `DENSE` uses its own). Changing
-`keep_records` can also change individual seeded rows while preserving the
-requested output distribution. `bit_packed` only changes array storage and
-preserves the sampled bits. Keep the complete execution configuration fixed when
-exact seeded replay is required.
+`SITE_ROWS` share a random stream, and `DENSE` and `SPARSE` share a separate
+random stream). Changing `keep_records` can also change individual seeded rows
+while preserving the requested output distribution. `bit_packed` only changes
+array storage and preserves the sampled bits. Keep the complete execution
+configuration fixed when exact seeded replay is required.
 
 Timing-based calibration can select a different capacity on repeated calls,
 even with the same seed. To replay a calibrated run for debugging, pin the
 settings recorded on `result.execution` (`batch_size=result.execution.batch_size`
-and `sharing=(result.execution.executor == "shared")`) instead of requesting
-calibration again; passing a numeric `batch_size` alone without `sharing=True`
-selects ordinary execution. Calibration uses separate random streams from the
-requested shots. Omitting `seed` uses hardware entropy.
+and `sharing=result.execution.sharing`) instead of requesting calibration
+again; passing a numeric `batch_size` alone without `sharing=True` selects
+ordinary execution. Calibration uses separate random streams from the requested
+shots. Omitting `seed` uses hardware entropy.
 
 ### Memory tradeoffs
 

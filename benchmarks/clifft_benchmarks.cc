@@ -484,7 +484,9 @@ void sample_cultivation_d5(benchmark::State& state) {
 
 #ifdef CLIFFT_BENCHMARK_HAS_NATIVE_SAMPLER
 constexpr uint32_t kSharedBatchCapacity = 8192;
+#ifndef CLIFFT_HAS_INITIAL_SHARED_STATES
 constexpr uint32_t kSharedInitialStates = 128;
+#endif
 constexpr uint32_t kSharedShots = 65536;
 
 // Cultivation keeps the quantum width small enough to share thousands of noisy
@@ -598,8 +600,14 @@ bool validate_shared_cultivation(benchmark::State& state, const Program& program
     const auto& plan = prepared.plan();
     const auto& checks = prepared.checks();
     const auto* key = prepared.key();
+#ifdef CLIFFT_HAS_INITIAL_SHARED_STATES
+    sampling::SharingExecutor executor(
+        plan, prepared.noise(), checks, kSharedBatchCapacity,
+        sampling::initial_shared_states(plan.peak_active_width(), kSharedBatchCapacity), key);
+#else
     sampling::SharingExecutor executor(plan, prepared.noise(), checks, kSharedBatchCapacity,
                                        kSharedInitialStates, true, key);
+#endif
     executor.run_batch(seed_root_from_seed(731), 0, kSharedBatchCapacity);
     if (program.uses_reconstruction(false) != expect_reconstruction ||
         plan.peak_active_width() == 0 || !plan.has_postselection() || checks.num_checks() == 0 ||
@@ -657,9 +665,17 @@ void prepare_shared_cultivation_d5(benchmark::State& state) {
     const auto make_worker = [&] {
         const auto& preparation = program.sampling_preparation(
             false, {.early_postselection = true, .survivor_counts = true});
+#ifdef CLIFFT_HAS_INITIAL_SHARED_STATES
+        const auto& plan = preparation.plan();
+        return sampling::SharingExecutor(
+            plan, preparation.noise(mode), preparation.checks(), kSharedBatchCapacity,
+            sampling::initial_shared_states(plan.peak_active_width(), kSharedBatchCapacity),
+            &preparation.sharing_key());
+#else
         return sampling::SharingExecutor(preparation.plan(), preparation.noise(mode),
                                          preparation.checks(), kSharedBatchCapacity,
                                          kSharedInitialStates, true, &preparation.sharing_key());
+#endif
     };
     {
         auto warm = make_worker();

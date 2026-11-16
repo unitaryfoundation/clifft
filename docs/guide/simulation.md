@@ -176,7 +176,7 @@ for bit packing. Arrays with no declared columns always have shape
 `(result.retained_shots, 0)`.
 
 `result.execution` holds a read-only `SamplingExecution` summary of the CPU
-settings used for the call (`executor`, `batch_size`, `shot_workers`,
+settings used for the call (`executor`, `sharing`, `batch_size`, `shot_workers`,
 `intra_shot_workers`, `keep_records`, `bit_packed`, `noise_preparation`,
 `group_by_noise`, and `max_worker_state_bytes`), and `result.batch_tuning`
 holds the `BatchTuningReport` when `batch_size="tune"` was requested.

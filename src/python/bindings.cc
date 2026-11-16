@@ -60,7 +60,6 @@ using ThreadOption = std::variant<int64_t, std::string>;
 using BatchOption = ThreadOption;
 using RecordOption = std::variant<bool, std::string>;
 using BoolOrAutoOption = RecordOption;
-using NoisePreparationOption = std::variant<clifft::sampling::BatchNoiseMode, std::string>;
 
 clifft::sampling::SamplingOutputs parse_record_option(const RecordOption& option,
                                                       bool bit_packed = false) {
@@ -226,8 +225,8 @@ clifft::SamplingOptions parse_sampling_options(
     const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
     std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
     std::optional<double> tuning_budget_seconds, const BoolOrAutoOption& sharing_option,
-    const BoolOrAutoOption& group_by_noise_option,
-    const NoisePreparationOption& noise_preparation_option, int64_t max_worker_state_bytes) {
+    const BoolOrAutoOption& group_by_noise_option, nb::handle noise_preparation_option,
+    int64_t max_worker_state_bytes) {
     const uint32_t threads = parse_thread_option(thread_option);
     const auto thread_layout =
         parse_thread_layout(thread_layout_option, intra_shot_min_active_width);
@@ -236,11 +235,14 @@ clifft::SamplingOptions parse_sampling_options(
     const auto sharing = parse_bool_or_auto_option(sharing_option, "sharing");
     const auto group_by_noise = parse_bool_or_auto_option(group_by_noise_option, "group_by_noise");
     std::optional<clifft::sampling::BatchNoiseMode> noise_preparation;
-    if (const auto* mode =
-            std::get_if<clifft::sampling::BatchNoiseMode>(&noise_preparation_option)) {
-        noise_preparation = *mode;
-    } else if (std::get<std::string>(noise_preparation_option) != "auto") {
-        throw std::invalid_argument("noise_preparation must be a NoisePreparation or 'auto'");
+    if (nb::isinstance<clifft::sampling::BatchNoiseMode>(noise_preparation_option)) {
+        noise_preparation = nb::cast<clifft::sampling::BatchNoiseMode>(noise_preparation_option);
+    } else if (nb::isinstance<nb::str>(noise_preparation_option)) {
+        if (nb::cast<std::string_view>(noise_preparation_option) != "auto") {
+            throw std::invalid_argument("noise_preparation must be a NoisePreparation or 'auto'");
+        }
+    } else {
+        throw nb::type_error("noise_preparation must be a NoisePreparation or 'auto'");
     }
     if (max_worker_state_bytes <= 0) {
         throw std::invalid_argument("max_worker_state_bytes must be positive");
@@ -682,6 +684,8 @@ NB_MODULE(_clifft_core, m) {
         .value("DENSE", clifft::sampling::BatchNoiseMode::Dense,
                "Initialize packed noise columns and propagate them through the dense "
                "expression schedule.")
+        .value("SPARSE", clifft::sampling::BatchNoiseMode::Sparse,
+               "Apply direct sparse updates in the original noise-event order.")
         .value("SITE_SPARSE", clifft::sampling::BatchNoiseMode::SiteSparse,
                "Sample independent noise sites across shots and update affected "
                "expressions directly.")
@@ -699,6 +703,9 @@ NB_MODULE(_clifft_core, m) {
             },
             nb::sig("def executor(self) -> typing.Literal['scalar', 'packed', 'shared']"),
             "Effective CPU executor mode: 'scalar', 'packed', or 'shared'.")
+        .def_ro("sharing", &clifft::sampling::SamplingExecution::sharing,
+                "Whether the shared execution path ran, including width-zero plans that use "
+                "packed classical batches.")
         .def_ro("batch_size", &clifft::sampling::SamplingExecution::batch_size,
                 "Effective lane capacity per batch, or 1 for scalar execution.")
         .def_ro("shot_workers", &clifft::sampling::SamplingExecution::shot_workers,
@@ -738,7 +745,8 @@ NB_MODULE(_clifft_core, m) {
             const auto budget_repr = nb::repr(nb::cast(execution.max_worker_state_bytes));
             return std::string("SamplingExecution(executor='") +
                    sampling_executor_name(execution.executor) +
-                   "', batch_size=" + std::to_string(execution.batch_size) +
+                   "', sharing=" + (execution.sharing ? "True" : "False") +
+                   ", batch_size=" + std::to_string(execution.batch_size) +
                    ", shot_workers=" + std::to_string(execution.shot_workers) +
                    ", intra_shot_workers=" + std::to_string(execution.intra_shot_workers) +
                    ", keep_records=" + keep_repr.c_str() +
@@ -1795,8 +1803,8 @@ NB_MODULE(_clifft_core, m) {
            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
            std::optional<double> tuning_budget_seconds, const RecordOption& keep_records,
            bool bit_packed, const BoolOrAutoOption& sharing_option,
-           const BoolOrAutoOption& group_by_noise_option,
-           const NoisePreparationOption& noise_preparation_option, int64_t max_worker_state_bytes) {
+           const BoolOrAutoOption& group_by_noise_option, nb::handle noise_preparation_option,
+           int64_t max_worker_state_bytes) {
             const auto outputs = parse_record_option(keep_records, bit_packed);
             if (!outputs.rows()) {
                 throw std::invalid_argument("keep_records=False requires a survivor sampling API");
@@ -1829,7 +1837,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("tuning_budget_seconds") = nb::none(), nb::arg("keep_records") = RecordOption{true},
         nb::arg("bit_packed") = false, nb::arg("sharing") = BoolOrAutoOption{std::string{"auto"}},
         nb::arg("group_by_noise") = BoolOrAutoOption{std::string{"auto"}},
-        nb::arg("noise_preparation") = NoisePreparationOption{std::string{"auto"}},
+        nb::arg("noise_preparation") = "auto",
         nb::arg("max_worker_state_bytes") = clifft::sampling::kDefaultSharedWorkerStateBudget,
         nb::sig("def sample(program: Program, shots: int, seed: int | None = None, "
                 "threads: int | typing.Literal['auto'] = 1, "
@@ -1866,19 +1874,20 @@ NB_MODULE(_clifft_core, m) {
         "sharing='auto' lets Clifft select execution, True requires supported shared\n"
         "execution (using packed classical batches on width-zero plans), and False\n"
         "disables sharing. group_by_noise=True partitions shots upfront by their effect\n"
-        "on future rotation signs and requires sharing=True. noise_preparation selects\n"
-        "NoisePreparation.DENSE, SITE_SPARSE, or SITE_ROWS when batching is active.\n"
+        "on future rotation signs and requires sharing=True. noise_preparation accepts\n"
+        "a NoisePreparation member or 'auto' when batching is active.\n"
         "max_worker_state_bytes (default 64 MiB) bounds each shared worker's quantum\n"
-        "state pool; exceeding it during a split raises RuntimeError. Effective settings\n"
-        "are recorded on result.execution.\n\n"
+        "state pool (requiring room for at least two states on nonzero-width plans);\n"
+        "exceeding it during a split raises RuntimeError. Effective settings are\n"
+        "recorded on result.execution.\n\n"
         "batch_size='tune' calibrates capacity within the selected path before running "
         "all requested shots. tuning_budget_seconds is a soft calibration deadline, "
         "defaulting to 0.25 seconds. Trials are extra work and are excluded from returned "
         "rows and counts. The selected configuration and timings are in result.batch_tuning. "
         "Timing-based selection need not replay for a fixed seed; pass "
-        "batch_size=result.execution.batch_size and "
-        "sharing=(result.execution.executor == 'shared') to replay a calibrated run "
-        "(a numeric batch_size alone switches to ordinary execution).\n\n"
+        "batch_size=result.execution.batch_size and sharing=result.execution.sharing "
+        "to replay a calibrated run (a numeric batch_size alone switches to ordinary "
+        "execution).\n\n"
         "keep_records=True or 'all' retains all outputs; 'syndromes' retains detectors "
         "and observables; 'measurements' retains measurements. False is rejected. "
         "bit_packed=True returns uint8 b8 rows with little-endian bits and zero padding. "
@@ -2056,7 +2065,7 @@ NB_MODULE(_clifft_core, m) {
            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
            std::optional<double> tuning_budget_seconds, bool bit_packed,
            const BoolOrAutoOption& sharing_option, const BoolOrAutoOption& group_by_noise_option,
-           const NoisePreparationOption& noise_preparation_option, int64_t max_worker_state_bytes) {
+           nb::handle noise_preparation_option, int64_t max_worker_state_bytes) {
             const auto outputs = parse_record_option(keep_records, bit_packed);
             const auto& program = owner.original();
             const auto options = parse_sampling_options(
@@ -2078,7 +2087,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("tuning_budget_seconds") = nb::none(), nb::arg("bit_packed") = false,
         nb::arg("sharing") = BoolOrAutoOption{std::string{"auto"}},
         nb::arg("group_by_noise") = BoolOrAutoOption{std::string{"auto"}},
-        nb::arg("noise_preparation") = NoisePreparationOption{std::string{"auto"}},
+        nb::arg("noise_preparation") = "auto",
         nb::arg("max_worker_state_bytes") = clifft::sampling::kDefaultSharedWorkerStateBudget,
         nb::sig("def sample_survivors(program: Program, shots: int, seed: int | None = None, "
                 "keep_records: bool | typing.Literal['all', 'syndromes', 'measurements'] = False, "
@@ -2110,18 +2119,19 @@ NB_MODULE(_clifft_core, m) {
         "execution (using packed classical batches on width-zero plans), and False\n"
         "disables sharing. group_by_noise=True partitions surviving shots upfront by\n"
         "their effect on future rotation signs and requires sharing=True.\n"
-        "noise_preparation selects NoisePreparation.DENSE, SITE_SPARSE, or SITE_ROWS\n"
-        "when batching is active. max_worker_state_bytes (default 64 MiB) bounds each\n"
-        "shared worker's quantum state pool; exceeding it during a split raises\n"
-        "RuntimeError. Effective settings are recorded on result.execution.\n\n"
+        "noise_preparation accepts a NoisePreparation member or 'auto' when batching\n"
+        "is active. max_worker_state_bytes (default 64 MiB) bounds each\n"
+        "shared worker's quantum state pool (requiring room for at least two states on\n"
+        "nonzero-width plans); exceeding it during a split raises RuntimeError.\n"
+        "Effective settings are recorded on result.execution.\n\n"
         "batch_size='tune' calibrates capacity within the selected path before running "
         "all requested shots. tuning_budget_seconds is a soft calibration deadline, "
         "defaulting to 0.25 seconds. Trials are extra work and are excluded from returned "
         "rows and counts. The selected configuration and timings are in result.batch_tuning. "
         "Timing-based selection need not replay for a fixed seed; pass "
-        "batch_size=result.execution.batch_size and "
-        "sharing=(result.execution.executor == 'shared') to replay a calibrated run "
-        "(a numeric batch_size alone switches to ordinary execution).\n\n"
+        "batch_size=result.execution.batch_size and sharing=result.execution.sharing "
+        "to replay a calibrated run (a numeric batch_size alone switches to ordinary "
+        "execution).\n\n"
         "Returns a SampleResult. Survivor metadata is always populated via\n"
         ".total_shots, .passed_shots, .discards, .logical_errors, and\n"
         ".observable_ones. Per-shot record arrays\n"

@@ -107,6 +107,9 @@ def test_noise_preparations_preserve_seeded_streams_and_ordinary_compatibility()
         )
         for mode in clifft.NoisePreparation
     }
+    assert counts(survivor_results[clifft.NoisePreparation.DENSE]) == counts(
+        survivor_results[clifft.NoisePreparation.SPARSE]
+    )
     assert counts(survivor_results[clifft.NoisePreparation.SITE_SPARSE]) == counts(
         survivor_results[clifft.NoisePreparation.SITE_ROWS]
     )
@@ -151,6 +154,15 @@ def test_noise_preparations_preserve_seeded_streams_and_ordinary_compatibility()
     assert ordinary_default.execution.max_worker_state_bytes is None
     assert ordinary_default.execution == ordinary_explicit.execution
     np.testing.assert_array_equal(ordinary_default.measurements, ordinary_explicit.measurements)
+    ordinary_sparse = clifft.sample(
+        fixed_program,
+        4096,
+        seed=13,
+        batch_size=2048,
+        noise_preparation=clifft.NoisePreparation.SPARSE,
+    )
+    assert ordinary_sparse.execution.noise_preparation == clifft.NoisePreparation.SPARSE
+    np.testing.assert_array_equal(ordinary_default.measurements, ordinary_sparse.measurements)
 
     shared_large = clifft.sample(fixed_program, 4096, seed=13, batch_size=4096, sharing=True)
     assert shared_large.execution.executor == "shared"
@@ -216,18 +228,13 @@ def test_no_observables_and_empty_action_stream() -> None:
         assert result.observable_ones.shape == (0,)
         assert result.measurements.shape == (0, 0)
         assert result.execution.executor == "packed"
+        assert result.execution.sharing is True
+        assert result.execution.batch_size >= 2
         assert result.execution.max_worker_state_bytes is None
         assert result.execution.group_by_noise is False
 
 
-@pytest.mark.parametrize(
-    "mode",
-    [
-        clifft.NoisePreparation.DENSE,
-        clifft.NoisePreparation.SITE_SPARSE,
-        clifft.NoisePreparation.SITE_ROWS,
-    ],
-)
+@pytest.mark.parametrize("mode", list(clifft.NoisePreparation))
 def test_width_zero_forced_sharing_uses_packed_batches_under_shared_policy(
     mode: clifft.NoisePreparation,
 ) -> None:
@@ -249,16 +256,38 @@ def test_width_zero_forced_sharing_uses_packed_batches_under_shared_policy(
             max_worker_state_bytes=1,
         )
         assert shared.execution.executor == "packed"
+        assert shared.execution.sharing is True
+        assert shared.execution.batch_size >= 2
         assert shared.execution.noise_preparation == mode
         assert shared.execution.group_by_noise is False
         assert shared.execution.max_worker_state_bytes is None
         if shots == 4096:
             assert shared.execution.batch_size == 4096
-        elif mode == clifft.NoisePreparation.DENSE and shots >= 65:
+        elif (
+            mode in (clifft.NoisePreparation.DENSE, clifft.NoisePreparation.SPARSE) and shots >= 65
+        ):
             expected = clifft.sample_survivors(
                 program, shots, seed=19, batch_size=65, keep_records=False
             )
+            assert expected.execution.sharing is False
             assert counts(shared) == counts(expected)
+
+    if mode == clifft.NoisePreparation.SITE_SPARSE:
+        auto_wide = clifft.sample_survivors(program, 20_000, seed=19, sharing=True)
+        assert auto_wide.execution.executor == "packed"
+        assert auto_wide.execution.sharing is True
+        assert auto_wide.execution.batch_size == 8192
+        replayed_wide = clifft.sample_survivors(
+            program,
+            20_000,
+            seed=19,
+            batch_size=auto_wide.execution.batch_size,
+            sharing=auto_wide.execution.sharing,
+            group_by_noise=auto_wide.execution.group_by_noise,
+            noise_preparation=auto_wide.execution.noise_preparation,
+        )
+        assert replayed_wide.execution == auto_wide.execution
+        assert counts(replayed_wide) == counts(auto_wide)
 
     # Circuits reconstructed to width zero when measurement rows are omitted
     # also succeed under forced sharing and group_by_noise=True.
@@ -273,6 +302,7 @@ def test_width_zero_forced_sharing_uses_packed_batches_under_shared_policy(
     assert reconstructed.sampling_plan(keep_records=False).peak_active_width == 0
     result = clifft.sample_survivors(reconstructed, 257, seed=21, sharing=True, group_by_noise=True)
     assert result.execution.executor == "packed"
+    assert result.execution.sharing is True
     assert result.execution.max_worker_state_bytes is None
 
 
@@ -404,6 +434,7 @@ def test_execution_summary_is_read_only_and_covers_all_cpu_entrypoints() -> None
     program = clifft.compile(UNPOSTSELECTED_SOURCE)
     scalar = clifft.sample(program, 5, seed=3, batch_size=1, keep_records="syndromes")
     assert scalar.execution.executor == "scalar"
+    assert scalar.execution.sharing is False
     assert scalar.execution.batch_size == 1
     assert scalar.execution.shot_workers == 1
     assert scalar.execution.intra_shot_workers == 1
@@ -412,18 +443,22 @@ def test_execution_summary_is_read_only_and_covers_all_cpu_entrypoints() -> None
     assert scalar.execution.noise_preparation is None
     assert not scalar.execution.group_by_noise
     assert scalar.execution.max_worker_state_bytes is None
-    assert "SamplingExecution(" in repr(scalar.execution)
+    assert "sharing=False" in repr(scalar.execution)
     with pytest.raises(AttributeError):
         scalar.execution.batch_size = 2
+    with pytest.raises(AttributeError):
+        scalar.execution.sharing = True
 
     k_fixed = clifft.sample_k(program, 16, 1, seed=3, batch_size=1)
     assert k_fixed.execution.executor == "scalar"
+    assert k_fixed.execution.sharing is False
     assert k_fixed.execution.keep_records == "all"
 
     k_survivors = clifft.sample_k_survivors(
         clifft.compile(SOURCE, postselection_mask=[1]), 16, 1, seed=3, keep_records=False
     )
     assert k_survivors.execution is not None
+    assert k_survivors.execution.sharing is False
     assert k_survivors.execution.keep_records is False
 
 
@@ -472,7 +507,9 @@ def test_invalid_options_and_incompatible_combinations_fail_before_dispatch(
         {"max_worker_state_bytes": "auto"},
         {"sharing": 1},
         {"group_by_noise": 1},
+        {"noise_preparation": 0},
         {"noise_preparation": 1},
+        {"noise_preparation": False},
     ],
 )
 def test_wrong_option_types_raise_type_error(options: dict[str, object]) -> None:
@@ -486,10 +523,12 @@ def test_wrong_option_types_raise_type_error(options: dict[str, object]) -> None
 def test_expectation_probes_intra_shot_layouts_and_harmless_disables() -> None:
     probe_program = clifft.compile("H 0\nT 0\nEXP_VAL Z0\nM 0\nDETECTOR rec[-1]")
     for shots in (0, 64):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="EXP_VAL"):
             clifft.sample(probe_program, shots, sharing=True, keep_records=True)
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="EXP_VAL"):
             clifft.sample_survivors(probe_program, shots, sharing=True, keep_records=True)
+    with pytest.raises(ValueError, match="batch_size=1"):
+        clifft.sample(probe_program, 64, batch_size=1, sharing=True, keep_records="syndromes")
     # Omitting EXP_VAL outputs allows shared execution on the same compiled program.
     assert (
         clifft.sample(
@@ -531,9 +570,9 @@ def test_expectation_probes_intra_shot_layouts_and_harmless_disables() -> None:
         probe = None
     if probe is not None and probe.execution.intra_shot_workers > 1:
         for shots in (0, 4):
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="intra-shot"):
                 clifft.sample(wide, shots, thread_layout=(1, 2), sharing=True)
-            with pytest.raises(ValueError):
+            with pytest.raises(ValueError, match="intra-shot"):
                 clifft.sample(
                     wide,
                     shots,
@@ -544,15 +583,16 @@ def test_expectation_probes_intra_shot_layouts_and_harmless_disables() -> None:
 
 def test_state_budget_applies_per_worker_and_split_overflow_leaves_program_reusable() -> None:
     program = clifft.compile(SOURCE)
-    # This narrow plan needs one 4096-byte allocation per shared state.
+    # This narrow plan needs one 4096-byte allocation per shared state (at least two states).
     for shots in (0, 65):
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="two shared states"):
             clifft.sample_survivors(
-                program, shots, threads=2, sharing=True, max_worker_state_bytes=4095
+                program, shots, threads=2, sharing=True, max_worker_state_bytes=8191
             )
     # With sharing='auto', an insufficient state budget falls back cleanly.
-    fallback = clifft.sample_survivors(program, 65, seed=23, max_worker_state_bytes=4095)
+    fallback = clifft.sample_survivors(program, 65, seed=23, max_worker_state_bytes=8191)
     assert fallback.execution.executor != "shared"
+    assert fallback.execution.sharing is False
 
     with pytest.raises(RuntimeError):
         clifft.sample_survivors(
@@ -644,7 +684,7 @@ def test_shared_tuning_respects_worker_budget_and_replays_selected_execution() -
         seed=25,
         batch_size=bounded.execution.batch_size,
         threads=2,
-        sharing=True,
+        sharing=bounded.execution.sharing,
         max_worker_state_bytes=100 * 4096,
     )
     assert counts(bounded) == counts(replayed)
@@ -654,7 +694,17 @@ def test_shared_tuning_respects_worker_budget_and_replays_selected_execution() -
     )
     assert zero_shots.batch_tuning is not None
     assert zero_shots.batch_tuning.stop_reason == "zero_shots"
+    assert zero_shots.execution.sharing is True
+    assert zero_shots.execution.batch_size == 2
     assert zero_shots.execution.shot_workers == 0
+    zero_replay = clifft.sample_survivors(
+        program,
+        0,
+        seed=25,
+        batch_size=zero_shots.execution.batch_size,
+        sharing=zero_shots.execution.sharing,
+    )
+    assert zero_replay.execution == zero_shots.execution
 
     zero_budget = clifft.sample_survivors(
         program, 1301, seed=25, batch_size="tune", tuning_budget_seconds=0, sharing=True
@@ -692,5 +742,15 @@ def test_shared_tuning_respects_worker_budget_and_replays_selected_execution() -
     assert single.total_shots == 1
     assert single.batch_tuning.stop_reason == "single_candidate"
     assert single.batch_tuning.trial_shots == 0
-    assert single.batch_tuning.batch_size == 1
-    assert single.execution.batch_size == 1
+    assert single.batch_tuning.batch_size == 2
+    assert single.execution.sharing is True
+    assert single.execution.batch_size == 2
+    single_replay = clifft.sample_survivors(
+        program,
+        1,
+        seed=42,
+        batch_size=single.execution.batch_size,
+        sharing=single.execution.sharing,
+    )
+    assert single_replay.execution == single.execution
+    assert counts(single_replay) == counts(single)

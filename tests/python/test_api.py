@@ -142,10 +142,16 @@ def test_sampling_signature_matches_public_contract(
 
 def test_sampling_execution_and_noise_preparation_exports() -> None:
     """Test public NoisePreparation members and SamplingExecution summary."""
-    assert set(clifft.NoisePreparation.__members__) == {"DENSE", "SITE_SPARSE", "SITE_ROWS"}
+    assert set(clifft.NoisePreparation.__members__) == {
+        "DENSE",
+        "SPARSE",
+        "SITE_SPARSE",
+        "SITE_ROWS",
+    }
     result = clifft.sample(clifft.compile("M 0"), 1)
     assert isinstance(result.execution, clifft.SamplingExecution)
     assert result.execution.executor == "scalar"
+    assert result.execution.sharing is False
     assert result.execution.keep_records == "all"
     assert not result.execution.bit_packed
 

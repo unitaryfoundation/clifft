@@ -72,9 +72,18 @@ SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
     }
 }
 
+uint32_t initial_shared_states(uint32_t peak_active_width, uint32_t lane_capacity) noexcept {
+    constexpr uint32_t kMaxInitialSharedStates = 128;
+    constexpr uint64_t kInitialSharedStateBytes = 512 * 1024;
+    return static_cast<uint32_t>(
+        std::min<uint64_t>({lane_capacity, kMaxInitialSharedStates,
+                            std::max<uint64_t>(1, kInitialSharedStateBytes /
+                                                      State::storage_bytes(peak_active_width))}));
+}
+
 SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                                  const EarlyPostselection& checks, uint32_t lane_capacity,
-                                 uint32_t initial_states, bool share, const SharingKey* key,
+                                 uint32_t initial_states, const SharingKey* key,
                                  uint64_t max_worker_state_bytes, BatchOutputMode output_mode)
     : BatchClassicalState(
           plan, output_mode, BatchSamplingMode::Ordinary,
@@ -82,8 +91,7 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                                                     BatchSamplingMode::Ordinary, &noise),
           &noise),
       checks_(&checks),
-      share_(share),
-      key_(share ? key : nullptr),
+      key_(key),
       shot_rng_(lane_capacity),
       heads_(lane_capacity, kNoShot),
       next_(lane_capacity, kNoShot),
@@ -195,14 +203,16 @@ uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatc
 BatchExecutionPolicy resolve_shared_execution_policy(uint32_t safe_capacity, uint32_t shots,
                                                      uint32_t workers) noexcept {
     assert(safe_capacity != 0 && workers != 0 && "shared policy needs a capacity and a worker");
+    const uint32_t min_capacity = std::min(safe_capacity, uint32_t{2});
     if (shots == 0) {
-        return {};
+        return {.lane_capacity = min_capacity, .worker_count = 0};
     }
     // An even share gives every requested worker a batch. Below the lane floor,
     // fewer workers with fuller batches share more states per coefficient update.
     const uint64_t share = (uint64_t{shots} + workers - 1) / workers;
-    const uint32_t capacity = static_cast<uint32_t>(std::min<uint64_t>(
-        {safe_capacity, shots, std::max<uint64_t>(share, kMinAutoSharedLanesPerWorker)}));
+    const uint32_t capacity = static_cast<uint32_t>(
+        std::min<uint64_t>({safe_capacity, std::max(shots, min_capacity),
+                            std::max<uint64_t>(share, kMinAutoSharedLanesPerWorker)}));
     const uint64_t batches = (uint64_t{shots} + capacity - 1) / capacity;
     return {.lane_capacity = capacity,
             .worker_count = static_cast<uint32_t>(std::min<uint64_t>(workers, batches))};
@@ -217,11 +227,13 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
     // Cheap probes grow toward this target. A full batch per production worker
     // may need more shots; retained output bytes impose a separate hard limit.
     constexpr uint32_t kTargetProbeShots = 65536;
+    const uint32_t min_capacity = std::min(safe_capacity, uint32_t{2});
+    const uint32_t max_capacity = std::min(safe_capacity, std::max(shots, min_capacity));
     const uint32_t output_limit =
         output_row_bytes == 0 ? shots
                               : batch_detail::max_batch_probe_shots(shots, output_row_bytes);
     const auto append = [&](uint32_t requested) {
-        const uint32_t capacity = std::min({requested, safe_capacity, shots});
+        const uint32_t capacity = std::min(requested, max_capacity);
         if (std::ranges::any_of(candidates, [&](const auto& candidate) {
                 return candidate.policy.lane_capacity == capacity;
             })) {
@@ -352,7 +364,7 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
             }
         }
     }
-    if (share_ && key_stride_ == 0) {
+    if (key_stride_ == 0) {
         group_count_ = 1;
         heads_[0] = kNoShot;
     }
@@ -381,9 +393,6 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
                     break;
                 bucket = (bucket + 1) & (key_hash_.size() - 1);
             }
-        } else if (!share_) {
-            group = group_count_++;
-            heads_[group] = kNoShot;
         }
         next_[shot] = heads_[group];
         heads_[group] = shot;

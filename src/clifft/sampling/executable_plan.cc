@@ -40,8 +40,8 @@ bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
                     return false;
                 } else if constexpr (std::is_same_v<T, ExecuteDormantMeasurement>) {
                     measured = true;
-                    // Dormant random outcomes split groups without reducing active width
-                    // when classical feedback feeds them into later expressions.
+                    // Conservatively reject dormant branches that feed later expressions so
+                    // classical feedback cannot double groups without shrinking active width.
                     return !expression_dependencies_.dependent_registers(typed.branch).empty();
                 } else if constexpr (std::is_same_v<T, ExecutePromotion>) {
                     if (measured) {
