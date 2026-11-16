@@ -710,3 +710,25 @@ TEST_CASE("Native width zero joint outputs match the dense circuit oracle") {
         }
     }
 }
+
+TEST_CASE("Native site noise preparation skips zero-probability sites") {
+    // A zero-probability channel keeps its noise site but no outcomes.
+    const bool leading = GENERATE(false, true);
+    const Program program{ExecutablePlan(
+        plan_sampling(trace(parse(leading ? "X_ERROR(0) 0\nX_ERROR(0.25) 1\nM 0 1\n"
+                                          : "X_ERROR(0.25) 1\nX_ERROR(0) 0\nM 0 1\n"))))};
+    REQUIRE(program.original().num_noise_sites() == 2);
+    const auto mode = GENERATE(BatchNoiseMode::SiteSparse, BatchNoiseMode::SiteRows);
+    constexpr uint32_t shots = 4096;
+    const auto automatic = clifft::sample(program, shots, 3);
+    REQUIRE(automatic.execution.noise_preparation == BatchNoiseMode::SiteSparse);
+    const auto result = clifft::sample(program, shots, 3, {}, {.noise_preparation = mode});
+    REQUIRE(result.measurements == automatic.measurements);
+    uint32_t flips = 0;
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        REQUIRE(result.measurements[2 * shot] == 0);
+        flips += result.measurements[2 * shot + 1];
+    }
+    // Eight standard deviations around the 1,024 expected flips.
+    REQUIRE(std::abs(static_cast<int>(flips) - 1024) < 222);
+}

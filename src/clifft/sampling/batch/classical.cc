@@ -33,9 +33,12 @@ PreparedBatchNoise::PreparedBatchNoise(const ExecutablePlan& plan, BatchNoiseMod
     if (mode == BatchNoiseMode::SiteSparse || mode == BatchNoiseMode::SiteRows) {
         sites_.reserve(plan.noise_sites_.size());
         for (const auto& site : plan.noise_sites_) {
+            // A zero-probability site keeps no outcomes and never fires.
             const double probability =
-                plan.noise_outcomes_[site.outcome_begin + site.outcome_count - 1]
-                    .cumulative_probability;
+                site.outcome_count == 0
+                    ? 0.0
+                    : plan.noise_outcomes_[site.outcome_begin + site.outcome_count - 1]
+                          .cumulative_probability;
             sites_.emplace_back(probability);
         }
     }
@@ -361,16 +364,14 @@ void BatchClassicalState::sample_presampled_noise() noexcept {
     if (noise_ && (noise_->mode_ == BatchNoiseMode::SiteSparse ||
                    noise_->mode_ == BatchNoiseMode::SiteRows)) {
         for (uint32_t site = 0; site < end; ++site) {
-            const auto& descriptor = activator.sites[site];
-            const double probability =
-                activator.outcomes[descriptor.outcome_begin + descriptor.outcome_count - 1]
-                    .cumulative_probability;
+            const PreparedBernoulli& fault = noise_->sites_[site];
+            const double probability = fault.probability();
             if (probability >= 1.0) {
                 for (uint32_t lane = 0; lane < lanes; ++lane) {
                     activator.activate(rng, lane, site);
                 }
-            } else if (probability > 0.0 && noise_->sites_[site].inverse_hazard() > 0.0) {
-                const double inverse_hazard = noise_->sites_[site].inverse_hazard();
+            } else if (probability > 0.0 && fault.inverse_hazard() > 0.0) {
+                const double inverse_hazard = fault.inverse_hazard();
                 uint32_t lane = 0;
                 while (lane < lanes) {
                     const double gap = sample_geometric_gap(inverse_hazard, rng.next_double());
@@ -382,8 +383,7 @@ void BatchClassicalState::sample_presampled_noise() noexcept {
                     ++lane;
                 }
             } else if (probability > 0.0) {
-                sample_bernoulli_bits(noise_->sites_[site], live_words_, scratch_words_, lanes,
-                                      rng);
+                sample_bernoulli_bits(fault, live_words_, scratch_words_, lanes, rng);
                 for (size_t word = 0; word < scratch_words_.size(); ++word) {
                     uint64_t events = scratch_words_[word];
                     while (events != 0) {
