@@ -72,18 +72,9 @@ SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
     }
 }
 
-uint32_t initial_shared_states(uint32_t peak_active_width, uint32_t lane_capacity) noexcept {
-    constexpr uint32_t kMaxInitialSharedStates = 128;
-    constexpr uint64_t kInitialSharedStateBytes = 512 * 1024;
-    return static_cast<uint32_t>(
-        std::min<uint64_t>({lane_capacity, kMaxInitialSharedStates,
-                            std::max<uint64_t>(1, kInitialSharedStateBytes /
-                                                      State::storage_bytes(peak_active_width))}));
-}
-
 SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                                  const EarlyPostselection& checks, uint32_t lane_capacity,
-                                 uint32_t initial_states, const SharingKey* key,
+                                 uint32_t initial_states, bool share, const SharingKey* key,
                                  uint64_t max_worker_state_bytes, BatchOutputMode output_mode)
     : BatchClassicalState(
           plan, output_mode, BatchSamplingMode::Ordinary,
@@ -91,7 +82,8 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                                                     BatchSamplingMode::Ordinary, &noise),
           &noise),
       checks_(&checks),
-      key_(key),
+      share_(share),
+      key_(share ? key : nullptr),
       shot_rng_(lane_capacity),
       heads_(lane_capacity, kNoShot),
       next_(lane_capacity, kNoShot),
@@ -364,7 +356,7 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
             }
         }
     }
-    if (key_stride_ == 0) {
+    if (share_ && key_stride_ == 0) {
         group_count_ = 1;
         heads_[0] = kNoShot;
     }
@@ -393,6 +385,9 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
                     break;
                 bucket = (bucket + 1) & (key_hash_.size() - 1);
             }
+        } else if (!share_) {
+            group = group_count_++;
+            heads_[group] = kNoShot;
         }
         next_[shot] = heads_[group];
         heads_[group] = shot;

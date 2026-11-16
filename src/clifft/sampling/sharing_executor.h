@@ -33,13 +33,6 @@ inline constexpr uint64_t kMaxAutoSharedWorkerClassicalBytes = 64 * 1024 * 1024;
 // each worker keeps at least this many lanes to share states among.
 inline constexpr uint32_t kMinAutoSharedLanesPerWorker = 1024;
 
-#define CLIFFT_HAS_INITIAL_SHARED_STATES 1
-
-// Initial state pool capacity per shared worker, bounded to 512 KiB upfront on
-// wide plans before splitting grows the pool at suspension boundaries.
-[[nodiscard]] uint32_t initial_shared_states(uint32_t peak_active_width,
-                                             uint32_t lane_capacity) noexcept;
-
 class SharingKey;
 
 // Largest lane capacity, up to kMaxAutoSharedBatchShots, that one worker can
@@ -85,7 +78,7 @@ class SharingExecutor : public BatchClassicalState {
   public:
     SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                     const EarlyPostselection& checks, uint32_t lane_capacity,
-                    uint32_t initial_states, const SharingKey* key = nullptr,
+                    uint32_t initial_states, bool share = true, const SharingKey* key = nullptr,
                     uint64_t max_worker_state_bytes = kDefaultSharedWorkerStateBudget,
                     BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
 
@@ -136,6 +129,7 @@ class SharingExecutor : public BatchClassicalState {
     void execute_action(const ExecutablePlan::ExecuteBoundary&) noexcept;
 
     const EarlyPostselection* checks_;
+    bool share_;
     const SharingKey* key_;
     size_t key_stride_ = 0;
     std::vector<uint64_t> key_rows_;

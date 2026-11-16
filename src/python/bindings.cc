@@ -60,6 +60,7 @@ using ThreadOption = std::variant<int64_t, std::string>;
 using BatchOption = ThreadOption;
 using RecordOption = std::variant<bool, std::string>;
 using BoolOrAutoOption = RecordOption;
+using NoisePreparationOption = std::variant<clifft::sampling::BatchNoiseMode, std::string>;
 
 clifft::sampling::SamplingOutputs parse_record_option(const RecordOption& option,
                                                       bool bit_packed = false) {
@@ -225,8 +226,8 @@ clifft::SamplingOptions parse_sampling_options(
     const std::optional<std::tuple<int64_t, int64_t>>& thread_layout_option,
     std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
     std::optional<double> tuning_budget_seconds, const BoolOrAutoOption& sharing_option,
-    const BoolOrAutoOption& group_by_noise_option, nb::handle noise_preparation_option,
-    int64_t max_worker_state_bytes) {
+    const BoolOrAutoOption& group_by_noise_option,
+    const NoisePreparationOption& noise_preparation_option, int64_t max_worker_state_bytes) {
     const uint32_t threads = parse_thread_option(thread_option);
     const auto thread_layout =
         parse_thread_layout(thread_layout_option, intra_shot_min_active_width);
@@ -235,14 +236,11 @@ clifft::SamplingOptions parse_sampling_options(
     const auto sharing = parse_bool_or_auto_option(sharing_option, "sharing");
     const auto group_by_noise = parse_bool_or_auto_option(group_by_noise_option, "group_by_noise");
     std::optional<clifft::sampling::BatchNoiseMode> noise_preparation;
-    if (nb::isinstance<clifft::sampling::BatchNoiseMode>(noise_preparation_option)) {
-        noise_preparation = nb::cast<clifft::sampling::BatchNoiseMode>(noise_preparation_option);
-    } else if (nb::isinstance<nb::str>(noise_preparation_option)) {
-        if (nb::cast<std::string_view>(noise_preparation_option) != "auto") {
-            throw std::invalid_argument("noise_preparation must be a NoisePreparation or 'auto'");
-        }
-    } else {
-        throw nb::type_error("noise_preparation must be a NoisePreparation or 'auto'");
+    if (const auto* mode =
+            std::get_if<clifft::sampling::BatchNoiseMode>(&noise_preparation_option)) {
+        noise_preparation = *mode;
+    } else if (std::get<std::string>(noise_preparation_option) != "auto") {
+        throw std::invalid_argument("noise_preparation must be a NoisePreparation or 'auto'");
     }
     if (max_worker_state_bytes <= 0) {
         throw std::invalid_argument("max_worker_state_bytes must be positive");
@@ -1803,8 +1801,8 @@ NB_MODULE(_clifft_core, m) {
            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
            std::optional<double> tuning_budget_seconds, const RecordOption& keep_records,
            bool bit_packed, const BoolOrAutoOption& sharing_option,
-           const BoolOrAutoOption& group_by_noise_option, nb::handle noise_preparation_option,
-           int64_t max_worker_state_bytes) {
+           const BoolOrAutoOption& group_by_noise_option,
+           const NoisePreparationOption& noise_preparation_option, int64_t max_worker_state_bytes) {
             const auto outputs = parse_record_option(keep_records, bit_packed);
             if (!outputs.rows()) {
                 throw std::invalid_argument("keep_records=False requires a survivor sampling API");
@@ -1837,7 +1835,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("tuning_budget_seconds") = nb::none(), nb::arg("keep_records") = RecordOption{true},
         nb::arg("bit_packed") = false, nb::arg("sharing") = BoolOrAutoOption{std::string{"auto"}},
         nb::arg("group_by_noise") = BoolOrAutoOption{std::string{"auto"}},
-        nb::arg("noise_preparation") = "auto",
+        nb::arg("noise_preparation").noconvert() = NoisePreparationOption{std::string{"auto"}},
         nb::arg("max_worker_state_bytes") = clifft::sampling::kDefaultSharedWorkerStateBudget,
         nb::sig("def sample(program: Program, shots: int, seed: int | None = None, "
                 "threads: int | typing.Literal['auto'] = 1, "
@@ -2065,7 +2063,7 @@ NB_MODULE(_clifft_core, m) {
            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
            std::optional<double> tuning_budget_seconds, bool bit_packed,
            const BoolOrAutoOption& sharing_option, const BoolOrAutoOption& group_by_noise_option,
-           nb::handle noise_preparation_option, int64_t max_worker_state_bytes) {
+           const NoisePreparationOption& noise_preparation_option, int64_t max_worker_state_bytes) {
             const auto outputs = parse_record_option(keep_records, bit_packed);
             const auto& program = owner.original();
             const auto options = parse_sampling_options(
@@ -2087,7 +2085,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("tuning_budget_seconds") = nb::none(), nb::arg("bit_packed") = false,
         nb::arg("sharing") = BoolOrAutoOption{std::string{"auto"}},
         nb::arg("group_by_noise") = BoolOrAutoOption{std::string{"auto"}},
-        nb::arg("noise_preparation") = "auto",
+        nb::arg("noise_preparation").noconvert() = NoisePreparationOption{std::string{"auto"}},
         nb::arg("max_worker_state_bytes") = clifft::sampling::kDefaultSharedWorkerStateBudget,
         nb::sig("def sample_survivors(program: Program, shots: int, seed: int | None = None, "
                 "keep_records: bool | typing.Literal['all', 'syndromes', 'measurements'] = False, "

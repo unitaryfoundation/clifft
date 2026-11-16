@@ -19,6 +19,11 @@ namespace {
 
 using namespace sampling;
 
+constexpr uint32_t kMaxInitialSharedStates = 128;
+// Bound upfront state preallocation per worker on wide plans; additional states
+// grow at explicit suspension boundaries when trajectories split.
+constexpr uint64_t kInitialSharedStateBytes = 512 * 1024;
+
 // One call owns its mutable workers. Rows are collected only after a batch
 // finishes dispatch, and batch indices keep collection independent of scheduling.
 struct SharedWorker {
@@ -45,9 +50,12 @@ struct SharedWorker {
             return Executor(std::in_place_type<BatchExecutor>, plan, execution.batch_size, mode,
                             BatchSamplingMode::Ordinary, &noise);
         }
+        const uint32_t initial_states = static_cast<uint32_t>(std::min<uint64_t>(
+            {execution.batch_size, kMaxInitialSharedStates,
+             std::max<uint64_t>(
+                 1, kInitialSharedStateBytes / State::storage_bytes(plan.peak_active_width()))}));
         return Executor(std::in_place_type<SharingExecutor>, plan, noise, *checks,
-                        execution.batch_size,
-                        initial_shared_states(plan.peak_active_width(), execution.batch_size), key,
+                        execution.batch_size, initial_states, true, key,
                         *execution.max_worker_state_bytes, mode);
     }
 };

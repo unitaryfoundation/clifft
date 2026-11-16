@@ -135,10 +135,11 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
     const EarlyPostselection late_checks(plan, false);
     SharingExecutor growing(plan, noise, checks, 129, 1);
     SharingExecutor reserved(plan, noise, checks, 129, 129);
+    SharingExecutor independent(plan, noise, checks, 129, 129, false);
     SharingExecutor late(plan, noise, late_checks, 129, 1);
     const SharingKey key(plan);
     REQUIRE(key.num_bits() == 0);
-    SharingExecutor grouped(plan, noise, checks, 129, 1, &key);
+    SharingExecutor grouped(plan, noise, checks, 129, 1, true, &key);
     uint64_t boundaries = 0, splits = 0, rejected = 0;
     uint32_t largest_shared_group_count = 0;
     for (uint64_t seed = 0; seed < 20; ++seed) {
@@ -146,6 +147,7 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
             const auto root = seed_root_from_seed(seed);
             growing.run_batch(root, 17, shots);
             reserved.run_batch(root, 17, shots);
+            independent.run_batch(root, 17, shots);
             late.run_batch(root, 17, shots);
             grouped.run_batch(root, 17, shots);
             boundaries += growing.storage_boundaries();
@@ -154,7 +156,7 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
             largest_shared_group_count =
                 std::max(largest_shared_group_count, growing.peak_groups());
             REQUIRE(growing.state_capacity() <= 129);
-            for (const auto* reference : {&reserved, &late, &grouped}) {
+            for (const auto* reference : {&reserved, &independent, &late, &grouped}) {
                 REQUIRE(growing.surviving_shots() == reference->surviving_shots());
                 REQUIRE(std::ranges::equal(growing.survivor_mask(), reference->survivor_mask()));
                 const auto compare = [&](const PackedBitColumns& actual,
@@ -374,7 +376,7 @@ TEST_CASE("Compact outputs preserve snapshots and feedback across noise preparat
     const auto& key = counts.sharing_key();
     SharingExecutor reference(original, old_noise, old_checks, 129, 1);
     SharingExecutor worker(compact, noise, checks, 129, 1);
-    SharingExecutor grouped(compact, noise, checks, 129, 1, &key);
+    SharingExecutor grouped(compact, noise, checks, 129, 1, true, &key);
     for (uint64_t seed = 0; seed < 12; ++seed) {
         for (uint32_t shots : {129, 0, 1, 63, 65}) {
             const auto root = seed_root_from_seed(seed);
@@ -445,7 +447,7 @@ TEST_CASE("Noise grouping closes derived signs over readout and dormant branches
     const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
     const EarlyPostselection old_checks(original), checks(plan);
     SharingExecutor reference(original, old_noise, old_checks, 129, 1);
-    SharingExecutor grouped(plan, noise, checks, 129, 1, &key);
+    SharingExecutor grouped(plan, noise, checks, 129, 1, true, &key);
     uint32_t largest_group_count = 0;
     for (uint64_t seed = 0; seed < 20; ++seed) {
         const auto root = seed_root_from_seed(seed);
@@ -464,14 +466,13 @@ TEST_CASE("Noise grouping closes derived signs over readout and dormant branches
 
 TEST_CASE("Shared state budgets include scratch and bound growth at suspension") {
     REQUIRE(State::storage_bytes(19) == 12 * 1024 * 1024);
-    const ExecutablePlan plan(
-        plan_sampling(trace(parse("H 0\nT 0\nX_ERROR(0.5) 0\nT 0\nH 0\nM 0"))));
+    const ExecutablePlan plan(plan_sampling(trace(parse("H 0\nT 0\nH 0\nM 0"))));
     const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
     const EarlyPostselection checks(plan);
     const auto bytes = State::storage_bytes(plan.peak_active_width());
-    REQUIRE_THROWS_AS(SharingExecutor(plan, noise, checks, 65, 1, nullptr, bytes - 1),
+    REQUIRE_THROWS_AS(SharingExecutor(plan, noise, checks, 65, 1, true, nullptr, bytes - 1),
                       std::invalid_argument);
-    SharingExecutor worker(plan, noise, checks, 65, 128, nullptr, 2 * bytes);
+    SharingExecutor worker(plan, noise, checks, 65, 128, false, nullptr, 2 * bytes);
     REQUIRE(worker.state_capacity() == 2);
     REQUIRE_THROWS_AS(worker.run_batch(seed_root_from_seed(19), 0, 65), std::runtime_error);
     REQUIRE(worker.state_capacity() == 2);
@@ -674,7 +675,7 @@ TEST_CASE("Pregrouped rotations retain their existing state budget") {
     const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
     const EarlyPostselection checks(plan);
     const SharingKey key(plan);
-    SharingExecutor worker(plan, noise, checks, 65, 1, &key, 2 * State::storage_bytes(1));
+    SharingExecutor worker(plan, noise, checks, 65, 1, true, &key, 2 * State::storage_bytes(1));
     worker.run_batch(seed_root_from_seed(19), 0, 65);
     REQUIRE(worker.peak_groups() == 2);
     REQUIRE(worker.state_capacity() == 2);
