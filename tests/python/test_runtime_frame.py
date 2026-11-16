@@ -268,6 +268,27 @@ def test_shared_survivor_sampling_follows_the_ordinary_plan(
     assert again.logical_errors == actual.logical_errors
 
 
+def test_shared_frame_sampling_does_not_depend_on_the_worker_count() -> None:
+    _, frame = _programs(_postselected_pairs(1), postselection_mask=[1] * 8)
+    one, three = (
+        clifft.sample_survivors(
+            frame, 20_000, seed=9, sharing=True, batch_size=512, threads=threads, keep_records=True
+        )
+        for threads in (1, 3)
+    )
+    assert one.passed_shots == three.passed_shots
+    np.testing.assert_array_equal(one.measurements, three.measurements)
+    np.testing.assert_array_equal(one.observables, three.observables)
+
+
+def test_shared_frame_sampling_needs_room_for_two_groups() -> None:
+    # The frame needs no active coordinate, but each group still holds a tableau.
+    _, frame = _programs(SIGNED_PAIR)
+    assert frame.peak_active_width == 0
+    with pytest.raises(ValueError, match="at least two shared states"):
+        clifft.sample(frame, 64, seed=1, sharing=True, max_worker_state_bytes=4096)
+
+
 @pytest.mark.parametrize("k", [0, 1])
 def test_fixed_fault_sampling_follows_the_ordinary_plan(k: int) -> None:
     fixed, frame = _programs(SIGNED_PAIR)

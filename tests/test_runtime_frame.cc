@@ -1204,6 +1204,34 @@ TEST_CASE("Shared frame groups give every shot the result of its own frame",
     REQUIRE(saw_one);
 }
 
+TEST_CASE("Shared frame budgets count the tableau of every group", "[runtime_frame][sampling]") {
+    // No rotation needs an active coordinate, so a group holds a one-amplitude
+    // state and its tableau.
+    FrameProgram program;
+    program.num_qubits = 3;
+    program.noise_probabilities = {0.3};
+    program.steps = {rotate(0b001, 0, 0.5, {}, {0}), measure(0, 0b001), measure(0b010, 0)};
+    const sampling::ExecutablePlan executable(build_frame_plan(program));
+    REQUIRE(executable.peak_active_width() == 0);
+    const uint64_t group_bytes = sampling::SharingExecutor::group_storage_bytes(executable, 0);
+    REQUIRE(group_bytes > sampling::State::storage_bytes(0));
+
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    REQUIRE(sampling::max_safe_shared_capacity(executable, noise, nullptr, 100 * group_bytes) ==
+            100);
+    const sampling::EarlyPostselection checks(executable);
+    const auto make = [&](uint32_t lanes, uint64_t budget) {
+        return sampling::SharingExecutor(executable, noise, checks, lanes, 1, false, nullptr,
+                                         budget, sampling::BatchOutputMode::Rows);
+    };
+    REQUIRE_THROWS_AS(make(3, group_bytes - 1), std::invalid_argument);
+    // Without sharing every shot needs its own group, and the third does not fit.
+    sampling::SharingExecutor tight = make(3, 2 * group_bytes);
+    tight.run_batch(seed_root_from_seed(1), 0, 2);
+    REQUIRE(tight.surviving_shots() == 2);
+    REQUIRE_THROWS_AS(tight.run_batch(seed_root_from_seed(1), 0, 3), std::runtime_error);
+}
+
 TEST_CASE("Fixed-fault sampling on a frame plan follows the static plan",
           "[runtime_frame][sampling]") {
     // Faults before the T region decide its rotation signs, and readout
