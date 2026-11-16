@@ -249,7 +249,7 @@ larger batches.
 |---|---|---|
 | `sharing` | `"auto"` | `"auto"` lets Clifft choose; `True` requires shared execution (or packed classical batches at width zero); `False` keeps ordinary scalar or packed execution, such as when sparse postselection rejects few shots and most trajectories diverge. |
 | `group_by_noise` | `"auto"` | `"auto"` resolves to `False`. Set `True` (with `sharing=True`) to partition shots upfront by their effect on future rotation signs, avoiding per-rotation sign scans at the cost of earlier measurement splits. |
-| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path and `DENSE` on the ordinary packed path. `SPARSE` shares `DENSE`'s random stream while skipping non-firing faults when few faults occur per batch; `SITE_ROWS` accumulates per-shot fault effects before transposing when individual faults touch many expressions. |
+| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path and `DENSE` on the ordinary packed path, except on [width-zero plans](#noise-preparation-on-width-zero-plans). `SPARSE` shares `DENSE`'s random stream while skipping non-firing faults when few faults occur per batch; `SITE_ROWS` accumulates per-shot fault effects before transposing when individual faults touch many expressions. |
 | `max_worker_state_bytes` | `67108864` | Per-worker quantum state pool limit (64 MiB) when `result.execution.executor == "shared"`. |
 
 Inspection of the resolved choices is available on `result.execution`
@@ -310,8 +310,8 @@ When shared execution is not selected, `batch_size="auto"` considers packed exec
 
 | Program | Automatic packed capacity limit |
 | --- | --- |
-| No postselection, width 0-4 | 2048 lanes |
-| Postselected, width 0-4 | 256 lanes |
+| Width 0, or no postselection at width 1-4 | 2048 lanes |
+| Postselected, width 1-4 | 256 lanes |
 | No early postselection, width 5 | Up to 1024 lanes when coefficient work is limited or amortized by classical work |
 | No early postselection, width 6-8 | Up to 512, 256, or 128 lanes respectively when classical work amortizes the quantum kernels |
 | Early postselection at width 5 or above, or width above 8 | Scalar |
@@ -320,9 +320,11 @@ An early postselection check can reject a shot before further coefficient work.
 Checks after the last quantum action, including reconstructed detector checks,
 do not impose that restriction. Expectation-value probes count as coefficient
 work only when retaining rows. Width and work refer to the selected executable
-plan; use `program.sampling_plan(keep_records=...)` to inspect its width. Narrow
-postselected plans retain the 256-lane cap because rejection can also skip
-classical work, even at width zero.
+plan; use `program.sampling_plan(keep_records=...)` to inspect its width.
+Postselected plans of width 1-4 keep the 256-lane cap so rejected lanes carry
+less work. Width-zero plans have no coefficient work, and their classical cost
+per shot falls as batches grow; fixed-fault sampling keeps the 256-lane cap
+there.
 
 For widths 6-8, capacities are also bounded by attempted shots per worker
 when each requested worker has at least 64 shots. Shorter requests retain their
@@ -347,6 +349,26 @@ scalar execution. Use an explicit cross-shot layout such as
 `thread_layout=(4, 1)` when both worker count and packed capacity must be fixed.
 Packed execution is unavailable for transition instruments, traps,
 continuations, and WebAssembly.
+
+#### Noise preparation on width-zero plans
+
+A width-zero plan, such as a Clifford circuit with Pauli noise, spends all of
+its sampling time on classical work, so how faults are drawn sets its
+throughput. `noise_preparation="auto"` chooses from the expected number of
+faults in one batch:
+
+- **`SPARSE`** while a batch expects no more faults than the plan has noise
+  sites. It draws once per fault, which suits low noise rates and short calls.
+- **`SITE_SPARSE`** above that. It draws once per site in each batch and
+  updates the affected expressions site by site.
+
+The batch here is the smaller of the shot count and the capacity limit, so the
+same program can use `SPARSE` for a short call and `SITE_SPARSE` for a long
+one. Those two use different random streams. With a numeric `batch_size`,
+`"auto"` uses `DENSE` in place of `SITE_SPARSE`; `SPARSE` and `DENSE` return
+the same rows, so a numeric `batch_size` keeps seeded rows fixed. Circuits in
+which one fault flips many later outcomes, such as long stretches without
+resets, can run faster with an explicit `SITE_ROWS`.
 
 ### Reproducibility
 
@@ -375,11 +397,12 @@ configuration fixed when exact seeded replay is required.
 
 Timing-based calibration can select a different capacity on repeated calls,
 even with the same seed. To replay a calibrated run for debugging, pin the
-settings recorded on `result.execution` (`batch_size=result.execution.batch_size`
-and `sharing=result.execution.sharing`) instead of requesting calibration
-again; passing a numeric `batch_size` alone without `sharing=True` selects
-ordinary execution. Calibration uses separate random streams from the requested
-shots. Omitting `seed` uses hardware entropy.
+settings recorded on `result.execution` (`batch_size=result.execution.batch_size`,
+`sharing=result.execution.sharing`, and `noise_preparation` when one is
+reported) instead of requesting calibration again; passing a numeric
+`batch_size` alone without `sharing=True` selects ordinary execution with the
+`DENSE` random stream. Calibration uses separate random streams from the
+requested shots. Omitting `seed` uses hardware entropy.
 
 ### Memory tradeoffs
 

@@ -115,6 +115,10 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t num_readout_noise_sites() const noexcept {
         return num_readout_noise_sites_;
     }
+    // Stochastic noise sites sampled before execution; readout noise is separate.
+    [[nodiscard]] size_t num_noise_sites() const noexcept { return noise_sites_.size(); }
+    // Expected number of those sites that fire in one shot.
+    [[nodiscard]] double expected_noise_faults() const noexcept;
     [[nodiscard]] uint32_t num_batch_noise_carriers() const noexcept {
         return batch_presampled_program_.has_value() ? batch_presampled_program_->num_carriers()
                                                      : 0;

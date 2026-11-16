@@ -879,7 +879,12 @@ def test_successive_postselected_specializations_retain_cumulative_assumptions(
     hir.expected_detectors = []
     lowered = clifft.lower(hir)
     reference = clifft.compile(source, postselection_mask=[1, 1], hir_passes=None)
-    low_survivors = clifft.sample_survivors(lowered, shots=1024, seed=906, keep_records=True)
-    ref_survivors = clifft.sample_survivors(reference, shots=1024, seed=906, keep_records=True)
+    # Equal lane capacities keep both programs on the same seeded noise draws.
+    low_survivors = clifft.sample_survivors(
+        lowered, shots=1024, seed=906, keep_records=True, batch_size=256
+    )
+    ref_survivors = clifft.sample_survivors(
+        reference, shots=1024, seed=906, keep_records=True, batch_size=256
+    )
     assert low_survivors.passed_shots == ref_survivors.passed_shots
     np.testing.assert_array_equal(low_survivors.measurements, ref_survivors.measurements)

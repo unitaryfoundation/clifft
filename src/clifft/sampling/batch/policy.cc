@@ -192,6 +192,17 @@ bool automatic_batch_eligible(const ExecutablePlan& plan, uint32_t shots,
 #endif
 }
 
+BatchNoiseMode select_batch_noise_mode(const ExecutablePlan& plan, uint32_t shots,
+                                       std::optional<uint32_t> requested_batch_size) noexcept {
+    // Lane capacity before memory limits, which can only lower the fault count.
+    const uint32_t lanes = std::min(
+        {shots, requested_batch_size.value_or(kDefaultMaxAutoBatchShots), kMaxExplicitBatchShots});
+    if (plan.expected_noise_faults() * lanes <= static_cast<double>(plan.num_noise_sites())) {
+        return BatchNoiseMode::Sparse;
+    }
+    return requested_batch_size ? BatchNoiseMode::Dense : BatchNoiseMode::SiteSparse;
+}
+
 BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
@@ -243,11 +254,15 @@ BatchExecutionPolicy resolve_batch_execution_policy(
                                   external_input_steps)) {
         return {};
     }
-    // Narrow postselected plans can reject before substantial classical work,
-    // including width-zero plans with no coefficient work at all.
-    const uint32_t max_capacity = plan.has_postselection() && plan.peak_active_width() < 5
-                                      ? kDefaultMaxPostselectedBatchShots
-                                      : kDefaultMaxAutoBatchShots;
+    // Narrow postselected plans keep batches small so rejected lanes carry
+    // less work. Ordinary width-zero plans have no coefficient work, and their
+    // classical cost per shot falls as batches grow.
+    const bool ordinary_width_zero =
+        plan.peak_active_width() == 0 && sampling_mode == BatchSamplingMode::Ordinary;
+    const uint32_t max_capacity =
+        plan.has_postselection() && plan.peak_active_width() < 5 && !ordinary_width_zero
+            ? kDefaultMaxPostselectedBatchShots
+            : kDefaultMaxAutoBatchShots;
     // Wider kernels benefit from parallel batches when each requested worker
     // has enough shots to fill one. Shorter requests retain their packed size.
     uint32_t capacity = std::min(shots, max_capacity);

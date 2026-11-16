@@ -534,6 +534,40 @@ BENCHMARK_CAPTURE(sample_native_cultivation_d5, packed_syndromes,
                   sampling::SamplingOutputs(sampling::RecordOutputs::Syndromes, true))
     ->Name("sample_native_cultivation_d5_packed_syndromes_65536_shots");
 
+// Width-zero calls spend their time drawing noise and collecting outputs, so
+// these rows follow the automatic batch capacity and noise preparation.
+void sample_native_surface_d7(benchmark::State& state, bool postselect,
+                              sampling::SamplingOutputs outputs) {
+    const auto circuit = parse_file(fixture("surface_d7_r7_p001.stim"));
+    auto hir = trace(circuit);
+    if (postselect) {
+        hir.postselection.mask.assign(hir.num_detectors, 1);
+    }
+    default_hir_pass_manager().run(hir);
+    const Program program = Program::compile(circuit, hir);
+    const auto warmup = clifft::sample_survivors(program, kSharedShots, 731, outputs);
+    if (program.original().peak_active_width() != 0 ||
+        warmup.execution.executor != sampling::SamplingExecutor::Packed ||
+        warmup.passed_shots == 0 || (warmup.passed_shots == kSharedShots) == postselect) {
+        state.SkipWithError("surface d7 did not run the expected width-zero packed call");
+        return;
+    }
+    uint64_t seed = 732;
+    for ([[maybe_unused]] auto _ : state) {
+        auto result = clifft::sample_survivors(program, kSharedShots, seed++, outputs);
+        benchmark::DoNotOptimize(result);
+    }
+    state.counters["capacity"] = warmup.execution.batch_size;
+    state.SetItemsProcessed(state.iterations() * kSharedShots);
+}
+
+BENCHMARK_CAPTURE(sample_native_surface_d7, postselected_counts, true,
+                  sampling::SamplingOutputs(false))
+    ->Name("sample_native_surface_d7_postselected_counts_65536_shots");
+BENCHMARK_CAPTURE(sample_native_surface_d7, packed_syndromes, false,
+                  sampling::SamplingOutputs(sampling::RecordOutputs::Syndromes, true))
+    ->Name("sample_native_surface_d7_packed_syndromes_65536_shots");
+
 // Count-only calls use the public API's selected preparation before worker setup.
 void sample_count_only_msc(benchmark::State& state, bool fixed_faults,
                            std::optional<uint32_t> batch_size) {

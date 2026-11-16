@@ -249,7 +249,10 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             (options.batch_size || tuning_packed ||
              automatic_batch_eligible(preparation.plan(), shots, layout.intra_shot_workers,
                                       mode))) {
-            noise = &preparation.noise(options.noise_preparation.value_or(BatchNoiseMode::Dense));
+            const auto selected =
+                width == 0 ? select_batch_noise_mode(preparation.plan(), shots, options.batch_size)
+                           : BatchNoiseMode::Dense;
+            noise = &preparation.noise(options.noise_preparation.value_or(selected));
         }
         if constexpr (survivors) {
             return sampling::sample_survivors(

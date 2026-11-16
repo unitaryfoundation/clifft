@@ -16,6 +16,8 @@
 #include <catch2/generators/catch_generators.hpp>
 #include <cmath>
 #include <future>
+#include <string>
+#include <utility>
 
 using namespace clifft;
 using namespace clifft::sampling;
@@ -57,6 +59,24 @@ Program row_program(bool postselect) {
     hir.readout_noise.front().prob_one_to_zero = 0.3;
     default_hir_pass_manager().run(hir);
     return Program(ExecutablePlan(plan_sampling(hir)));
+}
+
+// Width-zero circuit with three noise sites that expect 4.5 * p faults per
+// shot, plus correlated faults, readout noise, and measurement feedback.
+Circuit clifford_noise_circuit(double p) {
+    const std::string site = std::to_string(p);
+    return parse("H 0\nCX 0 1\nDEPOLARIZE2(" + site + ") 0 1\nX_ERROR(" + site +
+                 ") 2\nCX 1 2\nM(0.05) 0 1\nCX rec[-1] 2\nPAULI_CHANNEL_1(" + site + ", " +
+                 std::to_string(p / 2) + ", " + site +
+                 ") 2\nM 2\nDETECTOR rec[-3] rec[-2]\nDETECTOR rec[-1]\n"
+                 "OBSERVABLE_INCLUDE(0) rec[-1]\n");
+}
+
+// Postselects the first detector so the second still varies among survivors.
+Program clifford_noise_program(double p, bool postselect) {
+    const std::array<uint8_t, 2> mask{static_cast<uint8_t>(postselect), 0};
+    return Program(ExecutablePlan(
+        plan_sampling(trace(clifford_noise_circuit(p)), {.postselection_mask = mask})));
 }
 
 void require_same(const SamplingSurvivorResult& a, const SamplingSurvivorResult& b) {
@@ -563,4 +583,152 @@ TEST_CASE("Native forced sharing on width zero plans uses packed batches under s
     REQUIRE(sparse.execution.noise_preparation == BatchNoiseMode::Sparse);
     sparse.execution.noise_preparation = BatchNoiseMode::Dense;
     require_same(dense, sparse);
+}
+
+TEST_CASE("Native width zero sampling selects noise preparation from expected faults per batch") {
+    const bool postselect = GENERATE(false, true);
+    const Program program = clifford_noise_program(0.004, postselect);
+    const auto& plan = program.sampling_plan(true);
+    REQUIRE(plan.peak_active_width() == 0);
+    REQUIRE(plan.has_postselection() == postselect);
+    REQUIRE(plan.num_noise_sites() == 3);
+    REQUIRE(std::abs(plan.expected_noise_faults() - 0.018) < 1e-12);
+
+    // A 64-lane batch expects 1.152 faults across the three sites, so drawing
+    // once per fault is cheaper. A 2048-lane batch expects 36.9.
+    const auto brief = clifft::sample_survivors(program, 64, 5, true);
+    REQUIRE(brief.execution.executor == SamplingExecutor::Packed);
+    REQUIRE(brief.execution.batch_size == 64);
+    REQUIRE(brief.execution.noise_preparation == BatchNoiseMode::Sparse);
+    const auto bulk = clifft::sample_survivors(program, 8193, 5, true);
+    REQUIRE(bulk.execution.executor == SamplingExecutor::Packed);
+    REQUIRE(bulk.execution.batch_size == 2048);
+    REQUIRE(bulk.execution.noise_preparation == BatchNoiseMode::SiteSparse);
+    REQUIRE_FALSE(bulk.execution.sharing);
+
+    // An explicit capacity keeps the seeded rows of Dense preparation under
+    // either choice, including the single-shot tail batch.
+    for (const uint32_t batch : {64u, 2048u}) {
+        CAPTURE(batch);
+        const SamplingOptions options{.threads = 2, .batch_size = batch};
+        auto selected = clifft::sample_survivors(program, 8193, 5, true, options);
+        REQUIRE(selected.execution.noise_preparation ==
+                (batch == 64 ? BatchNoiseMode::Sparse : BatchNoiseMode::Dense));
+        auto dense = options;
+        dense.noise_preparation = BatchNoiseMode::Dense;
+        selected.execution.noise_preparation = BatchNoiseMode::Dense;
+        require_same(selected, clifft::sample_survivors(program, 8193, 5, true, dense));
+    }
+
+    const auto rows = clifft::sample_survivors(program, 8193, 5, true,
+                                               {.noise_preparation = BatchNoiseMode::SiteRows});
+    REQUIRE(rows.execution.batch_size == 2048);
+    REQUIRE(rows.execution.noise_preparation == BatchNoiseMode::SiteRows);
+
+    if (!postselect) {
+        const auto fixed = clifft::sample(program, 8193, 5);
+        REQUIRE(fixed.execution.batch_size == 2048);
+        REQUIRE(fixed.execution.noise_preparation == BatchNoiseMode::SiteSparse);
+        REQUIRE(clifft::sample(program, 64, 5).execution.noise_preparation ==
+                BatchNoiseMode::Sparse);
+        REQUIRE(clifft::sample(program, 8193, 5, {}, {.batch_size = 2048})
+                    .execution.noise_preparation == BatchNoiseMode::Dense);
+    }
+
+    // Plans with coefficient work keep Dense preparation and the narrow limit.
+    const auto active =
+        clifft::sample_survivors(row_program(true), 8193, 5, true, {.sharing = false});
+    REQUIRE(active.execution.executor == SamplingExecutor::Packed);
+    REQUIRE(active.execution.batch_size == 256);
+    REQUIRE(active.execution.noise_preparation == BatchNoiseMode::Dense);
+}
+
+TEST_CASE("Native width zero selection replays across preparation history and concurrency") {
+    const SamplingOutputs outputs(GENERATE(false, true));
+    const SamplingOptions options{.threads = 4};
+    const auto program = clifford_noise_program(0.1, true);
+    const auto cold = clifft::sample_survivors(program, 8193, 19, outputs, options);
+    REQUIRE(cold.execution.noise_preparation == BatchNoiseMode::SiteSparse);
+    (void)clifft::sample_survivors(program, 64, 8, true);
+    (void)clifft::sample_survivors(program, 1024, 8, false, {.batch_size = 65});
+    (void)clifft::sample_survivors(program, 1024, 8, outputs,
+                                   {.noise_preparation = BatchNoiseMode::SiteRows});
+    require_same(cold, clifft::sample_survivors(program, 8193, 19, outputs, options));
+    const auto fresh = clifford_noise_program(0.1, true);
+    std::array<std::future<SamplingSurvivorResult>, 4> calls;
+    for (auto& call : calls) {
+        call = std::async(std::launch::async, [&] {
+            return clifft::sample_survivors(fresh, 8193, 19, outputs, options);
+        });
+    }
+    for (auto& call : calls) {
+        require_same(cold, call.get());
+    }
+    auto serial = clifft::sample_survivors(program, 8193, 19, outputs, {.threads = 1});
+    serial.execution = cold.execution;
+    require_same(cold, serial);
+}
+
+TEST_CASE("Native width zero joint outputs match the dense circuit oracle") {
+    const bool postselect = GENERATE(false, true);
+    // Four lanes expect 1.8 faults across three sites; 2048 lanes expect 921.6.
+    const auto [options, noise] =
+        GENERATE(std::pair{SamplingOptions{}, BatchNoiseMode::SiteSparse},
+                 std::pair{SamplingOptions{.batch_size = 4}, BatchNoiseMode::Sparse});
+    const auto circuit = clifford_noise_circuit(0.1);
+    const std::array<uint8_t, 2> mask{static_cast<uint8_t>(postselect), 0};
+    const auto oracle =
+        clifft::test::compute_dense_circuit_distribution(circuit, {.postselection_mask = mask});
+    const Program program = clifford_noise_program(0.1, postselect);
+    constexpr uint32_t shots = 32768;
+    const auto result = clifft::sample_survivors(program, shots, 81, true, options);
+    REQUIRE(result.execution.executor == SamplingExecutor::Packed);
+    REQUIRE(result.execution.noise_preparation == noise);
+    // Three records, two detectors, one observable, then the rejected shots.
+    std::array<double, 65> expected{};
+    std::array<uint32_t, 65> actual{};
+    expected[64] = oracle.discarded_probability;
+    actual[64] = shots - result.passed_shots;
+    for (const auto& entry : oracle.kept_outcomes) {
+        const auto& outcome = entry.outcome;
+        expected[outcome.visible_records | (outcome.detectors << 3) | (outcome.observables << 5)] +=
+            entry.probability;
+    }
+    for (uint32_t row = 0; row < result.passed_shots; ++row) {
+        const auto* m = result.measurements.data() + 3 * row;
+        const auto* d = result.detectors.data() + 2 * row;
+        ++actual[m[0] | (m[1] << 1) | (m[2] << 2) | (d[0] << 3) | (d[1] << 4) |
+                 (result.observables[row] << 5)];
+    }
+    for (size_t i = 0; i < expected.size(); ++i) {
+        CAPTURE(i);
+        if (expected[i] == 0) {
+            REQUIRE(actual[i] == 0);
+        } else {
+            REQUIRE(std::abs(actual[i] - shots * expected[i]) <
+                    8 * std::sqrt(shots * expected[i] * (1 - expected[i])) + 8);
+        }
+    }
+}
+
+TEST_CASE("Native site noise preparation skips zero-probability sites") {
+    // A zero-probability channel keeps its noise site but no outcomes.
+    const bool leading = GENERATE(false, true);
+    const Program program{ExecutablePlan(
+        plan_sampling(trace(parse(leading ? "X_ERROR(0) 0\nX_ERROR(0.25) 1\nM 0 1\n"
+                                          : "X_ERROR(0.25) 1\nX_ERROR(0) 0\nM 0 1\n"))))};
+    REQUIRE(program.original().num_noise_sites() == 2);
+    const auto mode = GENERATE(BatchNoiseMode::SiteSparse, BatchNoiseMode::SiteRows);
+    constexpr uint32_t shots = 4096;
+    const auto automatic = clifft::sample(program, shots, 3);
+    REQUIRE(automatic.execution.noise_preparation == BatchNoiseMode::SiteSparse);
+    const auto result = clifft::sample(program, shots, 3, {}, {.noise_preparation = mode});
+    REQUIRE(result.measurements == automatic.measurements);
+    uint32_t flips = 0;
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        REQUIRE(result.measurements[2 * shot] == 0);
+        flips += result.measurements[2 * shot + 1];
+    }
+    // Eight standard deviations around the 1,024 expected flips.
+    REQUIRE(std::abs(static_cast<int>(flips) - 1024) < 222);
 }
