@@ -159,7 +159,7 @@ bool automatic_batch_eligible(const ExecutablePlan& plan, uint32_t shots,
     (void)external_input_steps;
     return false;
 #else
-    if (intra_shot_workers > 1 || plan.has_instruments()) {
+    if (intra_shot_workers > 1 || plan.has_instruments() || plan.uses_runtime_frame()) {
         return false;
     }
     if (shots < kDefaultMinAutoBatchShots) {

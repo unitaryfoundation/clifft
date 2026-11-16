@@ -47,6 +47,23 @@ def _programs(text: str, postselection_mask: list[int] | None = None) -> tuple:
     return clifft.lower(hir), _lower_runtime_frame(hir)
 
 
+def _postselected_pairs(active_qubits: int) -> str:
+    """Eight signed pairs with one postselected check each.
+
+    Every further qubit carries a T gate between Hadamards and needs an active
+    coordinate outside the frame.
+    """
+    pairs = [(2 * p, 2 * p + 1) for p in range(8)]
+    others = range(16, 16 + active_qubits)
+    lines = [f"H {a}\nCX {a} {b}\nX_ERROR(0.05) {a}" for a, b in pairs]
+    lines += [f"H {q}" for q in others]
+    lines += [f"T {a}\nT_DAG {b}" for a, b in pairs]
+    lines += [f"T {q}" for q in others]
+    lines += [f"MPP X{a}*X{b}\nDETECTOR rec[-1]" for a, b in pairs]
+    lines += [f"H {q}\nM {q}" for q in others]
+    return "\n".join(lines) + "\n"
+
+
 def _pattern_counts(rows: np.ndarray) -> np.ndarray:
     weights = 1 << np.arange(rows.shape[1])
     return np.bincount(rows @ weights, minlength=1 << rows.shape[1])
@@ -175,6 +192,21 @@ def test_calibration_keeps_frame_plans_on_the_scalar_executor() -> None:
     assert report.stop_reason == "single_candidate"
     pinned = clifft.sample_survivors(frame, 4096, seed=5)
     assert result.passed_shots == pinned.passed_shots
+
+
+@pytest.mark.parametrize("active_qubits", [0, 1])
+def test_sampling_selection_keeps_frame_plans_on_the_scalar_executor(active_qubits: int) -> None:
+    _, frame = _programs(_postselected_pairs(active_qubits), postselection_mask=[1] * 8)
+    assert frame.peak_active_width == active_qubits
+    assert "FRAME_CLIFFORD" in frame.inspect()
+    scalar = clifft.sample_survivors(frame, 16384, seed=5, threads=1, batch_size=1)
+    automatic = clifft.sample_survivors(frame, 16384, seed=5, threads=1)
+    assert automatic.execution.executor == "scalar"
+    assert automatic.execution.sharing is False
+    assert automatic.passed_shots == scalar.passed_shots
+    for controls in ({"sharing": True}, {"noise_preparation": clifft.NoisePreparation.DENSE}):
+        with pytest.raises(ValueError, match="runtime Clifford frame"):
+            clifft.sample_survivors(frame, 64, seed=5, **controls)
 
 
 def test_fixed_fault_sampling_rejects_frame_plans() -> None:
