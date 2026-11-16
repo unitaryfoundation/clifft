@@ -4,6 +4,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+import stim
 
 import clifft
 
@@ -25,20 +26,14 @@ def test_postselected_auto_replays_its_explicit_capacity(
     assert program.peak_active_width == width
     shots = 1025
     sample: Any = clifft.sample_k_survivors if fixed_faults else clifft.sample_survivors
-    options = {"k": 1} if fixed_faults else {}
-    for threads in (1, 4):
+    options: dict[str, Any] = {"k": 1} if fixed_faults else {}
+    # Ordinary width-zero plans batch every requested shot and select their
+    # noise preparation; the other plans keep the narrow postselected limit.
+    if width == 0 and not fixed_faults:
+        capacity = shots
+    else:
         capacity = 256 if width < 5 else 1
-        explicit = sample(
-            program,
-            shots,
-            seed=927,
-            threads=1,
-            batch_size=capacity,
-            keep_records=keep_records,
-            **options,
-        )
-        assert 0 < explicit.passed_shots < shots
-        assert explicit.logical_errors > 0
+    for threads in (1, 4):
         automatic = sample(
             program,
             shots,
@@ -47,6 +42,21 @@ def test_postselected_auto_replays_its_explicit_capacity(
             keep_records=keep_records,
             **options,
         )
+        assert automatic.execution.batch_size == capacity
+        replay = dict(options)
+        if not fixed_faults and automatic.execution.noise_preparation is not None:
+            replay["noise_preparation"] = automatic.execution.noise_preparation
+        explicit = sample(
+            program,
+            shots,
+            seed=927,
+            threads=1,
+            batch_size=capacity,
+            keep_records=keep_records,
+            **replay,
+        )
+        assert 0 < explicit.passed_shots < shots
+        assert explicit.logical_errors > 0
         for field in ("total_shots", "passed_shots", "discards", "logical_errors"):
             assert getattr(automatic, field) == getattr(explicit, field)
         for field in ("measurements", "detectors", "observables", "exp_vals", "observable_ones"):
@@ -58,6 +68,54 @@ def test_postselected_auto_replays_its_explicit_capacity(
             np.testing.assert_array_equal(
                 automatic.observable_ones, automatic.observables.sum(axis=0)
             )
+
+
+def test_width_zero_auto_selects_noise_preparation_and_agrees_with_stim() -> None:
+    circuit = stim.Circuit.generated(
+        "surface_code:rotated_memory_z",
+        distance=3,
+        rounds=3,
+        after_clifford_depolarization=0.01,
+        after_reset_flip_probability=0.01,
+        before_measure_flip_probability=0.01,
+        before_round_data_depolarization=0.01,
+    )
+    program = clifft.compile(str(circuit))
+    assert program.peak_active_width == 0
+
+    # Every noise site fires with probability 0.01, so a 64-shot batch expects
+    # fewer faults than there are sites and a 2048-shot batch expects more.
+    brief = clifft.sample(program, 64, seed=5)
+    assert brief.execution.noise_preparation == clifft.NoisePreparation.SPARSE
+    numeric = clifft.sample(program, 4096, seed=5, batch_size=2048)
+    assert numeric.execution.noise_preparation == clifft.NoisePreparation.DENSE
+    shots = 200_000
+    bulk = clifft.sample(program, shots, seed=5, keep_records="syndromes")
+    assert bulk.execution.batch_size == 2048
+    assert bulk.execution.noise_preparation == clifft.NoisePreparation.SITE_SPARSE
+
+    def agree(sampled: Any, reference: Any, samples: int) -> bool:
+        rate = (sampled + reference) / 2
+        return bool(np.all(np.abs(sampled - reference) <= 6 * np.sqrt(2 * rate / samples)))
+
+    detectors, observables = circuit.compile_detector_sampler(seed=11).sample(
+        shots, separate_observables=True
+    )
+    assert agree(bulk.detectors.mean(axis=0), detectors.mean(axis=0), shots)
+    assert agree(bulk.observables.mean(axis=0), observables.mean(axis=0), shots)
+
+    # Postselecting every detector keeps the shots Stim reports without events.
+    clean = ~detectors.any(axis=1)
+    postselected = clifft.compile(str(circuit), postselection_mask=[1] * circuit.num_detectors)
+    survivors = clifft.sample_survivors(postselected, shots, seed=7)
+    assert survivors.execution.batch_size == 2048
+    assert survivors.execution.noise_preparation == clifft.NoisePreparation.SITE_SPARSE
+    assert agree(survivors.passed_shots / shots, clean.mean(), shots)
+    assert agree(
+        survivors.logical_errors / survivors.passed_shots,
+        observables[clean].any(axis=1).mean(),
+        min(survivors.passed_shots, int(clean.sum())),
+    )
 
 
 @pytest.mark.parametrize("width", [6, 8])

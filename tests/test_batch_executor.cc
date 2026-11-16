@@ -744,17 +744,21 @@ TEST_CASE("Wider automatic external packing retains shot and memory limits") {
 }
 
 TEST_CASE("Narrow postselected automatic capacity retains conservative limits") {
+    // Ordinary width-zero plans have no coefficient work for rejected lanes to
+    // carry, so only they use the general capacity limit.
     struct Case {
         uint32_t width;
         uint32_t shots;
         uint32_t workers;
         uint32_t capacity;
+        uint32_t ordinary_capacity;
     };
     const std::array cases{
-        Case{0, 0, 1, 1},     Case{0, 63, 1, 1},      Case{0, 64, 1, 64},    Case{0, 255, 4, 255},
-        Case{0, 256, 4, 256}, Case{0, 257, 4, 256},   Case{0, 1024, 1, 256}, Case{0, 65536, 8, 256},
-        Case{1, 64, 1, 64},   Case{1, 65536, 1, 256}, Case{4, 1025, 4, 256}, Case{4, 1025, 16, 256},
-        Case{5, 65536, 1, 1}, Case{6, 65536, 1, 1},
+        Case{0, 0, 1, 1, 1},         Case{0, 63, 1, 1, 1},         Case{0, 64, 1, 64, 64},
+        Case{0, 255, 4, 255, 255},   Case{0, 256, 4, 256, 256},    Case{0, 257, 4, 256, 257},
+        Case{0, 1024, 1, 256, 1024}, Case{0, 65536, 8, 256, 2048}, Case{1, 64, 1, 64, 64},
+        Case{1, 65536, 1, 256, 256}, Case{4, 1025, 4, 256, 256},   Case{4, 1025, 16, 256, 256},
+        Case{5, 65536, 1, 1, 1},     Case{6, 65536, 1, 1, 1},
     };
     for (const auto& test : cases) {
         std::string circuit = "X_ERROR(0.25) 8\nM 8\nDETECTOR rec[-1]\n";
@@ -770,13 +774,15 @@ TEST_CASE("Narrow postselected automatic capacity retains conservative limits") 
         for (const auto output : {BatchOutputMode::Rows, BatchOutputMode::AggregateSurvivors}) {
             for (const auto mode : {BatchSamplingMode::Ordinary, BatchSamplingMode::FixedFaults}) {
                 const uint32_t workers = test.workers;
+                const uint32_t capacity =
+                    mode == BatchSamplingMode::Ordinary ? test.ordinary_capacity : test.capacity;
                 CAPTURE(test.width, test.shots, output, mode, workers);
                 const auto policy = resolve_batch_execution_policy(plan, test.shots, workers, 1,
                                                                    output, std::nullopt, mode);
-                REQUIRE(policy.lane_capacity == test.capacity);
-                if (test.capacity > 1) {
+                REQUIRE(policy.lane_capacity == capacity);
+                if (capacity > 1) {
                     REQUIRE(policy.worker_count ==
-                            std::min(workers, (test.shots + test.capacity - 1) / test.capacity));
+                            std::min(workers, (test.shots + capacity - 1) / capacity));
                     REQUIRE(resolve_batch_execution_policy(
                                 plan, test.shots, workers, 1, output, std::nullopt, mode,
                                 clifft::sampling::kDefaultBatchWorkerBudget)

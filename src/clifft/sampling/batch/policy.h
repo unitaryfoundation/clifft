@@ -217,6 +217,15 @@ struct BatchWorkerStorageLayout {
     BatchOutputMode output_mode, BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
     uint64_t external_input_steps = 0) noexcept;
 
+// Selects noise preparation for ordinary packed sampling of a width-zero plan.
+// Sparse draws once per fault, while the site modes draw at least once per
+// site in every batch, so Sparse is selected while a full batch expects no
+// more faults than the plan has sites. Above that SiteSparse is faster but
+// changes seeded rows, so a requested batch size keeps Dense.
+[[nodiscard]] BatchNoiseMode select_batch_noise_mode(
+    const ExecutablePlan& plan, uint32_t shots,
+    std::optional<uint32_t> requested_batch_size) noexcept;
+
 // Resolve lane boundaries from plan costs and the worker budget, then cap
 // workers by aggregate retained memory. Callers include wrapper-owned scratch
 // that is not part of BatchExecutor in additional_worker_bytes, excluding the

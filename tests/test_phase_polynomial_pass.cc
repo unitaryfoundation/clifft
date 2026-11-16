@@ -809,8 +809,12 @@ TEST_CASE("Postselected single-record detector recovers stabilizer across upstre
     REQUIRE(opt_plan.peak_active_width() == 0);
     REQUIRE(ref_plan.peak_active_width() == 1);
 
-    const auto opt_res = sampling::sample_survivors(opt_plan, 8192, uint64_t{4242});
-    const auto ref_res = sampling::sample_survivors(ref_plan, 8192, uint64_t{4242});
+    // Equal lane capacities keep both plans on the same seeded noise draws.
+    constexpr uint32_t batch = 256;
+    const auto opt_res =
+        sampling::sample_survivors(opt_plan, 8192, uint64_t{4242}, false, 1, std::nullopt, batch);
+    const auto ref_res =
+        sampling::sample_survivors(ref_plan, 8192, uint64_t{4242}, false, 1, std::nullopt, batch);
     REQUIRE(opt_res.passed_shots == ref_res.passed_shots);
     REQUIRE(opt_res.logical_errors == ref_res.logical_errors);
 }

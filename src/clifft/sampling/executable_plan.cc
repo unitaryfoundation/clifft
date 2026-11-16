@@ -176,6 +176,14 @@ size_t ExecutablePlan::num_new_x_instrument_activations() const {
         }));
 }
 
+double ExecutablePlan::expected_noise_faults() const noexcept {
+    double faults = 0.0;
+    for (const PreparedNoiseSite& site : noise_sites_) {
+        faults += site.conditioned_probability;
+    }
+    return faults;
+}
+
 std::vector<double> ExecutablePlan::noise_site_probabilities() const {
     std::vector<double> probabilities;
     probabilities.reserve(noise_sites_.size() + num_readout_noise_sites_);
