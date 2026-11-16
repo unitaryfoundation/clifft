@@ -33,6 +33,10 @@ struct ThreadLayout {
     uint32_t intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth;
 };
 
+[[nodiscard]] ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
+                                                 uint32_t requested_threads,
+                                                 std::optional<ThreadLayout> override);
+
 // Samples a fixed number of shots into row-major visible-record storage. The
 // plan and executor are prepared once, and all output is allocated before the
 // first shot enters hot execution. Plans with unbound presampled symbols or
@@ -68,7 +72,8 @@ struct ThreadLayout {
                                     std::optional<ThreadLayout> thread_layout = std::nullopt,
                                     std::optional<uint32_t> batch_size = std::nullopt,
                                     std::optional<double> tuning_budget_seconds = std::nullopt,
-                                    SamplingOutputs outputs = {});
+                                    SamplingOutputs outputs = {},
+                                    const PreparedBatchNoise* noise = nullptr);
 
 // Optional noise preparation belongs to plan and outlives this call. The same
 // preparation is reused by calibration and production workers.

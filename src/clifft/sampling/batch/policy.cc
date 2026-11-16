@@ -146,6 +146,52 @@ uint64_t batch_worker_classical_bytes(const ExecutablePlan& plan, uint32_t lane_
 }  // namespace batch_detail
 #endif
 
+bool automatic_batch_eligible(const ExecutablePlan& plan, uint32_t shots,
+                              uint32_t intra_shot_workers, BatchOutputMode output_mode,
+                              BatchSamplingMode sampling_mode,
+                              uint64_t external_input_steps) noexcept {
+#if defined(__EMSCRIPTEN__)
+    (void)plan;
+    (void)shots;
+    (void)intra_shot_workers;
+    (void)output_mode;
+    (void)sampling_mode;
+    (void)external_input_steps;
+    return false;
+#else
+    if (intra_shot_workers > 1 || plan.has_instruments()) {
+        return false;
+    }
+    if (shots < kDefaultMinAutoBatchShots) {
+        return false;
+    }
+    const bool early_postselection = plan.has_early_postselection(output_mode);
+    if (early_postselection && plan.peak_active_width() >= 5) {
+        return false;
+    }
+    // Packed status/input generation can repay the wider quantum kernels, but
+    // merely having a transition says nothing about sustained coefficient work.
+    // Bound both width and total coefficient visits relative to scalar input
+    // steps; the existing memory limits still determine the batch capacity.
+    const bool amortizes_external_inputs =
+        sampling_mode == BatchSamplingMode::ExternalInputs && !early_postselection &&
+        external_input_steps != 0 && plan.peak_active_width() <= kMaxExternalInputBatchWidth &&
+        plan.estimated_batch_lane_work(output_mode) <=
+            saturating_multiply_u64(external_input_steps, kMaxBatchLaneWorkPerExternalInput);
+    const bool amortizes_classical_actions =
+        !early_postselection && plan.peak_active_width() <= kMaxClassicalBatchWidth &&
+        plan.estimated_batch_lane_work(output_mode) <=
+            saturating_multiply_u64(plan.num_actions(), kMaxBatchLaneWorkPerAction);
+    if (!amortizes_external_inputs && !amortizes_classical_actions &&
+        (plan.peak_active_width() > 5 ||
+         (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
+                                               kDefaultMaxWidthFiveBatchLaneWork))) {
+        return false;
+    }
+    return true;
+#endif
+}
+
 BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
@@ -193,11 +239,8 @@ BatchExecutionPolicy resolve_batch_execution_policy(
         return {.lane_capacity = capacity,
                 .worker_count = batch_worker_count(shots, shot_workers, capacity)};
     }
-    if (shots < kDefaultMinAutoBatchShots) {
-        return {};
-    }
-    const bool early_postselection = plan.has_early_postselection(output_mode);
-    if (early_postselection && plan.peak_active_width() >= 5) {
+    if (!automatic_batch_eligible(plan, shots, intra_shot_workers, output_mode, sampling_mode,
+                                  external_input_steps)) {
         return {};
     }
     // Narrow postselected plans can reject before substantial classical work,
@@ -205,25 +248,6 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     const uint32_t max_capacity = plan.has_postselection() && plan.peak_active_width() < 5
                                       ? kDefaultMaxPostselectedBatchShots
                                       : kDefaultMaxAutoBatchShots;
-    // Packed status/input generation can repay the wider quantum kernels, but
-    // merely having a transition says nothing about sustained coefficient work.
-    // Bound both width and total coefficient visits relative to scalar input
-    // steps; the existing memory limits still determine the batch capacity.
-    const bool amortizes_external_inputs =
-        sampling_mode == BatchSamplingMode::ExternalInputs && !early_postselection &&
-        external_input_steps != 0 && plan.peak_active_width() <= kMaxExternalInputBatchWidth &&
-        plan.estimated_batch_lane_work(output_mode) <=
-            saturating_multiply_u64(external_input_steps, kMaxBatchLaneWorkPerExternalInput);
-    const bool amortizes_classical_actions =
-        !early_postselection && plan.peak_active_width() <= kMaxClassicalBatchWidth &&
-        plan.estimated_batch_lane_work(output_mode) <=
-            saturating_multiply_u64(plan.num_actions(), kMaxBatchLaneWorkPerAction);
-    if (!amortizes_external_inputs && !amortizes_classical_actions &&
-        (plan.peak_active_width() > 5 ||
-         (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
-                                               kDefaultMaxWidthFiveBatchLaneWork))) {
-        return {};
-    }
     // Wider kernels benefit from parallel batches when each requested worker
     // has enough shots to fill one. Shorter requests retain their packed size.
     uint32_t capacity = std::min(shots, max_capacity);

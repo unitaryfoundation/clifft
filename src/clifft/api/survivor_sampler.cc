@@ -109,7 +109,18 @@ void SurvivorSampler::tune(uint32_t shots, std::optional<uint64_t> seed) {
     using namespace sampling;
     using namespace sampling::batch_detail;
     const auto candidates = shared_tuning_candidates(safe_capacity_, shots, worker_count_);
-    const BatchExecutionPolicy baseline = candidates.front().policy;
+    const BatchExecutionPolicy baseline =
+        resolve_shared_execution_policy(safe_capacity_, shots, worker_count_);
+    // The automatic baseline remains valid even if calibration has no alternative.
+    if (candidates.size() < 2) {
+        BatchTuningReport report;
+        report.batch_size = report.baseline_batch_size = baseline.lane_capacity;
+        report.shot_workers = baseline.worker_count;
+        report.stop_reason = "single_candidate";
+        prepare_workers(baseline);
+        tuning_report_ = std::move(report);
+        return;
+    }
     const auto now = [] {
         return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch())
             .count();

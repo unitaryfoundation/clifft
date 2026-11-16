@@ -131,6 +131,11 @@ void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_c
                                    std::span<const uint32_t> rows, std::span<uint8_t> output,
                                    size_t stride, bool bit_packed = false) noexcept;
 
+// Writes lanes in order without storing an identity row-index array.
+void transpose_bit_columns_to_rows(const PackedBitColumns& columns, size_t num_columns,
+                                   uint32_t lanes, std::span<uint8_t> output, size_t stride,
+                                   bool bit_packed = false) noexcept;
+
 // XORs a lane-major packed matrix into the matching bit columns. Padding lanes
 // and bits beyond the destination column count are ignored.
 void xor_bit_rows_into_columns(std::span<const uint64_t> rows, size_t stride, uint32_t lanes,

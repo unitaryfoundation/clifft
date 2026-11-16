@@ -86,6 +86,14 @@ Reported group counts come from that fixed-seed validation batch, not from the
 timed calls. The `reconstructed` counter reports which plan was selected.
 Throughput counts attempted shots. There are no timing assertions.
 
+`sample_native_cultivation_d5_*` measures complete calls through the native
+automatic sampler for aggregate counts, full survivor rows, and bit-packed
+detector/observable rows. It reuses immutable preparation on the program but
+constructs workers and collects results on every call. Untimed checks verify
+that automatic selection actually uses shared execution and retains the
+expected number of detector rows. These cases expose worker startup and row
+collection costs that the retained-sampler cases exclude.
+
 ## External input execution
 
 `--benchmark_filter='^external_inputs_'` compares reusable scalar and packed

@@ -75,12 +75,12 @@ SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
 SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                                  const EarlyPostselection& checks, uint32_t lane_capacity,
                                  uint32_t initial_states, bool share, const SharingKey* key,
-                                 uint64_t max_worker_state_bytes)
-    : BatchClassicalState(plan, BatchOutputMode::AggregateSurvivors, BatchSamplingMode::Ordinary,
-                          batch_detail::batch_worker_storage_layout(
-                              plan, lane_capacity, BatchOutputMode::AggregateSurvivors,
-                              BatchSamplingMode::Ordinary, &noise),
-                          &noise),
+                                 uint64_t max_worker_state_bytes, BatchOutputMode output_mode)
+    : BatchClassicalState(
+          plan, output_mode, BatchSamplingMode::Ordinary,
+          batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode,
+                                                    BatchSamplingMode::Ordinary, &noise),
+          &noise),
       checks_(&checks),
       share_(share),
       key_(share ? key : nullptr),
@@ -90,6 +90,9 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
       groups_(lane_capacity),
       free_(lane_capacity),
       choices_(lane_capacity) {
+    if (output_mode == BatchOutputMode::Rows && plan.num_exp_vals() != 0) {
+        throw std::invalid_argument("shared row execution does not support expectation probes");
+    }
     if (checks.plan_ != &plan) {
         throw std::invalid_argument("entrance checks must belong to the sharing plan");
     }
@@ -147,15 +150,15 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
 
 uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
                                                   const PreparedBatchNoise& noise,
-                                                  const SharingKey* key, uint32_t lane_capacity) {
+                                                  const SharingKey* key, uint32_t lane_capacity,
+                                                  BatchOutputMode output_mode) {
     // Per-lane RNG streams, group links, and branch choices.
     constexpr uint64_t kLaneBytes =
         sizeof(Xoshiro256PlusPlus) + 4 * sizeof(uint32_t) + sizeof(uint8_t);
-    uint64_t bytes =
-        saturating_add_u64(batch_detail::batch_worker_classical_bytes(
-                               plan, lane_capacity, BatchOutputMode::AggregateSurvivors,
-                               BatchSamplingMode::Ordinary, &noise),
-                           saturating_multiply_u64(lane_capacity, kLaneBytes));
+    uint64_t bytes = saturating_add_u64(
+        batch_detail::batch_worker_classical_bytes(plan, lane_capacity, output_mode,
+                                                   BatchSamplingMode::Ordinary, &noise),
+        saturating_multiply_u64(lane_capacity, kLaneBytes));
     bytes =
         saturating_add_u64(bytes, saturating_multiply_u64(plan.num_actions(), sizeof(uint32_t)));
     if (const uint64_t stride = key ? (key->num_bits() + 63) / 64 : 0; stride != 0) {
@@ -169,7 +172,8 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
 }
 
 uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
-                                  const SharingKey* key, uint64_t max_worker_state_bytes) {
+                                  const SharingKey* key, uint64_t max_worker_state_bytes,
+                                  BatchOutputMode output_mode) {
     // Width-zero plans keep no coefficient states.
     const uint32_t width = plan.peak_active_width();
     uint32_t capacity =
@@ -180,9 +184,9 @@ uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatc
     // The sampler retains one observable counter per output alongside the executor.
     const uint64_t counter_bytes =
         saturating_multiply_u64(plan.num_observables(), sizeof(uint64_t));
-    while (capacity > 1 &&
-           saturating_add_u64(SharingExecutor::classical_storage_bytes(plan, noise, key, capacity),
-                              counter_bytes) > kMaxAutoSharedWorkerClassicalBytes) {
+    while (capacity > 1 && saturating_add_u64(SharingExecutor::classical_storage_bytes(
+                                                  plan, noise, key, capacity, output_mode),
+                                              counter_bytes) > kMaxAutoSharedWorkerClassicalBytes) {
         capacity /= 2;
     }
     return capacity;
@@ -204,15 +208,18 @@ BatchExecutionPolicy resolve_shared_execution_policy(uint32_t safe_capacity, uin
             .worker_count = static_cast<uint32_t>(std::min<uint64_t>(workers, batches))};
 }
 
-std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(uint32_t safe_capacity,
-                                                                         uint32_t shots,
-                                                                         uint32_t workers) {
+std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
+    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes) {
     std::vector<batch_detail::BatchTuningCandidate> candidates;
     if (shots == 0) {
         return candidates;
     }
-    // Probes larger than this add calibration time without changing the ranking.
-    constexpr uint32_t kMaxProbeShots = 65536;
+    // Cheap probes grow toward this target. A full batch per production worker
+    // may need more shots; retained output bytes impose a separate hard limit.
+    constexpr uint32_t kTargetProbeShots = 65536;
+    const uint32_t output_limit =
+        output_row_bytes == 0 ? shots
+                              : batch_detail::max_batch_probe_shots(shots, output_row_bytes);
     const auto append = [&](uint32_t requested) {
         const uint32_t capacity = std::min({requested, safe_capacity, shots});
         if (std::ranges::any_of(candidates, [&](const auto& candidate) {
@@ -225,12 +232,18 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(uint32_
         // One full batch per worker measures the candidate at its production
         // fill; the floor keeps single-lane probes long enough to time.
         constexpr uint64_t kMinProbeShots = 256;
-        const uint32_t probe_shots =
-            static_cast<uint32_t>(std::max(kMinProbeShots, uint64_t{capacity} * used));
-        candidates.push_back(
-            {{capacity, used}, probe_shots, std::max(kMaxProbeShots, probe_shots)});
+        const uint32_t probe_shots = static_cast<uint32_t>(
+            std::min<uint64_t>(shots, std::max(kMinProbeShots, uint64_t{capacity} * used)));
+        if (probe_shots <= output_limit) {
+            const uint32_t maximum =
+                std::min(output_limit, std::max(kTargetProbeShots, probe_shots));
+            candidates.push_back({{capacity, used}, probe_shots, maximum});
+        }
     };
     append(resolve_shared_execution_policy(safe_capacity, shots, workers).lane_capacity);
+    if (candidates.empty()) {
+        return candidates;
+    }
     for (const uint32_t capacity : {1u, 64u, 256u, 1024u, 4096u, kMaxAutoSharedBatchShots}) {
         append(capacity);
     }
@@ -265,6 +278,9 @@ void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint3
     prune_pending_ = false;
     action_index_ = 0;
     if (live_count_ == 0) {
+        if (output_mode_ == BatchOutputMode::Rows) {
+            active_lanes_ = 0;
+        }
         return;
     }
     initialize_groups(root, first_shot, shots);
@@ -272,6 +288,22 @@ void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint3
         while (const uint32_t required = dispatch_until_storage_boundary<Backend>()) {
             ++storage_boundaries_;
             grow_state_pool(required);
+        }
+        // Only the classical output columns need compaction after dispatch.
+        // Coefficient groups and hidden state are reset before the next batch.
+        if (output_mode_ == BatchOutputMode::Rows && live_count_ != active_lanes()) {
+            uint32_t destination = 0;
+            for (uint32_t source = 0; source < active_lanes(); ++source) {
+                if (is_live(source)) {
+                    shot_indices_[destination++] = shot_indices_[source];
+                }
+            }
+            records_.compact_prefix(plan_->num_visible_records_, live_words_, active_lanes(),
+                                    live_count_, scratch_words_);
+            detectors_.compact(live_words_, active_lanes(), live_count_, scratch_words_);
+            observables_.compact(live_words_, active_lanes(), live_count_, scratch_words_);
+            active_lanes_ = live_count_;
+            fill_low_lane_mask(live_words_, active_lanes());
         }
     };
     switch (plan_->backend_) {
@@ -619,8 +651,14 @@ void SharingExecutor::split_on_symbol(uint32_t symbol) noexcept {
 }
 
 void SharingExecutor::execute_action(const ExecutablePlan::ExecuteDetector& action) noexcept {
+    if (!action.postselected && output_mode_ == BatchOutputMode::AggregateSurvivors) {
+        return;
+    }
+    const auto values = evaluate_record_parity(action.outcome);
+    if (output_mode_ == BatchOutputMode::Rows) {
+        detectors_.assign(action.detector, values, live_words_);
+    }
     if (action.postselected) {
-        const auto values = evaluate_record_parity(action.outcome);
         const auto previous_live_count = live_count_;
         for (size_t word = 0; word < values.size(); ++word) {
             const auto dead = values[word] & live_words_[word];

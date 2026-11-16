@@ -25,15 +25,23 @@ result = clifft.sample(program, shots=10_000, seed=42, threads=4)
 ```
 
 Clifft chooses whether that budget is better spent across shots or within a
-wide shot. It separately decides whether packing shots into SIMD lanes is
-worthwhile. Benchmark before overriding either decision.
+wide shot. `sample()` and `sample_survivors()` can also share coefficient
+evolution between shots that follow the same quantum trajectory. This is useful
+for sufficiently large postselected workloads and noiseless circuits with a
+shared unitary prefix. Short calls and uncertain cases use ordinary scalar or
+packed execution. Requested expectation-value rows use ordinary execution so
+every probe is retained.
+
+Calls can run concurrently on the same `Program` and reuse its preparation.
+For a fixed seed and execution configuration, results are independent of earlier
+calls. [Benchmark before overriding](#benchmark-before-overriding) the defaults.
 
 ## Common controls
 
 | Argument | Default | Meaning |
 |---|---|---|
 | `threads` | `1` | Total CPU worker budget; `"auto"` uses reported hardware concurrency. |
-| `batch_size` | `"auto"` | Packed-lane policy; `1` forces scalar execution and `"tune"` measures candidate capacities. |
+| `batch_size` | `"auto"` | Select execution automatically; `1` forces scalar execution, another integer requests ordinary packed execution, and `"tune"` measures capacities within the selected path. |
 | `tuning_budget_seconds` | `None` | Keyword-only soft calibration budget for `batch_size="tune"`; `None` uses 0.25 seconds. |
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
@@ -50,7 +58,7 @@ batch-size tuning, whereas trajectory execution runs one shot at a time
 thread layouts are not supported by `clifft.noncomp`, and exact probability
 queries and `get_statevector()` do not expose these sampling controls.
 
-Three independent mechanisms are involved:
+The execution mechanisms are:
 
 - **Cross-shot workers** run different shots concurrently. Each owns an
   executor and mutable storage.
@@ -58,8 +66,13 @@ Three independent mechanisms are involved:
   shares an executor.
 - **Packed execution** represents several shots as SIMD lanes within one
   worker.
+- **Shared execution** keeps per-shot classical data while reusing coefficient
+  states across equivalent trajectories. The default state budget is 64 MiB per
+  worker; classical storage and output rows are additional. Automatic and tuned
+  capacities fit even when every shot needs its own state, and are capped at
+  8192 lanes.
 
-Packed execution cannot be combined with intra-shot workers.
+Packed and shared execution cannot be combined with intra-shot workers.
 
 ## Budgeted batch calibration
 
@@ -91,14 +104,21 @@ before the requested shots run. Keep these points in mind:
   Trial results are excluded from the returned counts and estimates.
 - Batch sizes that exceed the worker memory limits are excluded. If none fit,
   Clifft samples without batching and skips calibration.
-- If calibration cannot make a useful comparison, Clifft uses `auto` and
-  returns the samples with a `RuntimeWarning` suggesting a larger budget.
+- If timing data cannot support a useful comparison, Clifft uses `auto` and
+  returns the samples with a `RuntimeWarning` suggesting a larger time budget.
   A budget overrun alone does not cause a warning.
+- Shared calibration limits each probe's output size to 8 MiB. If a full batch
+  per worker exceeds that limit at the automatic capacity, Clifft keeps `auto`
+  and warns that calibration could not fit. Fewer workers or fewer retained
+  record types can make calibration fit; a longer time budget does not help.
 
-The selected settings are returned in `result.batch_tuning`. To reuse the
-batch size without recalibrating, pass `batch_size=result.batch_tuning.batch_size`
-on later calls with the same circuit and simulation settings. Retune when the
-workload or machine changes; selections are not cached automatically.
+The selected capacity and timings are returned in `result.batch_tuning`.
+Calibration compares capacities within the automatically selected execution
+path. For ordinary scalar or packed execution, reuse its capacity with
+`batch_size=result.batch_tuning.batch_size`. For shared `sample()` or
+`sample_survivors()` calls, a numeric capacity selects ordinary execution and
+does not reproduce the calibrated call. Retune when the workload or machine
+changes; selections are not cached automatically.
 
 ??? note "Calibration report details"
 
@@ -122,6 +142,9 @@ workload or machine changes; selections are not cached automatically.
     means usable timing data was missing without a candidate being excluded
     for lack of time.
 
+    `output_budget` means a shared baseline probe exceeded the output-size
+    limit. No trials ran, and a `RuntimeWarning` explains the fallback.
+
     `zero_shots`, `zero_budget`, and `single_candidate` indicate that no
     calibration was needed or requested. These cases do not issue a warning.
 
@@ -130,22 +153,18 @@ workload or machine changes; selections are not cached automatically.
     `elapsed_seconds`, and `shots_per_second`. `used_warmup` indicates that
     throughput comes from the first probe alone; setup time is excluded.
 
-    To reproduce the worker allocation as well as the batch size, pass
+    For ordinary execution, reproduce the worker allocation as well as the
+    batch size by passing
     `thread_layout=(report.shot_workers, report.intra_shot_workers)` from a
-    nonempty call and preserve any explicit intra-shot threshold.
+    nonempty call and preserving any explicit intra-shot threshold.
 
-## Sharing trajectories in survivor sampling
+## Retaining a shared survivor sampler
 
-Many shots in a noisy circuit follow the same quantum trajectory.
-`SurvivorSampler` shares quantum state evolution across those shots, reducing
-repeated work and state memory. It also retains worker storage across calls
-and rejects shots that fail noise-only necessary conditions before quantum
-evolution. The selected detectors still determine final acceptance; they are
-checked as soon as their measurement records are ready, so rejected shots skip
-later evolution. The first sampler built from a `Program` prepares the
-count-only plan, noise metadata, and early checks on that program. Later
-samplers built from the same program reuse them, and each sampler owns its
-workers.
+For repeated count-only sampling, `SurvivorSampler` retains worker storage
+between calls to avoid rebuilding it. It also exposes controls for trajectory
+sharing, noise preparation, and per-worker state memory. Shared
+`sample_survivors()` calls reuse preparation on the `Program`; choose a retained
+sampler when worker reuse or these controls are useful.
 
 !!! note "Interface under review"
     The constructor options and defaults are being reviewed and may change
@@ -202,11 +221,12 @@ much larger classical batches than ordinary packed execution:
   (classical buffers and compiled plans are separate). The limit does not
   shrink as threads are added, so state storage can reach
   `max_worker_state_bytes * threads` when every lane diverges; states are
-  allocated only as trajectories split. Before an action, Clifft checks a
-  conservative bound on the states its possible splits could require. If that
-  bound exceeds the budget, `.sample()` raises `RuntimeError`, even if the
-  sampled outcomes would have needed fewer states. Reduce `batch_size` or
-  raise `max_worker_state_bytes` before retrying.
+  allocated as trajectories split. Automatic and tuned capacities fit one
+  state per lane within this budget. With a larger explicit capacity, Clifft
+  checks a conservative bound on the states an action's possible splits could
+  require. If that bound exceeds the budget, `.sample()` raises `RuntimeError`,
+  even if the sampled outcomes would have needed fewer states. Reduce
+  `batch_size` or raise `max_worker_state_bytes` before retrying.
 
 The default budget holds 8192 states through active width 8, 2730 at width 10,
 and 341 at width 13. For wider circuits, raise `max_worker_state_bytes` first
@@ -280,7 +300,7 @@ active.
 
 ### Packed batch sampling
 
-The default `batch_size="auto"` considers packed execution only when:
+When shared execution is not selected, `batch_size="auto"` considers packed execution only when:
 
 - at least 64 shots were requested;
 - peak active width and post-selection satisfy the policy below; and
@@ -333,20 +353,29 @@ sampling repeats its results within the same build. Automatic batching considers
 the thread budget, so changing `threads` or `thread_layout` can change batch
 boundaries and sampled rows. With `threads="auto"`, the available worker count
 can differ between machines, so the same seed need not produce the same rows.
-To preserve rows and survivor order while changing the number of cross-shot
-workers, pin a numeric `batch_size`.
+With a numeric `batch_size`, changing only the number of cross-shot workers
+preserves rows and survivor order within ordinary execution.
 
-Scalar and packed execution use separate random streams, and different packed
+Untuned selection depends only on the program and call arguments, including the
+requested outputs and worker layout. Cold, warm, and concurrent first use make
+the same choices. For `sample()` and `sample_survivors()`, automatic calls can
+select shared execution; an explicit numeric batch size selects ordinary
+execution.
+
+Scalar, packed, and shared execution use separate random streams, and different
 capacities can produce different rows. Changing `keep_records` can also change
 individual seeded rows while preserving the requested output distribution.
 `bit_packed` only changes array storage and preserves the sampled bits. Keep the
 complete execution configuration fixed when exact seeded replay is required.
 
 Timing-based calibration can select a different capacity on repeated calls,
-even with the same seed. For debugging, pin the reported numeric batch size
-instead of requesting calibration again. Calibration uses separate random
-streams from the requested shots. Omitting `seed` continues to use hardware
-entropy.
+even with the same seed. For ordinary execution, pin the reported numeric batch
+size to replay a calibrated run. If `sample()` or `sample_survivors()` calibrated
+shared execution, that numeric setting switches to ordinary execution and does
+not replay the calibrated call. Use a fixed numeric capacity from the start
+when debugging requires repeatable rows.
+Calibration uses separate random streams from the requested shots. Omitting
+`seed` uses hardware entropy.
 
 ### Memory tradeoffs
 

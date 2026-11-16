@@ -10,6 +10,7 @@ add_executable(clifft_tests
     test_batch_random_bits.cc
     test_batch_executor.cc
     test_shared_sampling.cc
+    test_native_sampling.cc
     test_batch_external_inputs.cc
     test_batch_tuning.cc
     test_mask_view.cc

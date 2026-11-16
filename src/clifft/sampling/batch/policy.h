@@ -210,6 +210,13 @@ struct BatchWorkerStorageLayout {
 
 }  // namespace batch_detail
 
+// Cheap automatic admission before allocating noise metadata for packed workers.
+// Storage budgets are checked only after this structural admission succeeds.
+[[nodiscard]] bool automatic_batch_eligible(
+    const ExecutablePlan& plan, uint32_t shots, uint32_t intra_shot_workers,
+    BatchOutputMode output_mode, BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
+    uint64_t external_input_steps = 0) noexcept;
+
 // Resolve lane boundaries from plan costs and the worker budget, then cap
 // workers by aggregate retained memory. Callers include wrapper-owned scratch
 // that is not part of BatchExecutor in additional_worker_bytes, excluding the

@@ -10,6 +10,29 @@
 
 namespace clifft::sampling {
 
+uint32_t ExecutablePlan::num_postselected_detectors() const noexcept {
+    uint32_t count = 0;
+    for (const auto& action : actions_) {
+        if (const auto* detector = std::get_if<ExecuteDetector>(&action)) {
+            count += detector->postselected;
+        }
+    }
+    return count;
+}
+
+bool ExecutablePlan::has_promotions_after_measurement() const noexcept {
+    bool measured = false;
+    for (const auto& action : actions_) {
+        if (std::holds_alternative<ExecuteActiveMeasurement>(action) ||
+            std::holds_alternative<ExecuteDormantMeasurement>(action)) {
+            measured = true;
+        } else if (measured && std::holds_alternative<ExecutePromotion>(action)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 PreparedFusedRotationExecution::PreparedFusedRotationExecution(PreparedFusedRotation rotation,
                                                                ExecutorBackend backend)
     : rotation_(std::move(rotation)) {

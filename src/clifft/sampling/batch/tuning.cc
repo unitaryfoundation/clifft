@@ -32,9 +32,6 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
     if (shots == 0) {
         return candidates;
     }
-    // Calibration must not allocate production-sized output arrays just to
-    // compare a handful of policies. Worker storage has its own budgets below.
-    constexpr uint64_t kProbeOutputBudget = 8 * 1024 * 1024;
     const uint64_t ordinary_row_bytes =
         output_mode == BatchOutputMode::Rows
             ? static_cast<uint64_t>(plan.num_visible_records()) + plan.num_detectors() +
@@ -42,8 +39,7 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
                   static_cast<uint64_t>(plan.num_exp_vals()) * sizeof(double) + 1
             : 0;
     const uint64_t row_bytes = saturating_add_u64(ordinary_row_bytes, additional_output_row_bytes);
-    const uint32_t max_probe_shots = static_cast<uint32_t>(
-        std::min<uint64_t>(shots, kProbeOutputBudget / std::max<uint64_t>(1, row_bytes)));
+    const uint32_t max_probe_shots = max_batch_probe_shots(shots, row_bytes);
     const auto append = [&](BatchExecutionPolicy policy) {
         const uint64_t minimum = std::min<uint64_t>(
             shots, static_cast<uint64_t>(policy.lane_capacity) * policy.worker_count);
