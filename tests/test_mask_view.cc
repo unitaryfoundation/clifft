@@ -352,7 +352,7 @@ TEST_CASE("PauliMaskArena: appended masks read back unchanged") {
     std::vector<PauliMask> expected;
     std::vector<PauliMaskHandle> handles;
     for (size_t i = 0; i < 3000; ++i) {
-        expected.push_back(sparse(random_sparse_pauli(rng, words), rng() & 1));
+        expected.push_back(sparse(random_sparse_pauli(rng, words), (rng() & 1) != 0));
         handles.push_back(arena.append(expected.back()));
     }
     REQUIRE(arena.size() == expected.size());
@@ -433,7 +433,8 @@ TEST_CASE("PauliMaskArena: copies are independent and equal") {
     PauliMaskArena original(words * 64);
     std::vector<PauliMaskHandle> handles;
     for (size_t i = 0; i < 500; ++i) {
-        handles.push_back(original.append(sparse(random_sparse_pauli(rng, words), rng() & 1)));
+        handles.push_back(
+            original.append(sparse(random_sparse_pauli(rng, words), (rng() & 1) != 0)));
     }
     PauliMask grown(original.at(handles[3]));
     grown.toggle(64 * 4 + 9, true, true);

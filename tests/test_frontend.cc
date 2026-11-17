@@ -622,6 +622,55 @@ TEST_CASE("Frontend: accepts circuits above the old fixed mask width", "[fronten
     REQUIRE_NOTHROW(trace(circuit));
 }
 
+TEST_CASE("Frontend: noise channels on a wide register match dense rewinding",
+          "[frontend][noise][high_qubit]") {
+    // Entangle qubits in four different mask words so every rewound
+    // generator spans several words, then check each stored channel against
+    // the product rewound through the dense tableau.
+    const auto circuit = parse(R"(
+        H 3 150
+        S 70
+        CX 3 70 150 199 70 150
+        CZ 3 199
+        H 70
+        DEPOLARIZE1(0.03) 199
+        DEPOLARIZE2(0.15) 3 150
+        DEPOLARIZE3(0.63) 3 70 199
+    )");
+    const HirModule hir = trace(circuit);
+    REQUIRE(hir.num_qubits == 200);
+    REQUIRE(hir.noise_sites.size() == 3);
+    const Tableau inverse = hir.final_tableau->inverse();
+
+    const std::vector<std::vector<uint32_t>> site_qubits = {{199}, {3, 150}, {3, 70, 199}};
+    for (size_t site = 0; site < site_qubits.size(); ++site) {
+        const std::vector<uint32_t>& qubits = site_qubits[site];
+        const auto& channels = hir.noise_sites[site].channels;
+        REQUIRE(channels.size() == (size_t{1} << (2 * qubits.size())) - 1);
+        size_t multi_word_channels = 0;
+
+        // Channels enumerate one Pauli per qubit (I, X, Y, Z) with the first
+        // qubit most significant, skipping the all-identity product.
+        for (size_t code = 1; code <= channels.size(); ++code) {
+            CAPTURE(site, code);
+            PauliString product(hir.num_qubits);
+            for (size_t i = 0; i < qubits.size(); ++i) {
+                const size_t pauli = (code >> (2 * (qubits.size() - 1 - i))) & 3;
+                product.set_pauli(qubits[i], pauli == 1 || pauli == 2, pauli == 2 || pauli == 3);
+            }
+            const PauliString expected = inverse.apply(product.view());
+            const PauliMaskView stored = hir.noise_channel_masks.at(channels[code - 1].mask);
+            REQUIRE(stored.x() == expected.x());
+            REQUIRE(stored.z() == expected.z());
+            REQUIRE_FALSE(stored.sign());
+            // Exactly the nonzero words of the dense product are stored.
+            REQUIRE(same_body(stored, PauliMask(expected.x(), expected.z(), false)));
+            multi_word_channels += stored.words().size() > 1;
+        }
+        REQUIRE(multi_word_channels > 0);
+    }
+}
+
 TEST_CASE("Frontend: rejects circuits above the qubit ceiling", "[frontend]") {
     Circuit circuit;
     circuit.num_qubits = 65537;
