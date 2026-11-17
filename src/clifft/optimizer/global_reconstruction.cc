@@ -1079,20 +1079,21 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
     // the nonzero words they store. Fault-bit, feedback, and scratch-wire
     // masks each act on one qubit.
     const auto axis_words = [](const PauliString& axis) {
-        size_t words = 0;
+        uint64_t words = 0;
         for (uint32_t w = 0; w < axis.x().num_words(); ++w) {
             words += (axis.x().words[w] | axis.z().words[w]) != 0;
         }
         return words;
     };
     bool need_one = false;
-    size_t masks = noise.num_bits;
-    size_t mask_words = noise.num_bits;
+    // 64-bit counts: the totals can exceed a 32-bit size_t before the check.
+    uint64_t masks = noise.num_bits;
+    uint64_t mask_words = noise.num_bits;
     for (size_t j = 0; j < r.operations.size(); ++j) {
         const auto& op = r.operations[j];
-        size_t terms = 0;
+        uint64_t terms = 0;
         for (auto w : noise.signs[j].words)
-            terms += std::popcount(w);
+            terms += static_cast<uint64_t>(std::popcount(w));
         if (op.half_turns != 0) {
             const uint32_t pivot = std::min(op.axis.x().lowest_bit(), op.axis.z().lowest_bit());
             if (pivot < r.num_qubits) {
@@ -1111,7 +1112,7 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
             if (constant)
                 need_one = true;
             if (*op.output < visible) {
-                const size_t parity_len = terms + (!is_identity ? 1 : 0) + (constant ? 1 : 0);
+                const uint64_t parity_len = terms + (!is_identity ? 1 : 0) + (constant ? 1 : 0);
                 masks += 2 * parity_len + 1;
                 mask_words += 2 * parity_len + 1;
             }

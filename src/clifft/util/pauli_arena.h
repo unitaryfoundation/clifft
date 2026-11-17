@@ -13,8 +13,10 @@
 //
 // Each mask has a slot that points at its words in a chunk. Reassigning a
 // mask reuses its words in place when the new mask is no larger than the
-// slot's capacity and otherwise moves it to fresh storage; the old words are
-// reclaimed when the arena is copied or destroyed.
+// slot's capacity. Otherwise the mask moves to fresh storage of at least
+// twice the old capacity, so the storage a repeatedly growing mask leaves
+// behind stays proportional to its final size; abandoned words are reclaimed
+// when the arena is copied or destroyed.
 
 #include "clifft/util/mask_view.h"
 #include "clifft/util/pauli_mask.h"
@@ -51,12 +53,17 @@ class PauliMaskArena {
         for (Slot& slot : slots_) {
             // Each copied slot still points at the original's words. Most
             // masks on a narrow register hold exactly one word.
+            if (slot.count == 0) {
+                slot.words = nullptr;
+                slot.capacity = 0;
+                continue;
+            }
             if (slot.count == 1) {
                 *out = *slot.words;
             } else {
                 std::copy_n(slot.words, slot.count, out);
             }
-            slot.words = slot.count == 0 ? nullptr : out;
+            slot.words = out;
             slot.capacity = slot.count;
             out += slot.count;
         }
@@ -82,6 +89,7 @@ class PauliMaskArena {
         const size_t index = slots_.size();
         assert(index < ~uint32_t{0} && "PauliMaskArena handle space exhausted");
         const std::span<const PauliWord> words = mask.words();
+        assert(is_canonical(words) && "Pauli mask words must be sorted and nonzero");
         assert((words.empty() || words.back().index < num_words_) &&
                "Pauli mask is wider than the arena's register");
         Slot& slot = slots_.emplace_back();
@@ -100,6 +108,7 @@ class PauliMaskArena {
     void assign(PauliMaskHandle h, PauliMaskView mask) {
         assert(static_cast<size_t>(h) < slots_.size());
         const std::span<const PauliWord> words = mask.words();
+        assert(is_canonical(words) && "Pauli mask words must be sorted and nonzero");
         assert((words.empty() || words.back().index < num_words_) &&
                "Pauli mask is wider than the arena's register");
         Slot& slot = slots_[static_cast<size_t>(h)];
@@ -108,7 +117,7 @@ class PauliMaskArena {
             assert(words.size() == slot.count);
         } else {
             if (words.size() > slot.capacity) {
-                allocate(slot, words.size());
+                grow(slot, words.size());
             }
             std::ranges::copy(words, slot.words);
             slot.count = static_cast<uint32_t>(words.size());
@@ -127,7 +136,7 @@ class PauliMaskArena {
         }
         Slot& slot = slots_[static_cast<size_t>(h)];
         if (count > slot.capacity) {
-            allocate(slot, count);
+            grow(slot, count);
         }
         PauliWord* out = slot.words;
         for (uint32_t w = 0; w < x.num_words(); ++w) {
@@ -144,8 +153,19 @@ class PauliMaskArena {
         slots_[static_cast<size_t>(h)].sign = sign;
     }
 
-    /// Bytes needed to store `masks` masks holding `words` nonzero words in total.
-    [[nodiscard]] static constexpr size_t storage_bytes(size_t masks, size_t words) {
+    /// Words held by the arena's chunks, including any that reassignment
+    /// has abandoned.
+    [[nodiscard]] size_t allocated_words() const {
+        size_t total = 0;
+        for (const std::vector<PauliWord>& chunk : chunks_) {
+            total += chunk.size();
+        }
+        return total;
+    }
+
+    /// Bytes needed to store `masks` masks holding `words` nonzero words in
+    /// total. 64-bit so the bound cannot wrap where size_t is 32 bits.
+    [[nodiscard]] static constexpr uint64_t storage_bytes(uint64_t masks, uint64_t words) {
         return masks * sizeof(Slot) + words * sizeof(PauliWord);
     }
 
@@ -172,6 +192,12 @@ class PauliMaskArena {
             chunks_.emplace_back().reserve(std::max(count, std::min(grown, kMaxChunkWords)));
         }
         return chunks_.back();
+    }
+
+    // Move a slot whose capacity is too small for `count` words. Doubling
+    // bounds what repeated growth abandons; no mask exceeds the register.
+    void grow(Slot& slot, size_t count) {
+        allocate(slot, std::max(count, std::min<size_t>(2 * size_t{slot.capacity}, num_words_)));
     }
 
     // Point the slot at `count` unused words.

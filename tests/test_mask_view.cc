@@ -416,6 +416,39 @@ TEST_CASE("PauliMaskArena: reassignment replaces one mask only") {
     REQUIRE(arena.at(hc).sign());
 }
 
+TEST_CASE("PauliMaskArena: storage stays proportional to masks that grow word by word") {
+    // Each mask gains one word per step, as downstream masks do when
+    // successive Clifford absorptions widen them.
+    constexpr uint32_t kWords = 200;
+    constexpr uint32_t kMasks = 64;
+    constexpr uint32_t kSteps = 128;
+    PauliMaskArena arena(kWords * 64);
+    std::vector<PauliMask> expected(kMasks);
+    std::vector<PauliMaskHandle> handles;
+    for (uint32_t m = 0; m < kMasks; ++m) {
+        expected[m].toggle(m, true, false);
+        handles.push_back(arena.append(expected[m]));
+    }
+    for (uint32_t step = 1; step <= kSteps; ++step) {
+        for (uint32_t m = 0; m < kMasks; ++m) {
+            expected[m].toggle(64 * step + m, false, true);
+            arena.assign(handles[m], expected[m]);
+        }
+    }
+
+    size_t live_words = 0;
+    for (uint32_t m = 0; m < kMasks; ++m) {
+        REQUIRE(arena.at(handles[m]) == expected[m].view());
+        live_words += expected[m].view().words().size();
+    }
+    REQUIRE(live_words == size_t{kMasks} * (kSteps + 1));
+    // Reallocating to the exact size at every step would hold about
+    // kSteps / 2 times the live words.
+    REQUIRE(arena.allocated_words() <= 4 * live_words);
+    // A copy keeps only the live words.
+    REQUIRE(PauliMaskArena(arena).allocated_words() == live_words);
+}
+
 TEST_CASE("PauliMaskArena: set_sign leaves the body alone") {
     PauliMaskArena arena(64);
     const PauliMaskHandle h = arena.append(PauliMask(uint64_t{8}, uint64_t{1}, false));

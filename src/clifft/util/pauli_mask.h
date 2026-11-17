@@ -71,14 +71,6 @@ class SparseMaskView {
         }
     }
 
-    /// XOR these bits into a dense array wide enough to hold every stored word.
-    void xor_into(MutableMaskView dense) const {
-        for (const PauliWord& w : words_) {
-            assert(w.index < dense.num_words());
-            dense.words[w.index] ^= w.*bits_;
-        }
-    }
-
   private:
     friend bool operator==(SparseMaskView a, SparseMaskView b);
 
@@ -114,6 +106,17 @@ class SparseMaskView {
         stored += std::popcount(dense.words[w]);
     }
     return stored == a.popcount();
+}
+
+/// True when words are in strictly ascending index order and none is zero,
+/// the form every sparse Pauli mask keeps.
+[[nodiscard]] inline bool is_canonical(std::span<const PauliWord> words) {
+    for (size_t i = 0; i < words.size(); ++i) {
+        if ((words[i].x | words[i].z) == 0 || (i > 0 && words[i - 1].index >= words[i].index)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 /// Read-only view of a sparse Pauli mask. Words are sorted by index and each
