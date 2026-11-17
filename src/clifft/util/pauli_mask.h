@@ -186,6 +186,15 @@ void for_each_common_word(PauliMaskView a, PauliMaskView b, Fn&& fn) {
 
 /// True if the two Pauli strings anti-commute.
 [[nodiscard]] inline bool anti_commute(PauliMaskView a, PauliMaskView b) {
+    const std::span<const PauliWord> aw = a.words();
+    const std::span<const PauliWord> bw = b.words();
+    // Masks on a register of at most 64 qubits hold one word each; skip the
+    // merge for them.
+    if (aw.size() == 1 && bw.size() == 1) {
+        const PauliWord& u = aw.front();
+        const PauliWord& v = bw.front();
+        return u.index == v.index && (std::popcount((u.x & v.z) ^ (u.z & v.x)) & 1) != 0;
+    }
     // XOR the per-word symplectic products; the parity of the total is the
     // parity of the sum of their bit counts.
     uint64_t product = 0;

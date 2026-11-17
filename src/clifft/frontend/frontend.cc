@@ -49,10 +49,10 @@ void assign_rewound_axis(PauliMask& mask, const Tableau& inverse, uint32_t qubit
     }
 }
 
-// Rewound X and Z generators of the qubits one noise site acts on, read
-// from the tableau once in sparse form. Each channel of the site is then a
-// sparse product of these rows; channel signs are irrelevant. One instance
-// serves every site of a trace so its storage is reused.
+// Rewound X, Y, and Z of the qubits one noise site acts on, read from the
+// tableau once in sparse form. Each channel of the site is then a sparse
+// product of one cached Pauli per qubit; channel signs are irrelevant. One
+// instance serves every site of a trace so its storage is reused.
 class RewoundGenerators {
   public:
     void load(const Tableau& inverse, std::initializer_list<uint32_t> qubits) {
@@ -61,34 +61,44 @@ class RewoundGenerators {
         for (uint32_t qubit : qubits) {
             const PauliStringView x = inverse.x_output(qubit);
             const PauliStringView z = inverse.z_output(qubit);
-            x_[i].assign(x.x(), x.z(), false);
-            z_[i].assign(z.x(), z.z(), false);
-            ++i;
+            std::array<PauliMask, 3>& paulis = paulis_[i++];
+            paulis[0].assign(x.x(), x.z(), false);
+            paulis[2].assign(z.x(), z.z(), false);
+            paulis[1].assign(paulis[0]);
+            paulis[1].multiply_body(paulis[2]);
         }
     }
 
     // Store the product of one Pauli per loaded qubit (0=I, 1=X, 2=Y, 3=Z)
     // as a noise channel of the given probability.
     NoiseChannel channel(HirModule& hir, std::initializer_list<int> pauli_types, double prob) {
-        product_.clear();
+        PauliMaskView product;
+        std::vector<PauliWord>* scratch = &scratch_[0];
         size_t i = 0;
         for (int pauli_type : pauli_types) {
-            if (pauli_type == 1 || pauli_type == 2) {
-                product_.multiply_body(x_[i]);
+            const std::array<PauliMask, 3>& paulis = paulis_[i++];
+            if (pauli_type == 0) {
+                continue;
             }
-            if (pauli_type == 2 || pauli_type == 3) {
-                product_.multiply_body(z_[i]);
+            const PauliMaskView factor = paulis[static_cast<size_t>(pauli_type - 1)];
+            if (product.is_identity()) {
+                product = factor;
+                continue;
             }
-            ++i;
+            // Alternate buffers so the running product is never its own output.
+            scratch->clear();
+            append_body_product(product, factor, *scratch);
+            product = PauliMaskView{*scratch, false};
+            scratch = scratch == &scratch_[0] ? &scratch_[1] : &scratch_[0];
         }
-        return NoiseChannel{hir.noise_channel_masks.append(product_), prob};
+        return NoiseChannel{hir.noise_channel_masks.append(product), prob};
     }
 
   private:
     static constexpr size_t kMaxQubits = 3;
-    std::array<PauliMask, kMaxQubits> x_;
-    std::array<PauliMask, kMaxQubits> z_;
-    PauliMask product_;
+    // paulis_[i] holds rewound X, Y, Z of the i-th loaded qubit.
+    std::array<std::array<PauliMask, 3>, kMaxQubits> paulis_;
+    std::array<std::vector<PauliWord>, 2> scratch_;
 };
 
 /// Rewind a Pauli product stored as Pauli-tagged targets into a new noise channel.
