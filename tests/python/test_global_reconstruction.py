@@ -554,3 +554,43 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
     pooled = (p + q) / 2
     tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
     assert np.all(np.abs(p - q) <= tolerance)
+
+
+def test_pure_clifford_memory_suffix_and_wide_output_bailout():
+    # 1200 syndrome rounds (2400 resets + measurements) after non-Clifford preparation
+    # must stay within default prefix dilation and schedule budgets.
+    rounds = 1200
+    lines = ["H 0 1", "T 0 1", "CX 0 1", "H 0 1"]
+    for r in range(rounds):
+        lines.append("R 2\nCX 0 2\nCX 1 2\nX_ERROR(0.002) 2\nM 2")
+        if r > 0:
+            lines.append("DETECTOR rec[-2] rec[-1]")
+    lines.append("M 0 1")
+    lines.append("OBSERVABLE_INCLUDE(0) rec[-2] rec[-1]")
+    source = "\n".join(lines) + "\n"
+
+    original = clifft.compile(source, hir_passes=None)
+    selected = clifft.compile(source, hir_passes=None, reconstruction=True)
+    assert original.peak_active_width == 2
+    for keep_records in (False, True):
+        plan = selected.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected and not plan.fallback_reason
+        assert plan.peak_active_width == 1
+
+    shots = 2048
+    ref = clifft.sample(original, shots, seed=19, keep_records="syndromes")
+    got = clifft.sample(selected, shots, seed=43, keep_records="syndromes")
+    p_obs = float(ref.observables[:, 0].mean())
+    q_obs = float(got.observables[:, 0].mean())
+    pooled = (p_obs + q_obs) / 2
+    tol = 6 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 3 / shots
+    assert abs(p_obs - q_obs) <= tol
+
+    # Wide circuits exceeding max_outputs bail out cleanly to original_plan.
+    wide = "H 0 1\nT 0 1\nH 0 1\n" + ("R 2\nM 2\n" * 4100) + "M 0 1\nDETECTOR rec[-1]\n"
+    fallback = clifft.compile(wide, hir_passes=None, reconstruction=True)
+    for keep_records in (False, True):
+        plan = fallback.sampling_plan(keep_records=keep_records)
+        assert not plan.reconstruction_selected
+        assert "output limit exceeded" in plan.fallback_reason
+        assert plan.peak_active_width == fallback.original_plan.peak_active_width

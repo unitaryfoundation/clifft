@@ -105,7 +105,7 @@ void require_same_law(std::map<uint64_t, double> actual,
 std::map<uint64_t, double> reconstructed_law(const GlobalReconstruction& r) {
     using namespace detail_dense_oracle;
     REQUIRE(r.num_qubits <= 10);
-    REQUIRE(r.num_noise_bits < 64);
+    REQUIRE(r.num_noise_bits <= 64);
     std::map<uint64_t, double> faults{{0, 1}};
     for (const auto& channel : r.noise_channels) {
         std::map<uint64_t, double> next;
@@ -137,7 +137,8 @@ std::map<uint64_t, double> reconstructed_law(const GlobalReconstruction& r) {
         for (const auto& op : r.operations) {
             const uint64_t x = r.num_qubits ? op.axis.x().words[0] : 0;
             const uint64_t z = r.num_qubits ? op.axis.z().words[0] : 0;
-            const uint64_t terms = op.sign.words.empty() ? 0 : op.sign.words[0];
+            const uint64_t terms =
+                (!op.sign.words.empty() && op.sign.words[0].index == 0) ? op.sign.words[0].mask : 0;
             const bool sign = op.sign.constant ^ ((std::popcount(terms & fault) & 1) != 0);
             if (op.half_turns != 0) {
                 for (auto& b : branches)
@@ -209,9 +210,12 @@ SignLaw sign_law(uint32_t num_bits, const std::vector<ReconstructionSign>& signs
         std::vector<uint32_t> value;
         for (const auto& sign : signs) {
             uint32_t parity = sign.constant;
-            for (uint32_t b = 0; b < num_bits; ++b)
-                if (b / 64 < sign.words.size() && ((sign.words[b / 64] >> (b % 64)) & 1))
-                    parity ^= assignment[b];
+            for (const auto& w : sign.words) {
+                for (uint64_t v = w.mask; v != 0; v &= v - 1) {
+                    const uint32_t b = w.index * 64 + static_cast<uint32_t>(std::countr_zero(v));
+                    parity ^= assignment.at(b);
+                }
+            }
             value.push_back(parity);
         }
         law[value] += probability;
@@ -220,10 +224,15 @@ SignLaw sign_law(uint32_t num_bits, const std::vector<ReconstructionSign>& signs
 }
 
 ReconstructionSign make_sign(std::initializer_list<uint32_t> bits, bool constant = false) {
-    ReconstructionSign result{{}, constant};
+    std::map<uint32_t, uint64_t> by_word;
     for (uint32_t b : bits) {
-        result.words.resize(std::max(result.words.size(), size_t{b / 64 + 1}));
-        result.words[b / 64] ^= uint64_t{1} << (b % 64);
+        by_word[b / 64] ^= uint64_t{1} << (b % 64);
+    }
+    ReconstructionSign result{{}, constant};
+    for (const auto& [idx, mask] : by_word) {
+        if (mask != 0) {
+            result.words.push_back({idx, mask});
+        }
     }
     return result;
 }
@@ -617,8 +626,8 @@ TEST_CASE("Global reconstruction absorbs Clifford angle multiples and signed axe
         INFO(res.fallback_reason);
         REQUIRE(res.reconstruction.has_value());
         const auto& r = *res.reconstruction;
-        // 3 active source wires + 2 measurement ancillas; untouched 100..103 stay unallocated.
-        REQUIRE(r.dilation_qubits == 5);
+        // Pure-Clifford circuits evolve entirely in the suffix frame without dilation wires.
+        REQUIRE(r.dilation_qubits == 0);
         REQUIRE(r.peak_active_width == 0);
         REQUIRE(std::ranges::none_of(
             r.operations, [](const ReconstructionOperation& op) { return op.half_turns != 0.0; }));
@@ -630,6 +639,22 @@ TEST_CASE("Global reconstruction absorbs Clifford angle multiples and signed axe
             compute_exact_plan_distribution(sampling::plan_sampling(trace(clifford_source)));
         require_same_law(output_law(actual, r.outputs), output_law(expected, r.outputs));
     }
+
+    // Identity rotations on untouched qubits before a non-Clifford gate must also
+    // stay unallocated in prefix dilation.
+    const auto prefix_elision = parse(
+        "R_Z(0.0) 100\n"
+        "R_PAULI(2.0) !X101*Y102\n"
+        "U3(0.0, -2.0, 2.0) 103\n"
+        "H 0 1 2\n"
+        "SPP !X0*Y1*Z2\n"
+        "T 0\n"
+        "MX 0 2\n"
+        "DETECTOR rec[-2] rec[-1]\n");
+    const auto prefix_res =
+        reconstruct_global_sampling(prefix_elision, ReconstructionOutputs::Records);
+    REQUIRE(prefix_res.reconstruction.has_value());
+    REQUIRE(prefix_res.reconstruction->dilation_qubits == 4);
 
     // Angles outside kRotationCanonicalizationTolerance remain genuine rotations.
     const auto outside_tolerance = parse("H 0\nR_Z(0.500000000002) 0\nMX 0\nDETECTOR rec[-1]\n");
@@ -734,20 +759,19 @@ TEST_CASE("GlobalSamplingReconstructor shares dilation across output variants",
     }
     {
         const auto asymmetric = parse(
-            "H 0\nT 0\nMX 0\nX_ERROR(0.1) 1\nM 1 2 3\nDETECTOR rec[-4]\nOBSERVABLE_INCLUDE(0) "
-            "rec[-4]\n");
+            "H 0 1 2\nT 0 1 2\nH 0 1 2\nM 0 1 2\nDETECTOR rec[-3]\nOBSERVABLE_INCLUDE(0) "
+            "rec[-3]\n");
         const auto det_unbounded =
             reconstruct_global_sampling(asymmetric, ReconstructionOutputs::Detectors);
         const auto rec_unbounded =
             reconstruct_global_sampling(asymmetric, ReconstructionOutputs::Records);
         REQUIRE(det_unbounded.reconstruction.has_value());
         REQUIRE(rec_unbounded.reconstruction.has_value());
-        REQUIRE(det_unbounded.reconstruction->operations.size() <
-                rec_unbounded.reconstruction->operations.size());
 
+        // Detectors schedules 3 rotations + 1 output measurement on 3 qubits (4 + 3 = 7),
+        // while Records schedules 3 rotations + 3 distinct output measurements (6 + 3 = 9).
         ReconstructionLimits limits;
-        limits.max_schedule_operations = det_unbounded.reconstruction->operations.size() +
-                                         det_unbounded.reconstruction->num_qubits;
+        limits.max_schedule_operations = 7;
         GlobalSamplingReconstructor shared(asymmetric, limits);
         const auto rec_bounded = shared.reconstruct(ReconstructionOutputs::Records);
         const auto det_bounded = shared.reconstruct(ReconstructionOutputs::Detectors);
@@ -879,60 +903,72 @@ TEST_CASE("Global reconstruction dilation propagates fault signs for every named
         }
         const Tableau& local = Tableau::from_named_gate(gate);
         const uint32_t arity = local.num_qubits();
-        for (bool z_measurement : {false, true}) {
-            INFO(gate_name(gate) << " z_measurement=" << z_measurement);
-            Circuit circuit;
-            circuit.num_qubits = arity;
-            circuit.num_measurements = arity;
-            for (uint32_t j = 0; j < arity; ++j) {
-                circuit.nodes.push_back({GateType::H, {Target::qubit(j)}, {}});
-                circuit.nodes.push_back({GateType::T, {Target::qubit(j)}, {}});
-                circuit.nodes.push_back({GateType::X_ERROR, {Target::qubit(j)}, {0.11 + 0.03 * j}});
-                circuit.nodes.push_back({GateType::Z_ERROR, {Target::qubit(j)}, {0.17 + 0.05 * j}});
-            }
-            std::vector<Target> gate_targets;
-            for (uint32_t i = 0; i < arity; ++i) {
-                gate_targets.push_back(Target::qubit(i));
-            }
-            circuit.nodes.push_back({gate, std::move(gate_targets), {}});
-            for (uint32_t i = 0; i < arity; ++i) {
-                circuit.nodes.push_back(
-                    {z_measurement ? GateType::M : GateType::MX, {Target::qubit(i)}, {}});
-            }
-
-            const auto res = reconstruct_global_sampling(circuit, ReconstructionOutputs::Records);
-            REQUIRE(res.reconstruction.has_value());
-            std::vector<uint64_t> got_masks(arity, UINT64_MAX);
-            for (const ReconstructionOperation& op : res.reconstruction->operations) {
-                if (op.output.has_value()) {
-                    got_masks.at(*op.output) = op.sign.words.empty() ? 0 : op.sign.words[0];
-                }
-            }
-            for (uint32_t i = 0; i < arity; ++i) {
-                uint64_t want_mask = 0;
+        for (bool in_suffix : {true, false}) {
+            for (bool z_measurement : {false, true}) {
+                INFO(gate_name(gate)
+                     << " in_suffix=" << in_suffix << " z_measurement=" << z_measurement);
+                Circuit circuit;
+                circuit.num_qubits = arity + (in_suffix ? 0U : 1U);
+                circuit.num_measurements = arity;
                 for (uint32_t j = 0; j < arity; ++j) {
-                    const bool from_x = z_measurement ? local.x_output(j).x().bit_get(i)
-                                                      : local.x_output(j).z().bit_get(i);
-                    const bool from_z = z_measurement ? local.z_output(j).x().bit_get(i)
-                                                      : local.z_output(j).z().bit_get(i);
-                    if (from_x) {
-                        want_mask |= uint64_t{1} << (2 * j);
-                    }
-                    if (from_z) {
-                        want_mask |= uint64_t{1} << (2 * j + 1);
+                    circuit.nodes.push_back({GateType::H, {Target::qubit(j)}, {}});
+                    circuit.nodes.push_back({GateType::T, {Target::qubit(j)}, {}});
+                    circuit.nodes.push_back(
+                        {GateType::X_ERROR, {Target::qubit(j)}, {0.11 + 0.03 * j}});
+                    circuit.nodes.push_back(
+                        {GateType::Z_ERROR, {Target::qubit(j)}, {0.17 + 0.05 * j}});
+                }
+                std::vector<Target> gate_targets;
+                for (uint32_t i = 0; i < arity; ++i) {
+                    gate_targets.push_back(Target::qubit(i));
+                }
+                circuit.nodes.push_back({gate, std::move(gate_targets), {}});
+                if (!in_suffix) {
+                    circuit.nodes.push_back({GateType::T, {Target::qubit(arity)}, {}});
+                }
+                for (uint32_t i = 0; i < arity; ++i) {
+                    circuit.nodes.push_back(
+                        {z_measurement ? GateType::M : GateType::MX, {Target::qubit(i)}, {}});
+                }
+
+                const auto res =
+                    reconstruct_global_sampling(circuit, ReconstructionOutputs::Records);
+                REQUIRE(res.reconstruction.has_value());
+                std::vector<uint64_t> got_masks(arity, UINT64_MAX);
+                for (const ReconstructionOperation& op : res.reconstruction->operations) {
+                    if (op.output.has_value()) {
+                        got_masks.at(*op.output) =
+                            (!op.sign.words.empty() && op.sign.words[0].index == 0)
+                                ? op.sign.words[0].mask
+                                : 0;
                     }
                 }
-                REQUIRE(got_masks[i] == want_mask);
-            }
+                for (uint32_t i = 0; i < arity; ++i) {
+                    uint64_t want_mask = 0;
+                    for (uint32_t j = 0; j < arity; ++j) {
+                        const bool from_x = z_measurement ? local.x_output(j).x().bit_get(i)
+                                                          : local.x_output(j).z().bit_get(i);
+                        const bool from_z = z_measurement ? local.z_output(j).x().bit_get(i)
+                                                          : local.z_output(j).z().bit_get(i);
+                        if (from_x) {
+                            want_mask |= uint64_t{1} << (2 * j);
+                        }
+                        if (from_z) {
+                            want_mask |= uint64_t{1} << (2 * j + 1);
+                        }
+                    }
+                    REQUIRE(got_masks[i] == want_mask);
+                }
 
-            const auto lowered = lower_global_reconstruction(*res.reconstruction);
-            REQUIRE(lowered.hir.has_value());
-            const auto actual =
-                compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
-            const auto expected =
-                compute_exact_plan_distribution(sampling::plan_sampling(trace(circuit)));
-            require_same_law(output_law(actual, res.reconstruction->outputs),
-                             output_law(expected, res.reconstruction->outputs));
+                const auto lowered = lower_global_reconstruction(*res.reconstruction);
+                REQUIRE(lowered.hir.has_value());
+                const auto actual =
+                    compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+                const auto expected =
+                    compute_exact_plan_distribution(sampling::plan_sampling(trace(circuit)));
+                require_same_law(output_law(actual, res.reconstruction->outputs),
+                                 output_law(expected, res.reconstruction->outputs));
+            }
         }
     }
 }
@@ -992,13 +1028,188 @@ TEST_CASE("Global reconstruction handles multi-target AST nodes and identity no-
         INFO(res.fallback_reason);
         REQUIRE(res.reconstruction.has_value());
         REQUIRE(ref_res.reconstruction.has_value());
-        // Qubits 3..5 stay unallocated (3 source + 8 gadgets + 2 MPAD + 3 M = 16 wires).
-        REQUIRE(res.reconstruction->dilation_qubits == 16);
+        // Qubits 3..5 stay unallocated and suffix MPAD/M ops do not dilate (3 source + 8 gadgets).
+        REQUIRE(res.reconstruction->dilation_qubits == 11);
         REQUIRE(res.reconstruction->dilation_qubits == ref_res.reconstruction->dilation_qubits);
         const auto actual = reconstructed_law(*res.reconstruction);
         require_same_law(actual, output_law(traced, res.reconstruction->outputs));
         require_same_law(actual, output_law(dense, res.reconstruction->outputs));
     }
+}
+
+TEST_CASE("Global reconstruction tracks pure-Clifford memory suffixes without dilation",
+          "[reconstruction]") {
+    // Exercise dead spectator fault marginalization before resets and at circuit end,
+    // entangled Bell-pair resets, non-commuting suffix measurements, repeat syndrome
+    // checks, classical feedback from prefix and suffix records, and Clifford-angle
+    // suffix rotations.
+    const std::vector<std::string> suffix_cases{
+        // Entangled Bell reset followed by partner measurement must keep uniform marginal.
+        "H 0\nT 0\nH 1\nCX 1 2\nR 1\nM 0 1 2\nDETECTOR rec[-2] rec[-1]\n",
+        // Non-commuting multi-qubit suffix sequence: MPP Z0*Z1 -> MX 0 -> MX 1 -> M 0 -> MX 1.
+        "H 0 1\nT 0\nR_Z(0.31) 1\nCZ 0 1\nT_DAG 0\n"
+        "MPP Z0*Z1\nMX 0\nMX 1\nM 0\nMX 1\n"
+        "DETECTOR rec[-5] rec[-3]\nDETECTOR rec[-4] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]\n",
+        // Dead spectator fault marginalization across DEPOLARIZE1/2 and correlated chains.
+        "DEPOLARIZE1(0.3) 3\n"
+        "H 0 1\nT 0\nR_PAULI(0.27) !X0*Y1\n"
+        "DEPOLARIZE2(0.24) 1 3\n"
+        "R 3\n"
+        "E(0.25) X3*Z2\nELSE_CORRELATED_ERROR(0.4) Y0*X1\n"
+        "R 2\n"
+        "CX 0 2\nCX 1 2\nMR(0.08) 2\n"
+        "CX 0 2\nCX 1 2\nMR 2\n"
+        "CZ rec[-2] 0\nCX rec[-1] 1\n"
+        "SPP !Y0*Z1\nR_XX(0.0) 3 0\nR_PAULI(0.5) X0*!Y1\nU3(0.5,-0.5,1.0) 1\n"
+        "MPP !Y0*Z1\nM 0\n"
+        "DETECTOR rec[-4] rec[-3]\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]\n",
+        // Dead spectator fault marginalization on DEPOLARIZE3 at circuit end and before reset.
+        "H 0 1\nT 0\nDEPOLARIZE3(0.315) 0 2 3\nR 2\nCX 0 1\nMX 0\nM 1\n"
+        "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n",
+        // Suffix X/Y/Z resets, inverted readouts, and prefix-to-suffix classical feedback.
+        "H 0\nT 0\nMR(0.12) 0\nH 0\nT_DAG 0\n"
+        "CX rec[-1] 0\nRX 1\nMX 1\nRY 1\nMY !1\nM 0\n"
+        "DETECTOR rec[-4] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]\n",
+    };
+    for (const auto& text : suffix_cases) {
+        INFO(text);
+        check_joint_law(text);
+        const auto circuit = parse(text);
+        const auto expected = compute_dense_circuit_distribution(circuit);
+        for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
+            const auto r = reconstruct_global_sampling(circuit, mode);
+            REQUIRE(r.reconstruction.has_value());
+            auto lowered = lower_global_reconstruction(*r.reconstruction);
+            REQUIRE(lowered.hir.has_value());
+            default_hir_pass_manager().run(*lowered.hir);
+            const auto actual =
+                compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+            require_same_law(output_law(actual, r.reconstruction->outputs),
+                             output_law(expected, r.reconstruction->outputs));
+        }
+    }
+
+    // Scaling pure-Clifford syndrome rounds must keep prefix dilation_qubits fixed
+    // and avoid triggering max_schedule_operations on classical/duplicate syndrome checks.
+    auto make_memory_tail = [](uint32_t rounds) {
+        std::string text = "H 0 1\nT 0\nT_DAG 1\nCX 0 1\n";
+        for (uint32_t r = 0; r < rounds; ++r) {
+            text += "R 2\nCX 0 2\nCX 1 2\nX_ERROR(0.05) 2\nM 2\n";
+            if (r > 0) {
+                text += "DETECTOR rec[-2] rec[-1]\n";
+            }
+        }
+        text += "MX 0 1\nOBSERVABLE_INCLUDE(0) rec[-2] rec[-1]\n";
+        return parse(text);
+    };
+    ReconstructionLimits tight_schedule;
+    tight_schedule.max_schedule_operations = 16;
+    const auto tail_2 = reconstruct_global_sampling(make_memory_tail(2),
+                                                    ReconstructionOutputs::Records, tight_schedule);
+    const auto tail_40 = reconstruct_global_sampling(
+        make_memory_tail(40), ReconstructionOutputs::Records, tight_schedule);
+    REQUIRE(tail_2.reconstruction.has_value());
+    REQUIRE(tail_40.reconstruction.has_value());
+    REQUIRE(tail_2.reconstruction->dilation_qubits == 4);
+    REQUIRE(tail_40.reconstruction->dilation_qubits == 4);
+    REQUIRE(tail_40.reconstruction->peak_active_width <= 2);
+}
+
+TEST_CASE("Global reconstruction matches dense oracle on random pure-Clifford suffixes",
+          "[reconstruction]") {
+    Xoshiro256PlusPlus rng(918273);
+    const std::vector<std::string> suffix_single{
+        "H",         "S",        "S_DAG",           "X", "Y", "Z", "R", "RX", "RY", "R_X(0.5)",
+        "R_Y(-0.5)", "R_Z(0.5)", "U3(0.5,-0.5,1.0)"};
+    const std::vector<std::string> suffix_pairs{"CX",   "CY",        "CZ",
+                                                "SWAP", "R_XX(0.5)", "R_ZZ(-0.5)"};
+    const std::vector<std::string> suffix_meas{"M", "MX", "MY", "MR", "MRX", "MRY"};
+    const std::vector<std::string> suffix_mpp{"MPP X0*Z1", "MPP !Y1*X2", "MPP Z0*Y2*X3"};
+
+    for (uint32_t trial = 0; trial < 24; ++trial) {
+        std::string text =
+            "DEPOLARIZE1(0.2) 3\nH 0 1 2\nT 0\nR_Y(0.23) 1\nCX 0 1\nTPP X1*Z2\nMR(0.1) 0\n"
+            "H 0\nR_Z(-0.31) 0\n";
+        uint32_t records = 1;
+        for (uint32_t step = 0; step < 10; ++step) {
+            const uint32_t q = static_cast<uint32_t>(rng() % 4);
+            const uint32_t choice = static_cast<uint32_t>(rng() % 8);
+            if (choice < 2) {
+                text +=
+                    suffix_single[rng() % suffix_single.size()] + " " + std::to_string(q) + "\n";
+            } else if (choice < 4) {
+                text += suffix_pairs[rng() % suffix_pairs.size()] + " " + std::to_string(q) + " " +
+                        std::to_string((q + 1) % 4) + "\n";
+            } else if (choice == 4) {
+                text += suffix_meas[rng() % suffix_meas.size()] + " " + (rng() % 2 ? "!" : "") +
+                        std::to_string(q) + "\n";
+                ++records;
+            } else if (choice == 5) {
+                text += suffix_mpp[rng() % suffix_mpp.size()] + "\n";
+                ++records;
+            } else if (choice == 6) {
+                text += (rng() % 2 ? "CX" : "CZ") + std::string(" rec[-") +
+                        std::to_string(1 + (rng() % records)) + "] " + std::to_string(q) + "\n";
+            } else {
+                text += (step == 5) ? "Y_ERROR(0.18) " + std::to_string(q) + "\n"
+                                    : "SPP !X" + std::to_string(q) + "*Y" +
+                                          std::to_string((q + 1) % 4) + "\n";
+            }
+        }
+        text +=
+            "M 0 1 2 3\nDETECTOR rec[-4] rec[-2]\nDETECTOR rec[-3] rec[-1]\n"
+            "OBSERVABLE_INCLUDE(0) rec[-4] rec[-1]\n";
+        INFO(text);
+        const auto circuit = parse(text);
+        const auto expected = compute_dense_circuit_distribution(circuit);
+        for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
+            const auto res = reconstruct_global_sampling(circuit, mode);
+            INFO(res.fallback_reason);
+            REQUIRE(res.reconstruction.has_value());
+            if (res.reconstruction->num_noise_bits <= 8 &&
+                res.reconstruction->outputs.num_outputs() < 64) {
+                require_same_law(reconstructed_law(*res.reconstruction),
+                                 output_law(expected, res.reconstruction->outputs));
+            }
+            auto lowered = lower_global_reconstruction(*res.reconstruction);
+            REQUIRE(lowered.hir.has_value());
+            default_hir_pass_manager().run(*lowered.hir);
+            const auto plan = sampling::plan_sampling(*lowered.hir);
+            uint64_t realizations = 1;
+            for (const auto& site : lowered.hir->noise_sites) {
+                realizations *= (site.channels.size() + 1);
+                if (realizations > 256) {
+                    break;
+                }
+            }
+            if (realizations <= 256 && plan.num_visible_records + plan.num_hidden_records <= 12 &&
+                res.reconstruction->outputs.num_outputs() < 64) {
+                const auto actual = compute_exact_plan_distribution(plan);
+                require_same_law(output_law(actual, res.reconstruction->outputs),
+                                 output_law(expected, res.reconstruction->outputs));
+            }
+        }
+    }
+}
+
+TEST_CASE("Global reconstruction lowering bounds dense frame memory on wide fault domains",
+          "[reconstruction]") {
+    // 4096 independent fault wires use < 200 KB in the sparse mask arena, while
+    // downstream CoordinateFrame / DormantSubspace bit matrices require ~25 MB.
+    GlobalReconstruction wide;
+    wide.num_qubits = 1;
+    wide.num_noise_bits = 4096;
+    wide.outputs = {0, 4096, 0};
+    for (uint32_t i = 0; i < 4096; ++i) {
+        wide.operations.push_back({PauliString(1), make_sign({i}), 0, i});
+        wide.noise_channels.push_back({{0.5, {}}, {0.5, {i}}});
+    }
+
+    ReconstructionLimits tight;
+    tight.max_lowering_bytes = 4 * 1024 * 1024;
+    const auto rejected = lower_global_reconstruction(wide, {}, tight);
+    REQUIRE_FALSE(rejected.hir.has_value());
+    REQUIRE(rejected.fallback_reason == "lowering memory limit exceeded");
 }
 
 }  // namespace clifft::test

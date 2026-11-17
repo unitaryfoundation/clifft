@@ -144,23 +144,30 @@ TEST_CASE("Program shares reconstruction preparation across asymmetric output va
     // detector-only sampling retains reconstruction while record sampling falls back.
     {
         const auto source = parse(
-            "H 0 1\nT 0 1\nH 0 1\nM 0 1 2 3\nDETECTOR rec[-4]\nOBSERVABLE_INCLUDE(0) "
-            "rec[-3]\n");
+            "H 0 1 2\nT 0 1 2\nH 0 1 2\nM 0 1 2\nDETECTOR rec[-3]\n"
+            "OBSERVABLE_INCLUDE(0) rec[-3]\n");
         const auto hir = trace(source);
-        const auto det = reconstruct_global_sampling(source, ReconstructionOutputs::Detectors);
-        const auto rec = reconstruct_global_sampling(source, ReconstructionOutputs::Records);
-        REQUIRE(det.reconstruction.has_value());
-        REQUIRE(rec.reconstruction.has_value());
-        REQUIRE(det.reconstruction->operations.size() < rec.reconstruction->operations.size());
 
+        // Detectors schedules 3 rotations + 1 output measurement on 3 qubits (4 + 3 = 7),
+        // while Records schedules 3 rotations + 3 distinct output measurements (6 + 3 = 9).
         ReconstructionLimits limits;
-        limits.max_schedule_operations =
-            det.reconstruction->operations.size() + det.reconstruction->num_qubits;
+        limits.max_schedule_operations = 7;
         const auto program = Program::compile(source, hir, true, true, limits);
         REQUIRE(program.uses_reconstruction(false));
         REQUIRE_FALSE(program.uses_reconstruction(true));
         REQUIRE_FALSE(program.reconstruction_fallback_reason(true).empty());
         REQUIRE(&program.sampling_plan(true) == &program.original());
+    }
+
+    // Circuits with zero visible records share the single compiled variant across
+    // both keep_records queries.
+    {
+        const auto source = parse("H 0 1\nT 0 1\nDETECTOR\nOBSERVABLE_INCLUDE(0)\n");
+        const auto hir = trace(source);
+        const auto program = Program::compile(source, hir, true);
+        REQUIRE(program.uses_reconstruction(false));
+        REQUIRE(program.uses_reconstruction(true));
+        REQUIRE(&program.sampling_plan(false) == &program.sampling_plan(true));
     }
 }
 

@@ -5,12 +5,12 @@
 // Given a noisy quantum circuit and a requested output set (all measurement
 // records, detectors, and observables, or only detectors and observables),
 // reconstruction builds an equivalent smaller sampling problem in three steps:
-//   1. reconstruct_global_sampling: dilate measurements into ancillas and
-//      resets into fresh wires, absorb Clifford-angle rotations into the
-//      dilation frame, dress non-Clifford rotation gadgets with input
-//      stabilizers, fold the gadget projections into the input state, reduce
-//      to the X-support basis, and schedule commuting measurements and
-//      rotations.
+//   1. reconstruct_global_sampling: dilate prefix measurements and resets up to
+//      the last non-Clifford operation, dress non-Clifford rotation gadgets
+//      with input stabilizers, fold the coupled gadget projections into the
+//      input state, evolve the trailing pure-Clifford suffix in a stabilizer
+//      frame, reduce to the X-support basis, and schedule commuting
+//      measurements and rotations.
 //   2. compress_reconstruction_noise: project categorical noise channels onto
 //      the basis of operation sign masks and convolve channels with identical
 //      image support.
@@ -35,10 +35,10 @@ namespace clifft {
 enum class ReconstructionOutputs { Records, Detectors };
 
 struct ReconstructionLimits {
-    uint32_t max_dilation_qubits = 2048;
-    uint32_t max_noise_bits = 65536;
+    uint32_t max_dilation_qubits = 4096;
+    uint32_t max_noise_bits = 262144;
     uint32_t max_outputs = 4096;
-    size_t max_operations = 50000;
+    size_t max_operations = 200000;
     uint32_t max_schedule_operations = 2048;
     size_t max_planning_steps = 10000000;
     size_t max_channel_products = 1000000;
@@ -46,11 +46,20 @@ struct ReconstructionLimits {
     size_t max_lowering_bytes = 128 * 1024 * 1024;
 };
 
+// One nonzero 64-bit word of a sparse affine sign mask over fault variables.
+struct ReconstructionSignWord {
+    uint32_t index = 0;
+    uint64_t mask = 0;
+
+    [[nodiscard]] bool operator==(const ReconstructionSignWord&) const = default;
+};
+
 // Affine GF(2) sign mask over categorical fault variables plus a deterministic
-// constant bit. Bits produced by one multi-outcome channel are mutually
-// exclusive rather than independent Bernoulli draws.
+// constant bit, stored as strictly ascending nonzero 64-bit words. Bits
+// produced by one multi-outcome channel are mutually exclusive rather than
+// independent Bernoulli draws.
 struct ReconstructionSign {
-    std::vector<uint64_t> words;
+    std::vector<ReconstructionSignWord> words;
     bool constant = false;
 };
 
@@ -112,8 +121,9 @@ struct ReconstructionLoweringResult {
     std::string fallback_reason;
 };
 
-// Shares output-independent circuit dilation, causal gadget dressing, and
-// folded-stabilizer frame construction across output variants of one circuit.
+// Shares output-independent circuit dilation, causal gadget dressing,
+// folded-stabilizer frame construction, and pure-Clifford suffix evolution
+// across output variants of one circuit.
 class GlobalSamplingReconstructor {
   public:
     explicit GlobalSamplingReconstructor(const Circuit& circuit,

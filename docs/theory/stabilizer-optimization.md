@@ -81,19 +81,25 @@ only the classical output distribution is needed, `clifft.compile(...,
 reconstruction=True)` can reformulate the entire sampling problem to reduce the
 number of active coordinates that must stay entangled at once.
 
-The reconstruction compiler defers measurements onto fresh record ancillas and
-moves discarded reset states onto environment wires. Clifford-angle rotations
-are absorbed directly into the dilated Clifford frame, while each remaining
-non-Clifford Pauli-product rotation (including Euler-decomposed single-qubit
-gates) is replaced with a Clifford ancilla gadget whose postselected
-$|0\rangle$ projection has state-independent norm $1/\sqrt{2}$ for every real
-angle. Dressing those rotation axes with causal input stabilizers lets the
-gadget projections fold back into the initial stabilizer state. A native
-Clifford frame and linear $X$-support basis then eliminate coordinates fixed in
-$|0\rangle$. Remaining projections that commute with all retained outputs and
-remaining non-Clifford rotations are dropped, and a measurement-first schedule
-orders the surviving operations to minimize peak active width. This formulation
-and scheduling approach were informed by
+The reconstruction compiler splits a circuit at its last non-Clifford operation.
+In the prefix, it defers measurements onto fresh record ancillas and moves
+discarded reset states onto environment wires, while eliding Pauli faults on
+qubits discarded before any measurement. Clifford-angle rotations are absorbed
+directly into the dilated Clifford frame, and each remaining non-Clifford
+Pauli-product rotation (including Euler-decomposed single-qubit gates) is
+replaced with a Clifford ancilla gadget whose postselected $|0\rangle$
+projection has state-independent norm $1/\sqrt{2}$ for every real angle.
+Dressing those rotation axes with causal input stabilizers lets the gadget
+projections fold back into the initial stabilizer state over only the wires
+coupled to gadget constraints. Any trailing pure-Clifford escape or memory
+suffix is then evolved in a stabilizer frame without allocating dilation wires:
+anticommuting syndrome checks draw classical fair coins, stabilized checks
+evaluate deterministically, and logical readouts collapse directly onto the
+folded prefix coordinates. A linear $X$-support basis then eliminates
+coordinates fixed in $|0\rangle$. Remaining projections that commute with all
+retained outputs and non-Clifford rotations are dropped, and a measurement-first
+schedule orders the distinct quantum operations to minimize peak active width.
+This formulation and scheduling approach were informed by
 [Tsim's reconstruction work](https://github.com/QuEraComputing/tsim/pull/203).
 
 Throughout dilation and folding, Pauli and symmetric readout noise are tracked
@@ -120,8 +126,8 @@ is strictly smaller than the original plan's. This heuristic can miss reductions
 that later optimization would find. The optimized candidate must still have a
 strictly smaller peak active width to be selected. Dilation and scheduling
 precede the guard, so unsuccessful attempts can remain expensive. Explicit
-resource bounds cap circuit size, dilation qubits, noise channels, and
-scheduling work; unsupported features (such as leakage and loss channels,
+resource bounds cap circuit size, prefix dilation qubits, noise channels,
+scheduling work, and lowered frame memory; unsupported features (such as leakage and loss channels,
 `EXP_VAL` probes, asymmetric readout noise, or distribution-altering HIR
 passes) fall back to the original plan.
 
