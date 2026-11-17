@@ -21,6 +21,7 @@
 #include "clifft/frontend/hir.h"
 #include "clifft/tableau/pauli_string.h"
 
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -51,7 +52,7 @@ struct ReconstructionSignWord {
     uint32_t index = 0;
     uint64_t mask = 0;
 
-    [[nodiscard]] bool operator==(const ReconstructionSignWord&) const = default;
+    [[nodiscard]] auto operator<=>(const ReconstructionSignWord&) const = default;
 };
 
 // Affine GF(2) sign mask over categorical fault variables plus a deterministic

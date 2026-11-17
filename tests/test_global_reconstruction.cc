@@ -1,3 +1,4 @@
+#include "clifft/api/program.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/global_reconstruction.h"
@@ -1227,23 +1228,40 @@ TEST_CASE("Global reconstruction keeps postselected detector fault records ahead
 
         const sampling::ExecutablePlan plan(sampling::plan_sampling(*lowered.hir));
         const auto order = sampling::EarlyPostselection::schedule(plan, true);
+
+        std::string d1_record_token;
+        for (size_t i = 0; i < plan.num_actions(); ++i) {
+            const std::string action = plan.inspect_action(i);
+            if (action.starts_with("WRITE_DETECTOR detector=d1 outcome=")) {
+                const size_t start = std::string_view("WRITE_DETECTOR detector=d1 outcome=").size();
+                const size_t end = action.find(' ', start);
+                d1_record_token = "record=" + action.substr(start, end - start);
+            }
+        }
+        REQUIRE_FALSE(d1_record_token.empty());
+
         size_t first_quantum_pos = order.size();
+        size_t last_quantum_pos = 0;
         size_t d0_pos = order.size();
-        size_t d1_pos = order.size();
+        size_t d1_record_pos = order.size();
         for (size_t pos = 0; pos < order.size(); ++pos) {
             const std::string action = plan.inspect_action(order[pos]);
-            if (first_quantum_pos == order.size() && is_quantum_action(action)) {
-                first_quantum_pos = pos;
+            if (is_quantum_action(action)) {
+                first_quantum_pos = std::min(first_quantum_pos, pos);
+                last_quantum_pos = pos;
             }
             if (action.starts_with("WRITE_DETECTOR detector=d0 ")) {
                 d0_pos = pos;
-            } else if (action.starts_with("WRITE_DETECTOR detector=d1 ")) {
-                d1_pos = pos;
+            }
+            if (action.starts_with("RECORD_CLASSICAL ") &&
+                action.find(d1_record_token) != std::string::npos) {
+                d1_record_pos = pos;
             }
         }
         REQUIRE(first_quantum_pos < order.size());
         REQUIRE(d0_pos < first_quantum_pos);
-        REQUIRE(d1_pos > first_quantum_pos);
+        REQUIRE(d1_record_pos < order.size());
+        REQUIRE(d1_record_pos > last_quantum_pos);
     }
 
     // On full postselected MSC d=5, early postselection must schedule nearly all
@@ -1311,6 +1329,80 @@ TEST_CASE("Global reconstruction lowering bounds dense frame memory on wide faul
     const auto rejected = lower_global_reconstruction(wide, {}, tight);
     REQUIRE_FALSE(rejected.hir.has_value());
     REQUIRE(rejected.fallback_reason == "lowering memory limit exceeded");
+}
+
+TEST_CASE(
+    "Global reconstruction discards isolated suffix reset dependencies and caps prefix rotations",
+    "[reconstruction]") {
+    for (const char* text : {
+             "H 0\nT 0\nRY 0\nM 0\nDETECTOR rec[-1]\n",
+             "H 0\nT 0\nX 0\nRY 0\nMY 0\nM 0\nDETECTOR rec[-2]\nDETECTOR rec[-1]\n",
+             "H 0\nT 0\nM 0\nR 0\nMY 0\nDETECTOR rec[-1]\n",
+         }) {
+        INFO(text);
+        const auto circuit = parse(text);
+        const auto expected = compute_dense_circuit_distribution(circuit);
+        const auto hir = trace(circuit);
+        const auto program = Program::compile(circuit, hir, true);
+        const bool pure_reset_discards_all =
+            std::string_view(text).find("M 0\nR 0") == std::string_view::npos;
+        for (bool keep_records : {false, true}) {
+            if (pure_reset_discards_all || !keep_records) {
+                REQUIRE(program.uses_reconstruction(keep_records));
+                REQUIRE(program.sampling_plan(keep_records).peak_active_width() == 0);
+            }
+            const auto mode =
+                keep_records ? ReconstructionOutputs::Records : ReconstructionOutputs::Detectors;
+            const auto res = reconstruct_global_sampling(circuit, mode);
+            REQUIRE(res.reconstruction.has_value());
+            auto lowered = lower_global_reconstruction(*res.reconstruction);
+            REQUIRE(lowered.hir.has_value());
+            default_hir_pass_manager().run(*lowered.hir);
+            const auto actual =
+                compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+            require_same_law(output_law(actual, res.reconstruction->outputs),
+                             output_law(expected, res.reconstruction->outputs));
+        }
+    }
+
+    // Measure-reset on an isolated suffix qubit keeps the pre-reset record in
+    // Records mode while still collapsing Detectors mode to width zero.
+    {
+        const auto circuit = parse("H 0\nT 0\nMRY 0\nM 0\nDETECTOR rec[-1]\n");
+        const auto expected = compute_dense_circuit_distribution(circuit);
+        const auto hir = trace(circuit);
+        const auto program = Program::compile(circuit, hir, true);
+        REQUIRE(program.uses_reconstruction(false));
+        REQUIRE(program.sampling_plan(false).peak_active_width() == 0);
+        for (auto mode : {ReconstructionOutputs::Detectors, ReconstructionOutputs::Records}) {
+            const auto res = reconstruct_global_sampling(circuit, mode);
+            REQUIRE(res.reconstruction.has_value());
+            auto lowered = lower_global_reconstruction(*res.reconstruction);
+            REQUIRE(lowered.hir.has_value());
+            default_hir_pass_manager().run(*lowered.hir);
+            const auto actual =
+                compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+            require_same_law(output_law(actual, res.reconstruction->outputs),
+                             output_law(expected, res.reconstruction->outputs));
+        }
+    }
+
+    // Prefix dilation checks max_schedule_operations before allocating unbounded
+    // rotation gadgets or building the prefix frame.
+    {
+        std::string many_rotations;
+        for (int i = 0; i < 20; ++i) {
+            many_rotations += "H 0\nT 0\n";
+        }
+        many_rotations += "MX 0\nDETECTOR rec[-1]\n";
+        ReconstructionLimits limits;
+        limits.max_schedule_operations = 5;
+        limits.max_dilation_qubits = 10;
+        const auto rejected = reconstruct_global_sampling(parse(many_rotations),
+                                                          ReconstructionOutputs::Detectors, limits);
+        REQUIRE_FALSE(rejected.reconstruction.has_value());
+        REQUIRE(rejected.fallback_reason == "schedule operation limit exceeded");
+    }
 }
 
 }  // namespace clifft::test

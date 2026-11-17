@@ -56,7 +56,7 @@ std::optional<uint32_t> highest(const Bits& a) {
 }
 
 template <class F>
-void each_bit(const Bits& a, F&& f) {
+void each_bit(std::span<const uint64_t> a, F&& f) {
     for (size_t w = 0; w < a.size(); ++w) {
         for (uint64_t v = a[w]; v; v &= v - 1) {
             f(static_cast<uint32_t>(w * 64 + std::countr_zero(v)));
@@ -175,19 +175,6 @@ size_t sparse_popcount(const SparseWords& words) {
         total += static_cast<size_t>(std::popcount(w.mask));
     }
     return total;
-}
-
-bool less_sparse_words(const SparseWords& a, const SparseWords& b) {
-    const size_t limit = std::min(a.size(), b.size());
-    for (size_t i = 0; i < limit; ++i) {
-        if (a[i].index != b[i].index) {
-            return a[i].index < b[i].index;
-        }
-        if (a[i].mask != b[i].mask) {
-            return a[i].mask < b[i].mask;
-        }
-    }
-    return a.size() < b.size();
 }
 
 void xor_sign(ReconstructionSign& a, const ReconstructionSign& b, SparseWords& scratch) {
@@ -428,6 +415,28 @@ struct SourceScan {
     }
 };
 
+bool is_identity_angle(double alpha) {
+    return is_finite_robust(alpha) &&
+           classify_clifford_rotation(alpha) == CliffordRotation::IDENTITY;
+}
+
+bool is_identity_rotation_node(const AstNode& node) {
+    switch (node.gate) {
+        case GateType::R_X:
+        case GateType::R_Y:
+        case GateType::R_Z:
+        case GateType::R_XX:
+        case GateType::R_YY:
+        case GateType::R_ZZ:
+        case GateType::R_PAULI:
+            return node.args.size() == 1 && is_identity_angle(node.args[0]);
+        case GateType::U3:
+            return node.args.size() == 3 && std::ranges::all_of(node.args, is_identity_angle);
+        default:
+            return false;
+    }
+}
+
 bool node_is_nonclifford(const AstNode& node) {
     const GateType g = node.gate;
     if (static_cast<uint32_t>(g) > static_cast<uint32_t>(GateType::UNKNOWN)) {
@@ -664,9 +673,7 @@ SourceScan scan_source(const Circuit& circuit, const ReconstructionLimits& limit
             case GateType::R_XX:
             case GateType::R_YY:
             case GateType::R_ZZ:
-                if ((g == GateType::R_XX || g == GateType::R_YY || g == GateType::R_ZZ) &&
-                    node.args.size() == 1 && is_finite_robust(node.args[0]) &&
-                    classify_clifford_rotation(node.args[0]) == CliffordRotation::IDENTITY) {
+                if (is_identity_rotation_node(node)) {
                     break;
                 }
                 for (size_t off = (node.targets.size() / 2) * 2; off >= 2; off -= 2) {
@@ -683,9 +690,7 @@ SourceScan scan_source(const Circuit& circuit, const ReconstructionLimits& limit
             case GateType::TPP:
             case GateType::TPP_DAG:
             case GateType::R_PAULI:
-                if (g == GateType::R_PAULI && node.args.size() == 1 &&
-                    is_finite_robust(node.args[0]) &&
-                    classify_clifford_rotation(node.args[0]) == CliffordRotation::IDENTITY) {
+                if (is_identity_rotation_node(node)) {
                     break;
                 }
                 if (std::any_of(node.targets.begin(), node.targets.end(), get_live)) {
@@ -1356,7 +1361,7 @@ class Dilation {
                    bool inverted) {
         require_supported(!source_term.empty() && is_finite_robust(alpha),
                           "unsupported source operation");
-        if (classify_clifford_rotation(alpha) == CliffordRotation::IDENTITY) {
+        if (is_identity_angle(alpha)) {
             return;
         }
         Term term;
@@ -1369,6 +1374,8 @@ class Dilation {
                 [&](GateType g, std::span<const uint32_t> qs) { apply_clifford(g, qs); })) {
             return;
         }
+        require_supported(rotations_.size() < limits_.max_schedule_operations,
+                          "schedule operation limit exceeded");
         const uint32_t a = fresh();
         auto sign = noise_sign(term);
         sign.constant ^= inverted;
@@ -1540,6 +1547,27 @@ class Dilation {
     SparseWords scratch_;
 };
 
+// Records which generators/operations anticommute with each single-qubit X_q
+// (rows [0, n)) and Z_q (rows [n, 2*n)).
+void record_commutation_columns(std::vector<Bits>& columns, uint32_t n, PauliStringView axis,
+                                uint32_t op_index) {
+    each_bit(axis.z().words, [&](uint32_t q) { toggle(columns[q], op_index); });
+    each_bit(axis.x().words, [&](uint32_t q) { toggle(columns[n + q], op_index); });
+}
+
+PauliString pauli_from_symplectic_bits(std::span<const uint64_t> bits, uint32_t n) {
+    PauliString p(n);
+    each_bit(bits, [&](uint32_t q) {
+        if (q < n) {
+            p.mut_x().bit_set(q, true);
+        } else {
+            p.mut_z().bit_set(q - n, true);
+        }
+    });
+    p.set_sign(false);
+    return p;
+}
+
 // Completes n independent commuting Pauli generators to a full symplectic
 // frame by solving for dual X destabilizers and orthogonalizing them.
 Tableau stabilizer_frame(const std::vector<PauliString>& generators, uint32_t n) {
@@ -1548,18 +1576,7 @@ Tableau stabilizer_frame(const std::vector<PauliString>& generators, uint32_t n)
     }
     std::vector<Bits> patterns(2 * n);
     for (uint32_t j = 0; j < n; ++j) {
-        const auto z_words = generators[j].z().words;
-        for (size_t w = 0; w < z_words.size(); ++w) {
-            for (uint64_t v = z_words[w]; v != 0; v &= v - 1) {
-                toggle(patterns[w * 64 + std::countr_zero(v)], j);
-            }
-        }
-        const auto x_words = generators[j].x().words;
-        for (size_t w = 0; w < x_words.size(); ++w) {
-            for (uint64_t v = x_words[w]; v != 0; v &= v - 1) {
-                toggle(patterns[n + w * 64 + std::countr_zero(v)], j);
-            }
-        }
+        record_commutation_columns(patterns, n, generators[j].view(), j);
     }
     Basis columns;
     for (uint32_t i = 0; i < 2 * n; ++i) {
@@ -1572,14 +1589,7 @@ Tableau stabilizer_frame(const std::vector<PauliString>& generators, uint32_t n)
     for (uint32_t i = 0; i < n; ++i) {
         const auto solution = columns.solve(unit(i));
         assert(solution.has_value());
-        PauliString p(n);
-        each_bit(*solution, [&](uint32_t q) {
-            if (q < n)
-                p.mut_x().bit_set(q, true);
-            else
-                p.mut_z().bit_set(q - n, true);
-        });
-        p.set_sign(false);
+        PauliString p = pauli_from_symplectic_bits(*solution, n);
         // Generator j anticommutes only with dual j, so multiplying p by it leaves
         // the other commutation bits of p unchanged and all corrections can be
         // collected before p changes.
@@ -1629,36 +1639,12 @@ class SuffixTracker {
         for (size_t idx = prefix_end; idx < circuit.nodes.size(); ++idx) {
             const AstNode& node = circuit.nodes[idx];
             const GateType g = node.gate;
-            if (g == GateType::TICK || g == GateType::I || g == GateType::II ||
-                g == GateType::I_ERROR || g == GateType::II_ERROR || g == GateType::MPAD ||
-                g == GateType::READOUT_NOISE || g == GateType::DETECTOR ||
-                g == GateType::OBSERVABLE_INCLUDE || g == GateType::EXP_VAL) {
-                continue;
-            }
-            if (g == GateType::R_X || g == GateType::R_Y || g == GateType::R_Z ||
-                g == GateType::R_XX || g == GateType::R_YY || g == GateType::R_ZZ ||
-                g == GateType::R_PAULI) {
-                if (node.args.size() == 1 && is_finite_robust(node.args[0]) &&
-                    classify_clifford_rotation(node.args[0]) == CliffordRotation::IDENTITY) {
-                    continue;
-                }
-            }
-            if (g == GateType::U3 && node.args.size() == 3 &&
-                std::all_of(node.args.begin(), node.args.end(), [](double a) {
-                    return is_finite_robust(a) &&
-                           classify_clifford_rotation(a) == CliffordRotation::IDENTITY;
-                })) {
-                continue;
-            }
-            // Noise ops only map live targets, so pre-mapping non-noise ops
-            // plus live prefix wires suffices unless a live noise op touches an
-            // uninitialized wire that is later measured (already covered by the
-            // measurement node itself).
-            if (g == GateType::X_ERROR || g == GateType::Y_ERROR || g == GateType::Z_ERROR ||
-                g == GateType::DEPOLARIZE1 || g == GateType::DEPOLARIZE2 ||
-                g == GateType::DEPOLARIZE3 || g == GateType::PAULI_CHANNEL_1 ||
-                g == GateType::PAULI_CHANNEL_2 || g == GateType::PAULI_CHANNEL_3 ||
-                g == GateType::CORRELATED_ERROR || g == GateType::ELSE_CORRELATED_ERROR) {
+            // Noise ops only map live targets, and every live target reaches a
+            // downstream measurement node that maps it below.
+            if (static_cast<uint32_t>(g) <= static_cast<uint32_t>(GateType::UNKNOWN) &&
+                (gate_arity(g) == GateArity::ANNOTATION || is_identity_noop(g) ||
+                 is_noise_gate(g) || is_exp_val(g) || g == GateType::MPAD ||
+                 is_identity_rotation_node(node))) {
                 continue;
             }
             for (Target t : node.targets) {
@@ -1687,7 +1673,6 @@ class SuffixTracker {
                                fx_[mode].sign, fz_[mode].sign);
             }
         }
-        initialized_ = true;
     }
 
     void parse_suffix(const Circuit& circuit, size_t prefix_end) {
@@ -1705,7 +1690,7 @@ class SuffixTracker {
                    bool inverted) {
         require_supported(!source_term.empty() && is_finite_robust(alpha),
                           "unsupported source operation");
-        if (classify_clifford_rotation(alpha) == CliffordRotation::IDENTITY) {
+        if (is_identity_angle(alpha)) {
             return;
         }
         Term term;
@@ -1721,21 +1706,24 @@ class SuffixTracker {
     void on_single_instrument(GateType g, uint32_t src_q, char p, bool inverted) {
         const uint32_t q = mode_of(src_q);
         const Term single{{q, p}};
-        PreparedOp raw =
-            collapse_mode(single, is_measurement(g) ? std::nullopt : std::optional<uint32_t>{q});
+        const bool has_reset = is_reset(g) || is_measure_reset(g);
+        CollapseResult collapsed = collapse_mode(
+            single, has_reset ? std::optional<uint32_t>{q} : std::nullopt, is_measurement(g));
         if (is_measurement(g)) {
             PreparedOp rec = frame_parity(single);
-            xor_prepared_parity(rec, raw, scratch_);
+            xor_prepared_parity(rec, collapsed.raw, scratch_);
             rec.sign.constant ^= inverted;
             records_.push_back(std::move(rec));
         }
-        if (is_reset(g) || is_measure_reset(g)) {
+        if (has_reset) {
             fx_[q] = {PauliString(n_prefix_), {}, 0};
             fz_[q] = {PauliString(n_prefix_), {}, 0};
-            if (p == 'X') {
-                fz_[q] = std::move(raw);
-            } else {
-                fx_[q] = std::move(raw);
+            if (!collapsed.reset_clears_frame) {
+                if (p == 'X') {
+                    fz_[q] = std::move(collapsed.raw);
+                } else {
+                    fx_[q] = std::move(collapsed.raw);
+                }
             }
         }
     }
@@ -1745,9 +1733,9 @@ class SuffixTracker {
         for (auto [src_q, p] : source_term) {
             term.emplace_back(mode_of(src_q), p);
         }
-        PreparedOp raw = collapse_mode(term, std::nullopt);
+        CollapseResult collapsed = collapse_mode(term, std::nullopt, true);
         PreparedOp rec = frame_parity(term);
-        xor_prepared_parity(rec, raw, scratch_);
+        xor_prepared_parity(rec, collapsed.raw, scratch_);
         rec.sign.constant ^= inverted;
         records_.push_back(std::move(rec));
     }
@@ -1779,8 +1767,12 @@ class SuffixTracker {
     }
 
   private:
+    struct CollapseResult {
+        PreparedOp raw;
+        bool reset_clears_frame = false;
+    };
+
     uint32_t ensure_mapped(uint32_t src_q) {
-        assert(!initialized_);
         if (src_q < source_to_mode_.size() && source_to_mode_[src_q] != kUnmappedQubit) {
             return source_to_mode_[src_q];
         }
@@ -1847,6 +1839,22 @@ class SuffixTracker {
         return out;
     }
 
+    void load_row_scratch(PauliStringView view) {
+        row_scratch_.mut_x().zero_out();
+        row_scratch_.mut_z().zero_out();
+        row_scratch_.mut_x().xor_with(view.x());
+        row_scratch_.mut_z().xor_with(view.z());
+        row_scratch_.set_phase(view.phase());
+    }
+
+    void store_row_scratch(uint32_t q, bool z_row) {
+        if (z_row) {
+            inv_.set_z_output(q, row_scratch_.view());
+        } else {
+            inv_.set_x_output(q, row_scratch_.view());
+        }
+    }
+
     void swap_mode_xz(uint32_t p) {
         for (uint32_t q = 0; q < m_; ++q) {
             for (bool z_row : {false, true}) {
@@ -1856,19 +1864,11 @@ class SuffixTracker {
                 if (!a && !b) {
                     continue;
                 }
-                row_scratch_.mut_x().zero_out();
-                row_scratch_.mut_z().zero_out();
-                row_scratch_.mut_x().xor_with(view.x());
-                row_scratch_.mut_z().xor_with(view.z());
-                row_scratch_.set_phase(view.phase());
+                load_row_scratch(view);
                 const bool old_sign = row_scratch_.sign();
                 row_scratch_.set_pauli(p, b, a);
                 row_scratch_.set_sign(old_sign ^ (a && b));
-                if (z_row) {
-                    inv_.set_z_output(q, row_scratch_.view());
-                } else {
-                    inv_.set_x_output(q, row_scratch_.view());
-                }
+                store_row_scratch(q, z_row);
             }
         }
         assert(m_ > 16 || inv_.satisfies_invariants());
@@ -1890,12 +1890,7 @@ class SuffixTracker {
                 if (!xp && !zp && !anti) {
                     continue;
                 }
-                row_scratch_.mut_x().zero_out();
-                row_scratch_.mut_z().zero_out();
-                row_scratch_.mut_x().xor_with(view.x());
-                row_scratch_.mut_z().xor_with(view.z());
-                row_scratch_.set_phase(view.phase());
-                bool sign = row_scratch_.sign();
+                load_row_scratch(view);
                 if (anti) {
                     // Right-multiplying Q by (-1)^(xp) * Z_p toggles Z_p:
                     // I_p -> Z_p, Z_p -> I_p, X_p*(-Z_p) = +i Y_p, (+i X_p Z_p)*(-Z_p) = -i X_p.
@@ -1909,7 +1904,7 @@ class SuffixTracker {
                     row_scratch_.right_multiply(p_tilde.view());
                 }
                 assert(row_scratch_.is_hermitian());
-                sign = row_scratch_.sign();
+                const bool sign = row_scratch_.sign();
                 const bool a = row_scratch_.x().bit_get(p);
                 const bool b = row_scratch_.z().bit_get(p);
                 if (!zeta) {
@@ -1919,11 +1914,7 @@ class SuffixTracker {
                     row_scratch_.set_pauli(p, a ^ b, a);
                     row_scratch_.set_sign(sign);
                 }
-                if (z_row) {
-                    inv_.set_z_output(q, row_scratch_.view());
-                } else {
-                    inv_.set_x_output(q, row_scratch_.view());
-                }
+                store_row_scratch(q, z_row);
             }
         }
         assert(m_ > 16 || inv_.satisfies_invariants());
@@ -1942,7 +1933,8 @@ class SuffixTracker {
         return false;
     }
 
-    PreparedOp collapse_mode(const Term& term, std::optional<uint32_t> isolated_reset_qubit) {
+    CollapseResult collapse_mode(const Term& term, std::optional<uint32_t> reset_qubit,
+                                 bool need_outcome) {
         PauliString mode_pauli(m_);
         for (auto [q, p] : term) {
             if (p == 'X') {
@@ -1959,7 +1951,7 @@ class SuffixTracker {
 
         // Case 1: Anticommuting stabilized mode -> uniform Bernoulli(1/2) outcome.
         std::optional<uint32_t> stab_pivot;
-        each_bit(copy(mode_pauli.x()), [&](uint32_t k) {
+        each_bit(mode_pauli.x().words, [&](uint32_t k) {
             if (!stab_pivot.has_value() && is_stabilized_[k]) {
                 stab_pivot = k;
             }
@@ -1973,14 +1965,14 @@ class SuffixTracker {
 
             PreparedOp old_sigma_p = std::move(sigma_[p]);
             sigma_[p] = {PauliString(n_prefix_), {}, 0};
-            each_bit(copy(p_tilde.x()), [&](uint32_t k) {
+            each_bit(p_tilde.x().words, [&](uint32_t k) {
                 if (is_stabilized_[k]) {
                     xor_prepared_parity(sigma_[k], old_sigma_p, scratch_);
                 } else {
                     xor_prepared_parity(alpha_[k], old_sigma_p, scratch_);
                 }
             });
-            each_bit(copy(p_tilde.z()), [&](uint32_t k) {
+            each_bit(p_tilde.z().words, [&](uint32_t k) {
                 if (!is_stabilized_[k]) {
                     xor_prepared_parity(beta_[k], old_sigma_p, scratch_);
                 }
@@ -1988,14 +1980,19 @@ class SuffixTracker {
 
             apply_mode_collapse_to_tableau(p, zeta, p_tilde);
 
+            const bool isolated_reset =
+                reset_qubit.has_value() && !mode_referenced_outside_qubit(p, *reset_qubit);
             PreparedOp b_raw{PauliString(n_prefix_), {}, 0};
-            if (!isolated_reset_qubit.has_value() ||
-                mode_referenced_outside_qubit(p, *isolated_reset_qubit)) {
+            if (!isolated_reset || need_outcome) {
                 b_raw.sign = noise_.bernoulli(0.5);
+            }
+            if (isolated_reset) {
+                sigma_[p] = {PauliString(n_prefix_), {{}, s_m}, 0};
+                return {std::move(b_raw), true};
             }
             sigma_[p] = b_raw;
             sigma_[p].sign.constant ^= s_m;
-            return b_raw;
+            return {std::move(b_raw), false};
         }
 
         // Check whether any uncollapsed quantum mode participates.
@@ -2010,11 +2007,20 @@ class SuffixTracker {
         // Case 2: Pure product of stabilized +Z_k generators -> deterministic parity.
         if (!quant_pivot.has_value()) {
             PreparedOp b_raw{PauliString(n_prefix_), {{}, s_m}, 0};
-            each_bit(copy(mode_pauli.z()), [&](uint32_t k) {
+            uint32_t single_mode = kUnmappedQubit;
+            uint32_t z_count = 0;
+            each_bit(mode_pauli.z().words, [&](uint32_t k) {
                 assert(is_stabilized_[k]);
                 xor_prepared_parity(b_raw, sigma_[k], scratch_);
+                single_mode = k;
+                ++z_count;
             });
-            return b_raw;
+            if (reset_qubit.has_value() && z_count == 1 &&
+                !mode_referenced_outside_qubit(single_mode, *reset_qubit)) {
+                sigma_[single_mode] = {PauliString(n_prefix_), {{}, s_m}, 0};
+                return {std::move(b_raw), true};
+            }
+            return {std::move(b_raw), false};
         }
 
         // Case 3: Projects a quantum logical observable onto the folded prefix wires.
@@ -2098,6 +2104,10 @@ class SuffixTracker {
         alpha_[p] = PreparedOp{};
         beta_[p] = PreparedOp{};
 
+        if (reset_qubit.has_value() && !mode_referenced_outside_qubit(p, *reset_qubit)) {
+            sigma_[p] = {PauliString(n_prefix_), {{}, s_m}, 0};
+            return {std::move(b_raw), true};
+        }
         sigma_[p] = b_raw;
         sigma_[p].sign.constant ^= s_m;
         for (uint32_t k = 0; k < m_; ++k) {
@@ -2105,7 +2115,7 @@ class SuffixTracker {
                 xor_prepared_parity(sigma_[p], sigma_[k], scratch_);
             }
         }
-        return b_raw;
+        return {std::move(b_raw), false};
     }
 
     void apply_clifford(GateType type, std::span<const uint32_t> qs) {
@@ -2117,7 +2127,6 @@ class SuffixTracker {
 
     uint32_t n_prefix_ = 0;
     uint32_t m_ = 0;
-    bool initialized_ = false;
     const ReconstructionLimits& limits_;
     NoiseChannelBuilder& noise_;
     std::vector<PreparedOp>& records_;
@@ -2182,18 +2191,7 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
     // operation commutation columns to shrink the initial active subspace.
     std::vector<Bits> column_patterns(2 * n);
     for (uint32_t j = 0; j < quantum_ops.size(); ++j) {
-        const auto z_words = quantum_ops[j].axis.z().words;
-        for (size_t w = 0; w < z_words.size(); ++w) {
-            for (uint64_t v = z_words[w]; v != 0; v &= v - 1) {
-                toggle(column_patterns[w * 64 + std::countr_zero(v)], j);
-            }
-        }
-        const auto x_words = quantum_ops[j].axis.x().words;
-        for (size_t w = 0; w < x_words.size(); ++w) {
-            for (uint64_t v = x_words[w]; v != 0; v &= v - 1) {
-                toggle(column_patterns[n + w * 64 + std::countr_zero(v)], j);
-            }
-        }
+        record_commutation_columns(column_patterns, n, quantum_ops[j].axis.view(), j);
     }
     Basis columns;
     std::vector<Bits> nullspace;
@@ -2212,14 +2210,7 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
     Basis xparts;
     std::vector<ReconstructionOperation> hidden;
     for (const auto& value : nullspace) {
-        PauliString p(n);
-        each_bit(value, [&](uint32_t i) {
-            if (i < n)
-                p.mut_x().bit_set(i, true);
-            else
-                p.mut_z().bit_set(i - n, true);
-        });
-        p.set_sign(false);
+        PauliString p = pauli_from_symplectic_bits(value, n);
         if (xparts.solve(copy(p.x())))
             continue;
         if (std::any_of(hidden.begin(), hidden.end(),
@@ -2386,8 +2377,8 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
         is_coupled[r.ancilla] = true;
     }
     for (const auto& c : constraints) {
-        each_bit(copy(c.x()), [&](uint32_t i) { is_coupled[i] = true; });
-        each_bit(copy(c.z()), [&](uint32_t i) { is_coupled[i] = true; });
+        each_bit(c.x().words, [&](uint32_t i) { is_coupled[i] = true; });
+        each_bit(c.z().words, [&](uint32_t i) { is_coupled[i] = true; });
     }
     std::vector<uint32_t> coupled_wires;
     std::vector<uint32_t> wire_to_compact(n, kUnmappedQubit);
@@ -2418,26 +2409,35 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
 
     std::vector<Bits> patterns(k_c);
     for (uint32_t j = 0; j < constraints_c.size(); ++j) {
-        const auto cx = constraints_c[j].x().words;
-        const auto cz = constraints_c[j].z().words;
-        for (size_t w = 0; w < cx.size(); ++w) {
-            for (uint64_t v = cx[w]; v != 0; v &= v - 1) {
-                const uint32_t i = static_cast<uint32_t>(w * 64 + std::countr_zero(v));
-                if (!magic_c[i])
-                    toggle(patterns[i], j);
+        each_bit(constraints_c[j].x().words, [&](uint32_t i) {
+            if (!magic_c[i]) {
+                toggle(patterns[i], j);
             }
-            for (uint64_t v = cz[w]; v != 0; v &= v - 1) {
-                const uint32_t i = static_cast<uint32_t>(w * 64 + std::countr_zero(v));
-                if (magic_c[i])
-                    toggle(patterns[i], j);
+        });
+        each_bit(constraints_c[j].z().words, [&](uint32_t i) {
+            if (magic_c[i]) {
+                toggle(patterns[i], j);
             }
-        }
+        });
     }
     Basis allowed;
     for (uint32_t i = 0; i < k_c; ++i) {
         if (!magic_c[i])
             allowed.insert(patterns[i], unit(i));
     }
+
+    auto pauli_from_dressing = [&](const Bits& bits) {
+        PauliString p(k_c);
+        each_bit(bits, [&](uint32_t i) {
+            if (magic_c[i]) {
+                p.mut_x().bit_set(i, true);
+            } else {
+                p.mut_z().bit_set(i, true);
+            }
+        });
+        p.set_sign(false);
+        return p;
+    };
 
     // 2. Dress each rotation gadget axis with input stabilizers so it commutes
     // with all earlier gadget projections.
@@ -2452,16 +2452,9 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
         }
         const auto dressing = allowed.solve(std::move(z_pattern));
         require_supported(dressing.has_value(), "no causal stabilizer dressing");
-        PauliString p_c(k_c);
+        PauliString p_c = pauli_from_dressing(*dressing);
+        assert(!p_c.x().bit_get(anc_c) && !p_c.z().bit_get(anc_c));
         p_c.mut_z().bit_set(anc_c, true);
-        each_bit(*dressing, [&](uint32_t i) {
-            assert(i != anc_c);
-            if (magic_c[i])
-                p_c.mut_x().bit_set(i, true);
-            else
-                p_c.mut_z().bit_set(i, true);
-        });
-        p_c.set_sign(false);
         dressed_rotations.push_back({std::move(p_c), it->sign, it->half_turns});
         allowed.insert(patterns[anc_c], unit(anc_c));
     }
@@ -2476,15 +2469,7 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
     generators_c.reserve(k_c);
     for (uint32_t i = 0; i < k_c; ++i) {
         if (auto dependency = independent.insert(std::move(patterns[i]), unit(i))) {
-            PauliString p(k_c);
-            each_bit(*dependency, [&](uint32_t j) {
-                if (magic_c[j])
-                    p.mut_x().bit_set(j, true);
-                else
-                    p.mut_z().bit_set(j, true);
-            });
-            p.set_sign(false);
-            generators_c.push_back(std::move(p));
+            generators_c.push_back(pauli_from_dressing(*dependency));
         }
     }
     require_supported(independent.size() == num_constraints, "nonuniform gadget projection");
@@ -2518,15 +2503,9 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
         return embed_coupled(mapped_c, full, full.sign());
     };
 
+    const PauliString empty_full(n);
     for (auto& op : dressed_rotations) {
-        const PauliString mapped_c = frame_c.apply(op.axis.view());
-        PauliString embedded(n);
-        for (uint32_t idx = 0; idx < k_c; ++idx) {
-            embedded.set_pauli(coupled_wires[idx], mapped_c.x().bit_get(idx),
-                               mapped_c.z().bit_get(idx));
-        }
-        embedded.set_sign(mapped_c.sign());
-        op.axis = std::move(embedded);
+        op.axis = embed_coupled(frame_c.apply(op.axis.view()), empty_full.view(), false);
     }
 
     auto map_prefix_ancillas = [&](const Bits& z_bits, ReconstructionSign sign) -> PreparedOp {
@@ -2589,12 +2568,10 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
 
     std::vector<PreparedOp> mapped_checks;
     mapped_checks.reserve(detectors.size() + observables.size());
-    for (auto& d : detectors) {
-        mapped_checks.push_back(std::move(d));
-    }
-    for (auto& o : observables) {
-        mapped_checks.push_back(std::move(o));
-    }
+    mapped_checks.insert(mapped_checks.end(), std::make_move_iterator(detectors.begin()),
+                         std::make_move_iterator(detectors.end()));
+    mapped_checks.insert(mapped_checks.end(), std::make_move_iterator(observables.begin()),
+                         std::make_move_iterator(observables.end()));
 
     PreparedDilation prepared;
     prepared.limits = limits;
@@ -2737,30 +2714,14 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
     using OutcomeEntry = std::pair<SparseWords, double>;
     using Distribution = std::vector<OutcomeEntry>;
 
-    struct KeyLess {
-        bool operator()(const std::vector<SparseWords>& a,
-                        const std::vector<SparseWords>& b) const {
-            const size_t limit = std::min(a.size(), b.size());
-            for (size_t i = 0; i < limit; ++i) {
-                if (a[i] != b[i]) {
-                    return less_sparse_words(a[i], b[i]);
-                }
-            }
-            return a.size() < b.size();
-        }
-    };
-    auto entry_less = [](const OutcomeEntry& a, const OutcomeEntry& b) {
-        return less_sparse_words(a.first, b.first);
-    };
-
-    std::map<std::vector<SparseWords>, Distribution, KeyLess> grouped;
+    std::map<std::vector<SparseWords>, Distribution> grouped;
     Distribution image;
     Distribution convolved;
     SparseWords scratch;
     size_t products = 0;
 
     auto sort_and_merge = [&](Distribution& dist) {
-        std::sort(dist.begin(), dist.end(), entry_less);
+        std::ranges::sort(dist, {}, &OutcomeEntry::first);
         size_t out = 0;
         for (size_t i = 0; i < dist.size(); ++i) {
             if (out > 0 && dist[out - 1].first == dist[i].first) {
@@ -2820,10 +2781,7 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
                 }
                 sort_and_merge(convolved);
             } else {
-                auto cmp = [](const SparseWords& a, const SparseWords& b) {
-                    return less_sparse_words(a, b);
-                };
-                std::map<SparseWords, double, decltype(cmp)> merged(cmp);
+                std::map<SparseWords, double> merged;
                 for (const auto& [a, p] : existing->second) {
                     for (const auto& [b, q] : image) {
                         SparseWords sum = a;
