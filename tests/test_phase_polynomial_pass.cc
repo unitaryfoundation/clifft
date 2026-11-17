@@ -24,17 +24,17 @@ using namespace clifft;
 namespace {
 
 HirModule parity_block(uint32_t width = 4, const std::vector<uint32_t>& positions = {0, 1, 2, 3}) {
-    HirModule hir(width, 16);
+    HirModule hir(width);
     hir.final_tableau.emplace(width);
     for (uint32_t term = 1; term <= 16; ++term) {
         const uint32_t parity = term == 16 ? 15 : term;
-        hir.append_tgate(false, [&](MutablePauliMaskView mask) {
-            for (uint32_t j = 0; j < 4; ++j) {
-                if (parity & (1U << j)) {
-                    mask.x().bit_set(positions[j], true);
-                }
+        PauliMask mask;
+        for (uint32_t j = 0; j < 4; ++j) {
+            if (parity & (1U << j)) {
+                mask.toggle(positions[j], true, false);
             }
-        });
+        }
+        hir.append_tgate(false, mask);
         hir.source_map.push_back({term});
     }
     return hir;
@@ -53,7 +53,7 @@ TEST_CASE("Phase pass reduces collective parity structure and preserves provenan
     REQUIRE(pass.output_t_count() == 1);
     REQUIRE(analyze_active_width(hir).peak_width == 1);
     REQUIRE(hir.ops.size() == 1);
-    REQUIRE(hir.destab_mask(hir.ops[0]).words[0] == 15);
+    REQUIRE(hir.destab_mask(hir.ops[0]).word(0) == 15);
     REQUIRE(hir.stab_mask(hir.ops[0]).is_zero());
     REQUIRE(hir.source_map[0].size() == 16);
     REQUIRE(hir.final_tableau->satisfies_invariants());
@@ -73,7 +73,7 @@ TEST_CASE("Phase pass supports Pauli axes spanning multiple words", "[optimizer]
 }
 
 TEST_CASE("Phase pass preserves an unreduced prefix and its provenance", "[optimizer]") {
-    HirModule hir(5, 18);
+    HirModule hir(5);
     hir.final_tableau.emplace(5);
     test::append_tgate(hir, 16, 0, false);
     test::append_measure(hir, 0, 16, false, MeasRecordIdx{0});
@@ -100,7 +100,7 @@ TEST_CASE("Phase pass preserves an unreduced prefix and its provenance", "[optim
 }
 
 TEST_CASE("Phase pass removes rotations equivalent on the known input", "[optimizer]") {
-    HirModule hir(2, 2);
+    HirModule hir(2);
     hir.final_tableau.emplace(2);
     test::append_tgate(hir, 1, 0, false);
     test::append_tgate(hir, 1, 2, false);
@@ -175,7 +175,7 @@ TEST_CASE("Phase pass composes noncommuting Clifford factors across regions", "[
 }
 
 TEST_CASE("Phase pass pulls back measurements without changing record order", "[optimizer]") {
-    HirModule hir(1, 5);
+    HirModule hir(1);
     hir.final_tableau.emplace(1);
     test::append_tgate(hir, 1, 0, false);
     test::append_tgate(hir, 1, 0, false);
@@ -189,8 +189,8 @@ TEST_CASE("Phase pass pulls back measurements without changing record order", "[
     REQUIRE(pass.pauli_pullbacks() == 1);
     REQUIRE(hir.num_t_gates() == 1);
     REQUIRE(hir.ops[0].meas_record_idx() == MeasRecordIdx{0});
-    REQUIRE(hir.destab_mask(hir.ops[0]).words[0] == 1);
-    REQUIRE(hir.stab_mask(hir.ops[0]).words[0] == 1);
+    REQUIRE(hir.destab_mask(hir.ops[0]).word(0) == 1);
+    REQUIRE(hir.stab_mask(hir.ops[0]).word(0) == 1);
     REQUIRE_FALSE(hir.sign(hir.ops[0]));
     REQUIRE(hir.ops[2].meas_record_idx() == MeasRecordIdx{1});
 }
@@ -218,7 +218,6 @@ TEST_CASE("Phase pass leaves long sequences of non-Pauli observer barriers intac
 
 TEST_CASE("Phase pass retains crossed noise sites and categorical probabilities", "[optimizer]") {
     auto hir = parity_block();
-    hir.noise_channel_masks = PauliMaskArena(4, 2);
     const auto first = test::claim_noise_channel_mask(hir, 1, 0);
     const auto second = test::claim_noise_channel_mask(hir, 2, 0);
     hir.noise_sites.push_back({0.3, {{first, 0.1}, {second, 0.2}}, 6});
@@ -255,12 +254,12 @@ TEST_CASE("Phase pass keeps noise unsigned while retaining coherent operand sign
         pass.run(hir);
         REQUIRE(pass.applied());
         const auto channel = hir.noise_channel_masks.at(hir.noise_sites[0].channels[0].mask);
-        REQUIRE(channel.x().words[0] == 1);
-        REQUIRE(channel.z().words[0] == 1);
+        REQUIRE(channel.x().word(0) == 1);
+        REQUIRE(channel.z().word(0) == 1);
         REQUIRE_FALSE(channel.sign());
         const auto measured = hir.mask_view(hir.ops.back());
-        REQUIRE(measured.x().words[0] == 1);
-        REQUIRE(measured.z().words[0] == 1);
+        REQUIRE(measured.x().word(0) == 1);
+        REQUIRE(measured.z().word(0) == 1);
         REQUIRE_FALSE(measured.sign());
     }
 }
@@ -319,12 +318,11 @@ TEST_CASE("Phase expansion respects explicit limits and the representation ceili
           "[optimizer]") {
     for (uint32_t width : {33, 48, 64, 65, 87, 128, 129}) {
         CAPTURE(width);
-        HirModule original(width, 2 * width);
+        HirModule original(width);
         original.final_tableau.emplace(width);
         for (uint32_t repeat = 0; repeat < 2; ++repeat) {
             for (uint32_t q = 0; q < width; ++q) {
-                original.append_tgate(
-                    false, [&](MutablePauliMaskView mask) { mask.x().bit_set(q, true); });
+                original.append_tgate(false, test::single_qubit_mask(q, true, false));
             }
         }
         auto bounded = original;
@@ -481,12 +479,11 @@ TEST_CASE("Wide phase fallback retains narrow observer pullbacks", "[optimizer]"
 TEST_CASE("Wide phase budgets preserve the ordinary fallback and completed candidates",
           "[optimizer]") {
     const uint32_t width = 65;
-    HirModule original(width, 2 * width);
+    HirModule original(width);
     original.final_tableau.emplace(width);
     for (uint32_t repeat = 0; repeat < 2; ++repeat) {
         for (uint32_t q = 0; q < width; ++q) {
-            original.append_tgate(false,
-                                  [&](MutablePauliMaskView mask) { mask.x().bit_set(q, true); });
+            original.append_tgate(false, test::single_qubit_mask(q, true, false));
             original.source_map.push_back({q + repeat * width});
         }
     }
@@ -588,13 +585,12 @@ TEST_CASE("Wide phase cost rejection retains ordinary rewrites", "[optimizer]") 
 }
 
 TEST_CASE("Wide phase work allowance is shared across separated regions", "[optimizer]") {
-    HirModule hir(65, 261);
+    HirModule hir(65);
     hir.final_tableau.emplace(65);
     for (uint32_t region = 0; region < 2; ++region) {
         for (uint32_t repeat = 0; repeat < 2; ++repeat) {
             for (uint32_t q = 0; q < 65; ++q) {
-                hir.append_tgate(false,
-                                 [&](MutablePauliMaskView mask) { mask.x().bit_set(q, true); });
+                hir.append_tgate(false, test::single_qubit_mask(q, true, false));
             }
         }
         if (region == 0) {
@@ -664,7 +660,7 @@ TEST_CASE("Phase pass synthesizes quadratic Clifford remainder terms with exact 
 
 TEST_CASE("Phase pass elides synthesized rotations after pulling back final observers",
           "[optimizer]") {
-    HirModule hir(4, 17);
+    HirModule hir(4);
     hir.final_tableau.emplace(4);
     for (uint32_t term = 1; term <= 16; ++term) {
         const uint32_t parity = term == 16 ? 15 : term;

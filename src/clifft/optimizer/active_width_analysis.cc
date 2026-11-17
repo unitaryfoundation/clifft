@@ -113,15 +113,17 @@ DormantSubspace::DormantSubspace(uint32_t num_qubits)
     }
 }
 
-void DormantSubspace::compute_anticommuting_rows(MaskView x, MaskView z,
+void DormantSubspace::compute_anticommuting_rows(PauliMaskView body,
                                                  std::span<uint64_t> anti_out) const {
     if (words_per_row_ == 1) {
         uint64_t anti = 0;
-        for (uint64_t wx = x.words[0]; wx != 0; wx &= wx - 1) {
-            anti ^= col_z_[std::countr_zero(wx)];
-        }
-        for (uint64_t wz = z.words[0]; wz != 0; wz &= wz - 1) {
-            anti ^= col_x_[std::countr_zero(wz)];
+        for (const PauliWord& word : body) {
+            for (uint64_t wx = word.x; wx != 0; wx &= wx - 1) {
+                anti ^= col_z_[std::countr_zero(wx)];
+            }
+            for (uint64_t wz = word.z; wz != 0; wz &= wz - 1) {
+                anti ^= col_x_[std::countr_zero(wz)];
+            }
         }
         anti_out[0] = anti;
         return;
@@ -129,21 +131,16 @@ void DormantSubspace::compute_anticommuting_rows(MaskView x, MaskView z,
 
     std::ranges::fill(anti_out, uint64_t{0});
     const size_t active_rw = anti_out.size();
-    for (uint32_t w = 0; w < words_per_row_; ++w) {
-        const uint64_t wx = x.words[w];
-        const uint64_t wz = z.words[w];
-        if ((wx | wz) == 0) {
-            continue;
-        }
-        for (uint64_t m = wx; m != 0; m &= m - 1) {
-            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(m));
+    for (const PauliWord& word : body) {
+        for (uint64_t m = word.x; m != 0; m &= m - 1) {
+            const uint32_t q = word.index * 64 + static_cast<uint32_t>(std::countr_zero(m));
             const uint64_t* cz = col_z_.data() + static_cast<size_t>(q) * words_per_row_;
             for (size_t rw = 0; rw < active_rw; ++rw) {
                 anti_out[rw] ^= cz[rw];
             }
         }
-        for (uint64_t m = wz; m != 0; m &= m - 1) {
-            const uint32_t q = w * 64 + static_cast<uint32_t>(std::countr_zero(m));
+        for (uint64_t m = word.z; m != 0; m &= m - 1) {
+            const uint32_t q = word.index * 64 + static_cast<uint32_t>(std::countr_zero(m));
             const uint64_t* cx = col_x_.data() + static_cast<size_t>(q) * words_per_row_;
             for (size_t rw = 0; rw < active_rw; ++rw) {
                 anti_out[rw] ^= cx[rw];
@@ -152,28 +149,22 @@ void DormantSubspace::compute_anticommuting_rows(MaskView x, MaskView z,
     }
 }
 
-bool DormantSubspace::commutes_with_all(MaskView x, MaskView z, uint32_t* anticommuting_row) const {
-    assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
-           "Pauli body must share the subspace's word width");
+bool DormantSubspace::commutes_with_all(PauliMaskView body, uint32_t* anticommuting_row) const {
+    assert(body.end_word() <= words_per_row_ && "Pauli body is wider than the subspace");
     if (dimension_ == 0) {
         return true;
     }
 
     if (anticommuting_row && *anticommuting_row < dimension_) {
         const uint32_t r = *anticommuting_row;
-        const uint32_t rb = row_begin_[r];
-        const uint32_t re = row_end_[r];
-        if (anti_commute(MaskView{row_x(r).words.subspan(rb, re - rb)},
-                         MaskView{row_z(r).words.subspan(rb, re - rb)},
-                         MaskView{x.words.subspan(rb, re - rb)},
-                         MaskView{z.words.subspan(rb, re - rb)})) {
+        if (anti_commute(body, row_x(r), row_z(r))) {
             return false;
         }
     }
 
     const uint32_t active_rw = (dimension_ + 63) / 64;
     const std::span<uint64_t> anti(anti_scratch_.data(), active_rw);
-    compute_anticommuting_rows(x, z, anti);
+    compute_anticommuting_rows(body, anti);
     for (uint32_t rw = 0; rw < active_rw; ++rw) {
         if (anti[rw] != 0) {
             if (anticommuting_row) {
@@ -295,7 +286,7 @@ void DormantSubspace::erase_row(uint32_t k) {
     }
 }
 
-void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
+void DormantSubspace::reduce_into_scratch(PauliMaskView body) const {
     if (scratch_begin_ < scratch_end_) {
         std::fill(scratch_x_.begin() + scratch_begin_, scratch_x_.begin() + scratch_end_,
                   uint64_t{0});
@@ -305,26 +296,24 @@ void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
         scratch_end_ = 0;
     }
 
-    if (words_per_row_ == 0) {
+    if (body.is_identity()) {
         return;
     }
 
     // Each basis row is zero at every other row's pivot, so only pivots set in
-    // the input (x, z) participate in its reduction.
+    // the input body participate in its reduction.
     if (words_per_row_ == 1) {
-        uint64_t rx = x.words[0];
-        uint64_t rz = z.words[0];
-        if ((rx | rz) == 0) {
-            return;
-        }
-        for (uint64_t m = x.words[0]; m != 0; m &= m - 1) {
+        const PauliWord& word = body.words().front();
+        uint64_t rx = word.x;
+        uint64_t rz = word.z;
+        for (uint64_t m = word.x; m != 0; m &= m - 1) {
             const uint32_t owner = pivot_owner_[std::countr_zero(m)];
             if (owner != kNoOwner) {
                 rx ^= rows_x_[owner];
                 rz ^= rows_z_[owner];
             }
         }
-        for (uint64_t m = z.words[0]; m != 0; m &= m - 1) {
+        for (uint64_t m = word.z; m != 0; m &= m - 1) {
             const uint32_t owner = pivot_owner_[64 + std::countr_zero(m)];
             if (owner != kNoOwner) {
                 rx ^= rows_x_[owner];
@@ -357,24 +346,20 @@ void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
         se = std::max(se, re);
     };
 
-    for (uint32_t w = 0; w < words_per_row_; ++w) {
-        const uint64_t xw = x.words[w];
-        const uint64_t zw = z.words[w];
-        if ((xw | zw) == 0) {
-            continue;
-        }
-        scratch_x_[w] ^= xw;
-        scratch_z_[w] ^= zw;
+    for (const PauliWord& word : body) {
+        const uint32_t w = word.index;
+        scratch_x_[w] ^= word.x;
+        scratch_z_[w] ^= word.z;
         sb = std::min(sb, w);
         se = std::max(se, w + 1);
-        for (uint64_t m = xw; m != 0; m &= m - 1) {
+        for (uint64_t m = word.x; m != 0; m &= m - 1) {
             const uint32_t owner =
                 pivot_owner_[w * 64 + static_cast<uint32_t>(std::countr_zero(m))];
             if (owner != kNoOwner) {
                 xor_owner(owner);
             }
         }
-        for (uint64_t m = zw; m != 0; m &= m - 1) {
+        for (uint64_t m = word.z; m != 0; m &= m - 1) {
             const uint32_t owner =
                 pivot_owner_[domain + w * 64 + static_cast<uint32_t>(std::countr_zero(m))];
             if (owner != kNoOwner) {
@@ -395,16 +380,15 @@ void DormantSubspace::reduce_into_scratch(MaskView x, MaskView z) const {
     }
 }
 
-bool DormantSubspace::intersect(MaskView x, MaskView z, UndoLog* undo) {
-    assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
-           "Pauli body must share the subspace's word width");
+bool DormantSubspace::intersect(PauliMaskView body, UndoLog* undo) {
+    assert(body.end_word() <= words_per_row_ && "Pauli body is wider than the subspace");
     if (dimension_ == 0) {
         return false;
     }
 
     const uint32_t active_rw = (dimension_ + 63) / 64;
     const std::span<uint64_t> anti(anti_scratch_.data(), active_rw);
-    compute_anticommuting_rows(x, z, anti);
+    compute_anticommuting_rows(body, anti);
 
     std::optional<uint32_t> pivot_row;
     for_each_set_bit(MaskView{anti}, [&](uint32_t i) {
@@ -417,7 +401,7 @@ bool DormantSubspace::intersect(MaskView x, MaskView z, UndoLog* undo) {
     }
 
     // Using the largest pivot preserves the leading bits of all remaining
-    // rows when we cancel their anticommutation with (x, z).
+    // rows when we cancel their anticommutation with the body.
     const uint32_t k = *pivot_row;
     anti_scratch_[k / 64] &= ~(uint64_t{1} << (k % 64));
     const std::span<const uint64_t> anti_without_k(anti_scratch_.data(), active_rw);
@@ -510,20 +494,20 @@ void DormantSubspace::rollback(UndoLog& undo) {
     undo.clear();
 }
 
-bool DormantSubspace::apply_rotation(MaskView x, MaskView z, UndoLog* undo) {
-    return intersect(x, z, undo);
+bool DormantSubspace::apply_rotation(PauliMaskView axis, UndoLog* undo) {
+    return intersect(axis, undo);
 }
 
-DormantSubspace::MeasurementEffect DormantSubspace::apply_measurement(MaskView x, MaskView z,
+DormantSubspace::MeasurementEffect DormantSubspace::apply_measurement(PauliMaskView body,
                                                                       UndoLog* undo) {
-    if (intersect(x, z, undo)) {
+    if (intersect(body, undo)) {
         // The body anticommuted with the old S, so it is independent of the
         // remaining generators and its reduced remainder is nonzero.
-        reduce_into_scratch(x, z);
+        reduce_into_scratch(body);
         insert_reduced(undo);
         return MeasurementEffect::DormantRandom;
     }
-    reduce_into_scratch(x, z);
+    reduce_into_scratch(body);
     if (scratch_begin_ == scratch_end_) {
         return MeasurementEffect::Classical;
     }
@@ -543,10 +527,9 @@ std::vector<PauliString> DormantSubspace::generators() const {
     return result;
 }
 
-bool DormantSubspace::contains(MaskView x, MaskView z) const {
-    assert(x.num_words() == words_per_row_ && z.num_words() == words_per_row_ &&
-           "Pauli body must share the subspace's word width");
-    reduce_into_scratch(x, z);
+bool DormantSubspace::contains(PauliMaskView body) const {
+    assert(body.end_word() <= words_per_row_ && "Pauli body is wider than the subspace");
+    reduce_into_scratch(body);
     return scratch_begin_ == scratch_end_;
 }
 
@@ -625,21 +608,18 @@ WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
     switch (op.op_type()) {
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION: {
-            const MaskView x = hir.destab_mask(op);
-            const MaskView z = hir.stab_mask(op);
-            if (subspace.apply_rotation(x, z, undo)) {
+            const PauliMaskView axis = hir.mask_view(op);
+            if (subspace.apply_rotation(axis, undo)) {
                 return WidthTransition{before, subspace.active_width(),
                                        WidthEffect::RotationPromote};
             }
-            if (subspace.contains(x, z)) {
+            if (subspace.contains(axis)) {
                 return WidthTransition{before, before, WidthEffect::RotationStabilizer};
             }
             return WidthTransition{before, before, WidthEffect::RotationNeutral};
         }
         case OpType::MEASURE: {
-            const MaskView x = hir.destab_mask(op);
-            const MaskView z = hir.stab_mask(op);
-            switch (subspace.apply_measurement(x, z, undo)) {
+            switch (subspace.apply_measurement(hir.mask_view(op), undo)) {
                 case DormantSubspace::MeasurementEffect::DormantRandom:
                     return WidthTransition{before, before, WidthEffect::MeasureDormantRandom};
                 case DormantSubspace::MeasurementEffect::Classical:
@@ -652,17 +632,16 @@ WidthTransition classify_and_apply(const HirModule& hir, const HeisenbergOp& op,
             return WidthTransition{before, before, WidthEffect::None};
         }
         case OpType::INSTRUMENT: {
-            const MaskView x = hir.destab_mask(op);
-            const MaskView z = hir.stab_mask(op);
+            const PauliMaskView body = hir.mask_view(op);
             if (detail::instrument_damping_neglected(hir, op)) {
-                if (!subspace.commutes_with_all(x, z)) {
+                if (!subspace.commutes_with_all(body)) {
                     return WidthTransition{before, before, WidthEffect::InstrumentDormantTrap};
                 }
-            } else if (subspace.apply_rotation(x, z, undo)) {
+            } else if (subspace.apply_rotation(body, undo)) {
                 return WidthTransition{before, subspace.active_width(),
                                        WidthEffect::InstrumentActivate};
             }
-            if (subspace.contains(x, z)) {
+            if (subspace.contains(body)) {
                 return WidthTransition{before, before, WidthEffect::InstrumentClassical};
             }
             return WidthTransition{before, before, WidthEffect::InstrumentActive};

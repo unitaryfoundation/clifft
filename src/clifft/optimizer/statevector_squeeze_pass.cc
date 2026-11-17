@@ -41,15 +41,14 @@ bool has_inline_pauli_mask(const HeisenbergOp& op) {
 
 // Per-word union of X and Z channel bits for each noise site, populated on
 // first query. If a Pauli has zero bitwise overlap with `(ux & az) | (uz & ax)`
-// on every word in its nonzero range, it commutes with every channel of the
-// site without reading individual channel masks. Single-word registers store
-// flat 64-bit X/Z unions directly instead of building sparse word-entry lists.
+// on every word it stores, it commutes with every channel of the site without
+// reading individual channel masks. Single-word registers store flat 64-bit
+// X/Z unions directly instead of building sparse word lists.
 class NoiseSupport {
   public:
     explicit NoiseSupport(const HirModule& hir)
         : hir_(hir),
-          single_word_(std::max(hir.pauli_masks.num_words(), hir.noise_channel_masks.num_words()) <=
-                       1),
+          single_word_(hir.noise_channel_masks.num_words() <= 1),
           known_(hir.noise_sites.size(), 0) {
         if (single_word_) {
             single_ux_.assign(hir.noise_sites.size(), 0);
@@ -61,31 +60,20 @@ class NoiseSupport {
         }
     }
 
-    [[nodiscard]] bool misses(uint32_t site, const PauliCommutation& axis) {
-        if (axis.begin_word() == axis.end_word()) {
+    [[nodiscard]] bool misses(uint32_t site, PauliMaskView axis) {
+        if (axis.is_identity()) {
             return true;
         }
         ensure(site);
-        const MaskView ax = axis.x();
-        const MaskView az = axis.z();
         if (single_word_) {
-            return ((single_ux_[site] & az.words[0]) | (single_uz_[site] & ax.words[0])) == 0;
+            const PauliWord& word = axis.words().front();
+            return ((single_ux_[site] & word.z) | (single_uz_[site] & word.x)) == 0;
         }
-        const uint32_t offset = offsets_[site];
-        const uint32_t end = offset + counts_[site];
-        for (uint32_t i = offset; i < end; ++i) {
-            const WordEntry& e = entries_[i];
-            if (e.word < axis.begin_word()) {
-                continue;
-            }
-            if (e.word >= axis.end_word()) {
-                break;
-            }
-            if (((e.ux & az.words[e.word]) | (e.uz & ax.words[e.word])) != 0) {
-                return false;
-            }
-        }
-        return true;
+        bool hit = false;
+        for_each_common_word(support(site), axis, [&](const PauliWord& u, const PauliWord& a) {
+            hit |= ((u.x & a.z) | (u.z & a.x)) != 0;
+        });
+        return !hit;
     }
 
     void add_to_union(uint32_t site, std::vector<uint64_t>& ux, std::vector<uint64_t>& uz) {
@@ -97,21 +85,17 @@ class NoiseSupport {
             }
             return;
         }
-        const uint32_t offset = offsets_[site];
-        const uint32_t end = offset + counts_[site];
-        for (uint32_t i = offset; i < end; ++i) {
-            const WordEntry& e = entries_[i];
-            ux[e.word] |= e.ux;
-            uz[e.word] |= e.uz;
+        for (const PauliWord& e : support(site)) {
+            ux[e.index] |= e.x;
+            uz[e.index] |= e.z;
         }
     }
 
   private:
-    struct WordEntry {
-        uint32_t word = 0;
-        uint64_t ux = 0;
-        uint64_t uz = 0;
-    };
+    // The union of a site's channels, stored like a Pauli mask.
+    [[nodiscard]] PauliMaskView support(uint32_t site) const {
+        return PauliMaskView{{entries_.data() + offsets_[site], counts_[site]}, false};
+    }
 
     void ensure(uint32_t site) {
         if (!known_[site]) {
@@ -124,10 +108,9 @@ class NoiseSupport {
             uint64_t ux = 0;
             uint64_t uz = 0;
             for (const auto& ch : hir_.noise_sites[site].channels) {
-                const auto view = hir_.noise_channel_masks.at(ch.mask);
-                if (view.x().num_words() != 0) {
-                    ux |= view.x().words[0];
-                    uz |= view.z().words[0];
+                for (const PauliWord& word : hir_.noise_channel_masks.at(ch.mask)) {
+                    ux |= word.x;
+                    uz |= word.z;
                 }
             }
             single_ux_[site] = ux;
@@ -138,28 +121,12 @@ class NoiseSupport {
 
         scratch_.clear();
         for (const auto& ch : hir_.noise_sites[site].channels) {
-            const auto view = hir_.noise_channel_masks.at(ch.mask);
-            for (uint32_t w = 0; w < view.x().num_words(); ++w) {
-                const uint64_t ux = view.x().words[w];
-                const uint64_t uz = view.z().words[w];
-                if ((ux | uz) != 0) {
-                    scratch_.push_back({w, ux, uz});
-                }
-            }
+            const auto words = hir_.noise_channel_masks.at(ch.mask).words();
+            scratch_.insert(scratch_.end(), words.begin(), words.end());
         }
-        if (scratch_.size() > 1) {
-            std::sort(scratch_.begin(), scratch_.end(),
-                      [](const WordEntry& a, const WordEntry& b) { return a.word < b.word; });
-        }
+        merge_union(scratch_);
         const uint32_t start = static_cast<uint32_t>(entries_.size());
-        for (const WordEntry& e : scratch_) {
-            if (entries_.size() > start && entries_.back().word == e.word) {
-                entries_.back().ux |= e.ux;
-                entries_.back().uz |= e.uz;
-            } else {
-                entries_.push_back(e);
-            }
-        }
+        entries_.insert(entries_.end(), scratch_.begin(), scratch_.end());
         offsets_[site] = start;
         counts_[site] = static_cast<uint32_t>(entries_.size() - start);
         known_[site] = 1;
@@ -172,26 +139,26 @@ class NoiseSupport {
     std::vector<uint64_t> single_uz_;
     std::vector<uint32_t> offsets_;
     std::vector<uint32_t> counts_;
-    std::vector<WordEntry> entries_;
-    std::vector<WordEntry> scratch_;
+    std::vector<PauliWord> entries_;
+    std::vector<PauliWord> scratch_;
 };
 
-// Equivalent to can_swap(moving, other, hir, &axis) for a measurement or
-// expansion: neither has classical or positional barriers against a NOISE op,
-// so disjoint channel-support unions short-circuit before scanning channels,
-// and all other commutation and hazard rules stay in can_swap().
+// Equivalent to can_swap(moving, other, hir) for a measurement or
+// expansion whose mask is `axis`: neither has classical or positional barriers
+// against a NOISE op, so disjoint channel-support unions short-circuit before
+// scanning channels, and all other commutation and hazard rules stay in can_swap().
 bool can_cross(const HirModule& hir, NoiseSupport& noise, const HeisenbergOp& moving,
-               const HeisenbergOp& other, const PauliCommutation& axis) {
+               const HeisenbergOp& other, PauliMaskView axis) {
     assert(moving.op_type() == OpType::MEASURE || is_expansion(moving));
     if (other.op_type() == OpType::NOISE &&
         noise.misses(static_cast<uint32_t>(other.noise_site_idx()), axis)) {
         return true;
     }
-    return can_swap(moving, other, hir, &axis);
+    return can_swap(moving, other, hir);
 }
 
 bool can_bypass_to(const HirModule& hir, NoiseSupport& noise, size_t moving, size_t target,
-                   const PauliCommutation& axis) {
+                   PauliMaskView axis) {
     assert(moving < target && target < hir.ops.size());
     assert(!is_expansion(hir.ops[target]));
     if (!can_cross(hir, noise, hir.ops[moving], hir.ops[target], axis)) {
@@ -263,12 +230,9 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                 noise.add_to_union(static_cast<uint32_t>(op.noise_site_idx()), bucket.ux,
                                    bucket.uz);
             } else if (has_inline_pauli_mask(op)) {
-                const MaskView x = hir.destab_mask(op);
-                const MaskView z = hir.stab_mask(op);
-                const PauliCommutation span(x, z);
-                for (uint32_t w = span.begin_word(); w < span.end_word(); ++w) {
-                    bucket.ux[w] |= x.words[w];
-                    bucket.uz[w] |= z.words[w];
+                for (const PauliWord& word : hir.mask_view(op)) {
+                    bucket.ux[word.index] |= word.x;
+                    bucket.uz[word.index] |= word.z;
                 }
             }
         };
@@ -330,9 +294,7 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                 continue;
             }
 
-            const MaskView ax = hir.destab_mask(op);
-            const MaskView az = hir.stab_mask(op);
-            const PauliCommutation axis(ax, az);
+            const PauliMaskView axis = hir.mask_view(op);
             const uint32_t rec = static_cast<uint32_t>(op.meas_record_idx());
             const size_t min_bucket =
                 (rec < last_classical_op.size() && last_classical_op[rec] != kNoOp)
@@ -348,12 +310,10 @@ void StatevectorSqueezePass::run(HirModule& hir) {
                 if (bucket.has_barrier) {
                     return true;
                 }
-                for (uint32_t w = axis.begin_word(); w < axis.end_word(); ++w) {
-                    if (((bucket.ux[w] & az.words[w]) | (bucket.uz[w] & ax.words[w])) != 0) {
-                        return true;
-                    }
-                }
-                return false;
+                return std::ranges::any_of(axis.words(), [&](const PauliWord& word) {
+                    return ((bucket.ux[word.index] & word.z) | (bucket.uz[word.index] & word.x)) !=
+                           0;
+                });
             };
 
             size_t dest_bucket = 0;
@@ -450,7 +410,7 @@ void StatevectorSqueezePass::run(HirModule& hir) {
 
     for (size_t i = num_ops - 2;; --i) {
         if (is_expansion(hir.ops[i]) && !non_expansions.empty() && non_expansions.back() > i) {
-            const PauliCommutation axis(hir.destab_mask(hir.ops[i]), hir.stab_mask(hir.ops[i]));
+            const PauliMaskView axis = hir.mask_view(hir.ops[i]);
             size_t curr = i;
             while (curr < num_ops - 1) {
                 // Crossing another expansion is useful only when it lets

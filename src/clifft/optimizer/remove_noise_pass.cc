@@ -27,10 +27,8 @@ void RemoveNoisePass::run(HirModule& hir) {
 
     hir.noise_sites.clear();
     hir.readout_noise.clear();
-    // The noise_channel_masks arena is fixed-capacity and references can't
-    // be dropped without dropping the arena itself. Replace with an empty
-    // arena so the slots don't sit around as dead weight after removal.
-    hir.noise_channel_masks = PauliMaskArena{};
+    // No site references a channel mask any more, so release their storage.
+    hir.noise_channel_masks = PauliMaskArena(hir.num_qubits);
     // Noise positions are irrelevant once all noise has been removed.
     hir.logical_noise_prefix.clear();
 }

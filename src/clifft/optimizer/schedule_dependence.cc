@@ -26,7 +26,7 @@ bool is_movable_op(OpType type) {
 // Check noise transparency first: a type check avoids walking noise-channel
 // masks when sign correction already makes the crossing legal.
 bool allowed(const HirModule& hir, const HeisenbergOp& left, const HeisenbergOp& right,
-             bool noise_transparent, const PauliCommutation* right_axis = nullptr) {
+             bool noise_transparent) {
     if (noise_transparent) {
         const bool left_noise = left.op_type() == OpType::NOISE;
         const bool right_noise = right.op_type() == OpType::NOISE;
@@ -36,7 +36,7 @@ bool allowed(const HirModule& hir, const HeisenbergOp& left, const HeisenbergOp&
             return true;
         }
     }
-    return can_swap(right, left, hir, right_axis);
+    return can_swap(right, left, hir);
 }
 
 void append_unique_back(std::vector<uint32_t>& vec, uint32_t val) {
@@ -101,10 +101,7 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
         // register inspects only potential conflicts.
         const size_t num_record_slots =
             static_cast<size_t>(hir.num_measurements) + hir.num_hidden_measurements;
-        const uint32_t noise_words =
-            dep.noise_transparent_ ? 0u : hir.noise_channel_masks.num_words();
-        const uint32_t mask_words = std::max(hir.pauli_masks.num_words(), noise_words);
-        const size_t num_bit_slots = static_cast<size_t>(mask_words) * 64;
+        const size_t num_bit_slots = static_cast<size_t>(hir.pauli_masks.num_words()) * 64;
 
         std::array<ConflictIndex, 2> index;
         for (ConflictIndex& idx : index) {
@@ -113,8 +110,8 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
             idx.with_slot.resize(num_record_slots);
         }
         std::vector<uint32_t> barriers;
-        std::vector<uint64_t> noise_x(noise_words, 0);
-        std::vector<uint64_t> noise_z(noise_words, 0);
+        // Union of one noise site's channel masks, stored like a Pauli mask.
+        std::vector<PauliWord> noise_support;
         std::vector<std::span<const uint32_t>> candidate_spans;
         std::vector<uint32_t> candidates;
 
@@ -172,33 +169,25 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
                 continue;
             }
 
-            std::optional<PauliCommutation> j_support;
+            // Qubits whose X or Z bits can make op_j conflict with another op.
+            PauliMaskView j_support;
             if (type_j == OpType::T_GATE || type_j == OpType::PHASE_ROTATION ||
                 type_j == OpType::MEASURE || type_j == OpType::CONDITIONAL_PAULI) {
-                j_support.emplace(hir.destab_mask(op_j), hir.stab_mask(op_j));
+                j_support = hir.mask_view(op_j);
             } else if (type_j == OpType::NOISE) {
-                MutableMaskView ux{noise_x};
-                MutableMaskView uz{noise_z};
-                ux.zero_out();
-                uz.zero_out();
+                noise_support.clear();
                 for (const NoiseChannel& ch :
                      hir.noise_sites[static_cast<uint32_t>(op_j.noise_site_idx())].channels) {
-                    const PauliMaskView cv = hir.noise_channel_masks.at(ch.mask);
-                    ux.or_with(cv.x());
-                    uz.or_with(cv.z());
+                    const auto words = hir.noise_channel_masks.at(ch.mask).words();
+                    noise_support.insert(noise_support.end(), words.begin(), words.end());
                 }
-                j_support.emplace(ux, uz);
+                merge_union(noise_support);
+                j_support = PauliMaskView{noise_support, false};
             }
-            const PauliCommutation* j_axis_ptr =
-                (j_support && type_j != OpType::NOISE) ? &*j_support : nullptr;
 
             auto for_each_support = [&](auto&& on_x, auto&& on_z, auto&& on_slot) {
-                if (j_support) {
-                    for_each_set_bit(j_support->x(), j_support->begin_word(), j_support->end_word(),
-                                     on_x);
-                    for_each_set_bit(j_support->z(), j_support->begin_word(), j_support->end_word(),
-                                     on_z);
-                }
+                j_support.x().for_each_set_bit(on_x);
+                j_support.z().for_each_set_bit(on_z);
                 switch (type_j) {
                     case OpType::MEASURE:
                         on_slot(static_cast<uint32_t>(op_j.meas_record_idx()));
@@ -251,7 +240,7 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
                         const int bit = 63 - std::countl_zero(mask);
                         mask &= ~(uint64_t{1} << bit);
                         const auto i = static_cast<uint32_t>(w * 64 + static_cast<size_t>(bit));
-                        if (!allowed(hir, hir.ops[i], op_j, dep.noise_transparent_, j_axis_ptr)) {
+                        if (!allowed(hir, hir.ops[i], op_j, dep.noise_transparent_)) {
                             link(i);
                             // Skip ancestors just absorbed by link().
                             mask &= ~rj[w];
@@ -311,7 +300,7 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
                     }
                     for (uint32_t i : candidates) {
                         if ((rj[i / 64] & (uint64_t{1} << (i % 64))) == 0 &&
-                            !allowed(hir, hir.ops[i], op_j, dep.noise_transparent_, j_axis_ptr)) {
+                            !allowed(hir, hir.ops[i], op_j, dep.noise_transparent_)) {
                             link(i);
                         }
                     }

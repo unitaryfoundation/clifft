@@ -662,12 +662,13 @@ TEST_CASE("Dormant commutation queries agree across word boundaries", "[active_w
             REQUIRE(subspace.commutes_with_all(p) == expected);
             // Reuse hints across basis changes and unrelated queries, as
             // speculative scheduler branches do. Invalid hints are safe too.
-            REQUIRE(subspace.commutes_with_all(p.x(), p.z(), &hint) == expected);
+            const PauliMask body(p.x(), p.z(), false);
+            REQUIRE(subspace.commutes_with_all(body, &hint) == expected);
             uint32_t invalid_hint = n + 1;
-            REQUIRE(subspace.commutes_with_all(p.x(), p.z(), &invalid_hint) == expected);
+            REQUIRE(subspace.commutes_with_all(body, &invalid_hint) == expected);
             for (const auto& g : generators) {
                 REQUIRE(subspace.commutes_with_all(g));
-                REQUIRE(subspace.commutes_with_all(g.x(), g.z(), &hint));
+                REQUIRE(subspace.commutes_with_all(PauliMask(g.x(), g.z(), false), &hint));
             }
             if (step % 3 == 0) {
                 subspace.apply_rotation(p);
@@ -709,8 +710,8 @@ TEST_CASE("Dormant updates agree with an embedded small reference across word bo
             const PauliString query = random_pauli_string(rng, 8);
             REQUIRE(subspace.commutes_with_all(embed(query)) == reference.commutes_with_all(query));
             const PauliString wide_query = embed(query);
-            REQUIRE(subspace.commutes_with_all(wide_query.x(), wide_query.z(), &hint) ==
-                    reference.commutes_with_all(query));
+            REQUIRE(subspace.commutes_with_all(PauliMask(wide_query.x(), wide_query.z(), false),
+                                               &hint) == reference.commutes_with_all(query));
             REQUIRE(subspace.contains(embed(query)) == reference.contains(query));
         }
     }
@@ -742,10 +743,11 @@ TEST_CASE("DormantSubspace maintains row-column invariants and exact rollback ac
                         spec.set_pauli(q, (bits & 1U) != 0, (bits & 2U) != 0);
                     }
                 }
+                const PauliMask body(spec.x(), spec.z(), false);
                 if ((rng() & 1U) != 0) {
-                    subspace.apply_rotation(spec.x(), spec.z(), &undo);
+                    subspace.apply_rotation(body, &undo);
                 } else {
-                    subspace.apply_measurement(spec.x(), spec.z(), &undo);
+                    subspace.apply_measurement(body, &undo);
                 }
                 REQUIRE_NOTHROW(subspace.verify_invariants());
             }

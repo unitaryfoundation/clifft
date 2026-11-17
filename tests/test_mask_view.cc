@@ -3,6 +3,7 @@
 #include "clifft/util/pauli_arena.h"
 #include "clifft/util/symplectic.h"
 
+#include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
@@ -17,7 +18,7 @@ using clifft::lowest_bit_below;
 using clifft::MaskView;
 using clifft::mut_view;
 using clifft::MutableMaskView;
-using clifft::MutablePauliMaskView;
+using clifft::PauliMask;
 using clifft::PauliMaskArena;
 using clifft::PauliMaskHandle;
 using clifft::PauliMaskView;
@@ -195,104 +196,281 @@ TEST_CASE("mut_view adapter: writes through to BitMask") {
 }
 
 // =========================================================================
+// Sparse Pauli masks
+// =========================================================================
+
+namespace {
+
+struct DensePauli {
+    std::vector<uint64_t> x;
+    std::vector<uint64_t> z;
+};
+
+// A random Pauli that leaves most words empty, like a local operator on a
+// wide register.
+DensePauli random_sparse_pauli(std::mt19937_64& rng, size_t words) {
+    DensePauli pauli{std::vector<uint64_t>(words, 0), std::vector<uint64_t>(words, 0)};
+    for (size_t w = 0; w < words; ++w) {
+        if (rng() % 3 == 0) {
+            pauli.x[w] = rng() & rng();
+            pauli.z[w] = rng() & rng();
+        }
+    }
+    return pauli;
+}
+
+PauliMask sparse(const DensePauli& pauli, bool sign = false) {
+    return PauliMask(MaskView{pauli.x}, MaskView{pauli.z}, sign);
+}
+
+}  // namespace
+
+TEST_CASE("PauliMask stores only the nonzero words of a dense Pauli") {
+    std::vector<uint64_t> x(80, 0);
+    std::vector<uint64_t> z(80, 0);
+    x[0] = 1ULL << 5;
+    z[78] = 1ULL << 7;
+    const PauliMask mask(MaskView{x}, MaskView{z}, true);
+    const PauliMaskView view = mask;
+
+    REQUIRE(view.words().size() == 2);
+    REQUIRE(view.sign());
+    REQUIRE_FALSE(view.is_identity());
+    REQUIRE(view.begin_word() == 0);
+    REQUIRE(view.end_word() == 79);
+    REQUIRE(view.x().bit_get(5));
+    REQUIRE_FALSE(view.z().bit_get(5));
+    REQUIRE(view.z().bit_get(78 * 64 + 7));
+    REQUIRE_FALSE(view.x().bit_get(40 * 64));
+    REQUIRE(view.x().popcount() == 1);
+    REQUIRE(view.x() == MaskView{x});
+    REQUIRE(view.z() == MaskView{z});
+
+    // The dense round trip restores every word.
+    std::vector<uint64_t> rx(80, 0);
+    std::vector<uint64_t> rz(80, 0);
+    view.xor_into(MutableMaskView{rx}, MutableMaskView{rz});
+    REQUIRE(rx == x);
+    REQUIRE(rz == z);
+}
+
+TEST_CASE("PauliMask identity has no words and keeps its sign") {
+    const std::vector<uint64_t> zeros(4, 0);
+    const PauliMask mask(MaskView{zeros}, MaskView{zeros}, true);
+    REQUIRE(mask.view().is_identity());
+    REQUIRE(mask.view().sign());
+    REQUIRE(mask.view().x().is_zero());
+    REQUIRE(mask.view().begin_word() == mask.view().end_word());
+    REQUIRE_FALSE(mask.view() == PauliMask().view());
+    REQUIRE(same_body(mask, PauliMask()));
+}
+
+TEST_CASE("PauliMask toggle keeps words sorted and drops emptied words") {
+    PauliMask mask;
+    mask.toggle(700, true, false);
+    mask.toggle(3, false, true);
+    mask.toggle(130, true, true);
+    REQUIRE(mask.view().words().size() == 3);
+    REQUIRE(std::ranges::is_sorted(mask.view().words(), {}, &clifft::PauliWord::index));
+    REQUIRE(mask.view().x().bit_get(700));
+    REQUIRE(mask.view().z().bit_get(3));
+    REQUIRE(mask.view().x().bit_get(130));
+    REQUIRE(mask.view().z().bit_get(130));
+
+    mask.toggle(130, true, false);
+    REQUIRE(mask.view().words().size() == 3);
+    REQUIRE(mask.view().z().bit_get(130));
+    mask.toggle(130, false, true);
+    REQUIRE(mask.view().words().size() == 2);
+    REQUIRE_FALSE(mask.view().z().bit_get(130));
+}
+
+TEST_CASE("Sparse Pauli algebra agrees with dense word arithmetic") {
+    std::mt19937_64 rng(90417);
+    constexpr size_t words = 9;
+    for (size_t trial = 0; trial < 200; ++trial) {
+        const DensePauli a = random_sparse_pauli(rng, words);
+        const DensePauli b = random_sparse_pauli(rng, words);
+        const PauliMask sa = sparse(a);
+        const PauliMask sb = sparse(b);
+
+        const bool dense_anti =
+            clifft::anti_commute(MaskView{a.x}, MaskView{a.z}, MaskView{b.x}, MaskView{b.z});
+        CHECK(clifft::anti_commute(sa.view(), sb.view()) == dense_anti);
+        CHECK(clifft::anti_commute(sa.view(), MaskView{b.x}, MaskView{b.z}) == dense_anti);
+
+        bool dense_overlap = false;
+        DensePauli product = a;
+        for (size_t w = 0; w < words; ++w) {
+            dense_overlap |= ((a.x[w] | a.z[w]) & (b.x[w] | b.z[w])) != 0;
+            product.x[w] ^= b.x[w];
+            product.z[w] ^= b.z[w];
+        }
+        CHECK(clifft::supports_overlap(sa, sb) == dense_overlap);
+
+        PauliMask multiplied = sa;
+        multiplied.multiply_body(sb);
+        CHECK(same_body(multiplied, sparse(product)));
+        // Multiplying twice by the same Pauli restores the original body.
+        multiplied.multiply_body(sb);
+        CHECK(same_body(multiplied, sa));
+
+        CHECK((sa.view().x() == sb.view().x()) == (a.x == b.x));
+        CHECK((sa.view() == sb.view()) == (a.x == b.x && a.z == b.z));
+    }
+}
+
+TEST_CASE("DensePauliScratch holds exactly the last loaded Pauli") {
+    std::mt19937_64 rng(5521);
+    constexpr size_t words = 12;
+    clifft::DensePauliScratch scratch(words);
+    for (size_t trial = 0; trial < 50; ++trial) {
+        const DensePauli pauli = random_sparse_pauli(rng, words);
+        const PauliMask mask = sparse(pauli);
+        scratch.load(mask);
+        REQUIRE(scratch.x() == MaskView{pauli.x});
+        REQUIRE(scratch.z() == MaskView{pauli.z});
+        REQUIRE(scratch.begin_word() == mask.view().begin_word());
+        REQUIRE(scratch.end_word() == mask.view().end_word());
+    }
+    scratch.load(PauliMaskView{});
+    REQUIRE(scratch.x().is_zero());
+    REQUIRE(scratch.z().is_zero());
+}
+
+// =========================================================================
 // PauliMaskArena
 // =========================================================================
 
-TEST_CASE("PauliMaskArena: capacity and width are fixed at construction") {
-    PauliMaskArena arena(128, 5);
-    REQUIRE(arena.num_words() == 2);
-    REQUIRE(arena.size() == 5);
-}
-
-TEST_CASE("PauliMaskArena: per-handle storage is independent") {
-    PauliMaskArena arena(256, 2);
-    auto m0 = arena.mut_at(PauliMaskHandle{0});
-    auto m1 = arena.mut_at(PauliMaskHandle{1});
-
-    m0.x().bit_set(5, true);
-    m0.z().bit_set(200, true);
-    m0.set_sign(true);
-
-    REQUIRE(m0.x().bit_get(5));
-    REQUIRE(m0.z().bit_get(200));
-    REQUIRE(m0.sign());
-
-    REQUIRE(m1.x().is_zero());
-    REQUIRE(m1.z().is_zero());
-    REQUIRE_FALSE(m1.sign());
-}
-
-TEST_CASE("PauliMaskArena: const at returns read-only view") {
-    PauliMaskArena arena(64, 1);
-    arena.mut_at(PauliMaskHandle{0}).x().bit_set(3, true);
-    arena.mut_at(PauliMaskHandle{0}).set_sign(true);
-
-    const PauliMaskArena& carena = arena;
-    auto cm = carena.at(PauliMaskHandle{0});
-    REQUIRE(cm.x().bit_get(3));
-    REQUIRE(cm.z().is_zero());
-    REQUIRE(cm.sign());
-}
-
-TEST_CASE("PauliMaskArena: 1024-qubit width with high-bit storage") {
-    // The arena accepts arbitrary widths and rounds up to whole words.
-    PauliMaskArena arena(1024, 1);
-    REQUIRE(arena.num_words() == 16);
-    arena.mut_at(PauliMaskHandle{0}).x().bit_set(1023, true);
-    REQUIRE(arena.at(PauliMaskHandle{0}).x().bit_get(1023));
-    REQUIRE(arena.at(PauliMaskHandle{0}).x().lowest_bit() == 1023);
-}
-
-TEST_CASE("PauliMaskArena: zero-width arena is well-formed") {
-    PauliMaskArena arena(0, 3);
-    REQUIRE(arena.num_words() == 0);
-    REQUIRE(arena.size() == 3);
-    auto m = arena.mut_at(PauliMaskHandle{1});
-    REQUIRE(m.x().num_words() == 0);
-    REQUIRE(m.x().is_zero());
-    m.set_sign(true);
-    REQUIRE(arena.at(PauliMaskHandle{1}).sign());
-}
-
-TEST_CASE("PauliMaskArena: zero-mask arena is well-formed") {
-    PauliMaskArena arena(64, 0);
+TEST_CASE("PauliMaskArena: appended masks read back unchanged") {
+    std::mt19937_64 rng(31337);
+    constexpr size_t words = 20;
+    PauliMaskArena arena(words * 64);
+    REQUIRE(arena.num_words() == words);
     REQUIRE(arena.size() == 0);
+
+    std::vector<PauliMask> expected;
+    std::vector<PauliMaskHandle> handles;
+    for (size_t i = 0; i < 3000; ++i) {
+        expected.push_back(sparse(random_sparse_pauli(rng, words), rng() & 1));
+        handles.push_back(arena.append(expected.back()));
+    }
+    REQUIRE(arena.size() == expected.size());
+    for (size_t i = 0; i < expected.size(); ++i) {
+        REQUIRE(arena.at(handles[i]) == expected[i].view());
+    }
 }
 
-TEST_CASE("PauliMaskArena: mutable view converts implicitly to const view") {
-    PauliMaskArena arena(64, 1);
-    auto mv = arena.mut_at(PauliMaskHandle{0});
-    mv.x().bit_set(7, true);
-    PauliMaskView cv = mv;
-    REQUIRE(cv.x().bit_get(7));
+TEST_CASE("PauliMaskArena: views stay valid while other masks change") {
+    std::mt19937_64 rng(77);
+    constexpr size_t words = 6;
+    PauliMaskArena arena(words * 64);
+    const PauliMask first = sparse(random_sparse_pauli(rng, words), true);
+    const PauliMaskHandle first_handle = arena.append(first);
+    const PauliMaskView held = arena.at(first_handle);
+
+    // Enough appends and growing reassignments to open many new chunks.
+    std::vector<PauliMaskHandle> others;
+    for (size_t i = 0; i < 20000; ++i) {
+        others.push_back(arena.append(sparse(random_sparse_pauli(rng, words))));
+    }
+    for (PauliMaskHandle h : others) {
+        PauliMask grown(arena.at(h));
+        for (uint32_t w = 0; w < words; ++w) {
+            grown.toggle(w * 64 + 1, true, false);
+        }
+        arena.assign(h, grown);
+    }
+    REQUIRE(held == first.view());
+    REQUIRE(arena.at(first_handle) == first.view());
 }
 
-TEST_CASE("PauliMaskArena: const view stays live after sign mutation through mutable view") {
-    // Regression: sign() must read through the arena slot, not capture
-    // the value at construction. If sign_ ever reverts to a copied bool,
-    // the const view here would miss the post-conversion update.
-    PauliMaskArena arena(64, 1);
-    auto mv = arena.mut_at(PauliMaskHandle{0});
-    PauliMaskView cv = mv;
-    REQUIRE_FALSE(cv.sign());
-    mv.set_sign(true);
-    REQUIRE(cv.sign());
-    mv.set_sign(false);
-    REQUIRE_FALSE(cv.sign());
+TEST_CASE("PauliMaskArena: reassignment replaces one mask only") {
+    PauliMaskArena arena(256);
+    const PauliMask a(uint64_t{0b101}, uint64_t{0}, false);
+    PauliMask wide;
+    wide.toggle(5, true, false);
+    wide.toggle(70, false, true);
+    wide.toggle(200, true, true);
+    const PauliMaskHandle ha = arena.append(a);
+    const PauliMaskHandle hb = arena.append(wide);
+    const PauliMaskHandle hc = arena.append(PauliMask());
+
+    // Shrink, grow, and clear in turn; the neighbours never change.
+    arena.assign(hb, a);
+    REQUIRE(arena.at(hb) == a.view());
+    arena.assign(hc, wide);
+    REQUIRE(arena.at(hc) == wide.view());
+    arena.assign(ha, PauliMask());
+    REQUIRE(arena.at(ha).is_identity());
+    REQUIRE(arena.at(hb) == a.view());
+    REQUIRE(arena.at(hc) == wide.view());
+
+    arena.assign(hb, wide);
+    REQUIRE(arena.at(hb) == wide.view());
+    REQUIRE(arena.at(hc) == wide.view());
+
+    // Assigning a mask its own view changes at most the sign.
+    arena.assign(hc, PauliMaskView{arena.at(hc).words(), true});
+    REQUIRE(same_body(arena.at(hc), wide));
+    REQUIRE(arena.at(hc).sign());
 }
 
-TEST_CASE("PauliMaskArena: const views compare by value") {
-    PauliMaskArena a(128, 1);
-    PauliMaskArena b(128, 1);
-    REQUIRE(a.at(PauliMaskHandle{0}) == b.at(PauliMaskHandle{0}));
+TEST_CASE("PauliMaskArena: set_sign leaves the body alone") {
+    PauliMaskArena arena(64);
+    const PauliMaskHandle h = arena.append(PauliMask(uint64_t{8}, uint64_t{1}, false));
+    arena.set_sign(h, true);
+    REQUIRE(arena.at(h).sign());
+    REQUIRE(arena.at(h).x().bit_get(3));
+    REQUIRE(arena.at(h).z().bit_get(0));
+    arena.set_sign(h, false);
+    REQUIRE(arena.at(h) == PauliMask(uint64_t{8}, uint64_t{1}, false).view());
+}
 
-    a.mut_at(PauliMaskHandle{0}).x().bit_set(65, true);
-    REQUIRE_FALSE(a.at(PauliMaskHandle{0}) == b.at(PauliMaskHandle{0}));
-    b.mut_at(PauliMaskHandle{0}).x().bit_set(65, true);
-    REQUIRE(a.at(PauliMaskHandle{0}) == b.at(PauliMaskHandle{0}));
+TEST_CASE("PauliMaskArena: copies are independent and equal") {
+    std::mt19937_64 rng(4242);
+    constexpr size_t words = 5;
+    PauliMaskArena original(words * 64);
+    std::vector<PauliMaskHandle> handles;
+    for (size_t i = 0; i < 500; ++i) {
+        handles.push_back(original.append(sparse(random_sparse_pauli(rng, words), rng() & 1)));
+    }
+    PauliMask grown(original.at(handles[3]));
+    grown.toggle(64 * 4 + 9, true, true);
 
-    a.mut_at(PauliMaskHandle{0}).set_sign(true);
-    REQUIRE_FALSE(a.at(PauliMaskHandle{0}) == b.at(PauliMaskHandle{0}));
+    // Copy once from a freshly built arena and once after a reassignment has
+    // moved a mask to new storage.
+    for (bool reassigned : {false, true}) {
+        CAPTURE(reassigned);
+        if (reassigned) {
+            original.assign(handles[3], grown);
+        }
+        PauliMaskArena copy = original;
+        REQUIRE(copy.size() == original.size());
+        REQUIRE(copy.num_words() == original.num_words());
+        for (PauliMaskHandle h : handles) {
+            REQUIRE(copy.at(h) == original.at(h));
+        }
+
+        const PauliMask kept(original.at(handles[0]));
+        copy.assign(handles[0], PauliMask());
+        const PauliMaskHandle appended = copy.append(grown);
+        REQUIRE(copy.at(handles[0]).is_identity());
+        REQUIRE(copy.at(appended) == grown.view());
+        REQUIRE(original.size() == handles.size());
+        REQUIRE(original.at(handles[0]) == kept.view());
+    }
+}
+
+TEST_CASE("PauliMaskArena: zero-width and empty arenas are well-formed") {
+    PauliMaskArena arena;
+    REQUIRE(arena.num_words() == 0);
+    REQUIRE(arena.size() == 0);
+    const PauliMaskHandle h = arena.append(PauliMaskView{{}, true});
+    REQUIRE(arena.at(h).is_identity());
+    REQUIRE(arena.at(h).sign());
+    const PauliMaskArena copy = arena;
+    REQUIRE(copy.at(h) == arena.at(h));
 }
 
 // =========================================================================

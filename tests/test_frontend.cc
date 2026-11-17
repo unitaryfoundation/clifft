@@ -652,7 +652,9 @@ TEST_CASE("Frontend: high-qubit Pauli bits survive the runtime-arena round trip"
     REQUIRE(hir.ops.size() == 2);
     REQUIRE(hir.ops[0].op_type() == OpType::T_GATE);
     REQUIRE(hir.destab_mask(hir.ops[0]).bit_get(kHigh));
-    REQUIRE(hir.destab_mask(hir.ops[0]).num_words() == 200 / 64 + 1);
+    REQUIRE(hir.pauli_masks.num_words() == 200 / 64 + 1);
+    // The mask stores the one word that holds q150, not the register width.
+    REQUIRE(hir.mask_view(hir.ops[0]).words().size() == 1);
 
     // M 199 after H 199: rewound Z on q199 becomes X on q199.
     REQUIRE(hir.ops[1].op_type() == OpType::MEASURE);

@@ -6,6 +6,7 @@
 // other.
 
 #include "clifft/util/mask_view.h"
+#include "clifft/util/pauli_mask.h"
 
 #include <bit>
 #include <cassert>
@@ -40,10 +41,9 @@ class PauliCommutation {
         }
     }
 
-    [[nodiscard]] bool references(MaskView x, MaskView z) const {
-        return x.words.data() == x_.words.data() && z.words.data() == z_.words.data() &&
-               x.num_words() == x_.num_words() && z.num_words() == z_.num_words();
-    }
+    // The Pauli held by a dense scratch, whose nonzero word range is known.
+    explicit PauliCommutation(const DensePauliScratch& dense)
+        : x_(dense.x()), z_(dense.z()), begin_(dense.begin_word()), end_(dense.end_word()) {}
 
     [[nodiscard]] MaskView x() const { return x_; }
     [[nodiscard]] MaskView z() const { return z_; }
