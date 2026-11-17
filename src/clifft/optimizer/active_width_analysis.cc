@@ -494,6 +494,48 @@ void DormantSubspace::rollback(UndoLog& undo) {
     undo.clear();
 }
 
+DormantSubspace::Snapshot DormantSubspace::snapshot() const {
+    Snapshot result;
+    result.pivots_.assign(pivot_.begin(), pivot_.begin() + dimension_);
+    result.row_ends_.reserve(dimension_);
+    for (uint32_t i = 0; i < dimension_; ++i) {
+        const uint64_t* rx = rows_x_.data() + static_cast<size_t>(i) * words_per_row_;
+        const uint64_t* rz = rows_z_.data() + static_cast<size_t>(i) * words_per_row_;
+        for (uint32_t w = row_begin_[i]; w < row_end_[i]; ++w) {
+            if ((rx[w] | rz[w]) != 0) {
+                result.words_.push_back({w, rx[w], rz[w]});
+            }
+        }
+        result.row_ends_.push_back(result.words_.size());
+    }
+    return result;
+}
+
+void DormantSubspace::restore(const Snapshot& snapshot) {
+    assert(snapshot.pivots_.size() <= num_qubits_ && "snapshot is from a wider subspace");
+    while (dimension_ > 0) {
+        clear_row(--dimension_);
+    }
+    size_t begin = 0;
+    for (const size_t end : snapshot.row_ends_) {
+        const std::span<const PauliWord> words(snapshot.words_.data() + begin, end - begin);
+        begin = end;
+        assert(!words.empty() && words.back().index < words_per_row_);
+        const uint32_t row = dimension_++;
+        uint64_t* rx = rows_x_.data() + static_cast<size_t>(row) * words_per_row_;
+        uint64_t* rz = rows_z_.data() + static_cast<size_t>(row) * words_per_row_;
+        for (const PauliWord& word : words) {
+            rx[word.index] = word.x;
+            rz[word.index] = word.z;
+        }
+        row_begin_[row] = words.front().index;
+        row_end_[row] = words.back().index + 1;
+        toggle_row_in_cols(row, rx, rz, row_begin_[row], row_end_[row]);
+        pivot_[row] = snapshot.pivots_[row];
+        pivot_owner_[pivot_[row]] = row;
+    }
+}
+
 bool DormantSubspace::apply_rotation(PauliMaskView axis, UndoLog* undo) {
     return intersect(axis, undo);
 }

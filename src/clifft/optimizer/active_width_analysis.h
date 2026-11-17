@@ -56,6 +56,20 @@ class DormantSubspace {
         std::vector<uint64_t> words_;
     };
 
+    // A copy of S that stores each generator as its nonzero words, so it costs
+    // memory in proportion to the generators' support. A search that keeps
+    // many alternative subspaces holds snapshots and restores one at a time
+    // into a single working DormantSubspace.
+    class Snapshot {
+      private:
+        friend class DormantSubspace;
+
+        std::vector<uint32_t> pivots_;
+        // Row i owns words_[row_ends_[i - 1], row_ends_[i]).
+        std::vector<size_t> row_ends_;
+        std::vector<PauliWord> words_;
+    };
+
     explicit DormantSubspace(uint32_t num_qubits);
 
     DormantSubspace(const DormantSubspace&) = default;
@@ -99,6 +113,11 @@ class DormantSubspace {
 
     // Reverses all mutations recorded in `undo` in LIFO order and clears `undo`.
     void rollback(UndoLog& undo);
+
+    [[nodiscard]] Snapshot snapshot() const;
+    // Replaces S with a snapshot taken from a subspace on the same register.
+    // The basis rows return in their original order with their original pivots.
+    void restore(const Snapshot& snapshot);
 
     // Returns unsigned generators. Bases need not match element-for-element;
     // compare subspaces by checking mutual containment of their generators.

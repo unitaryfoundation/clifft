@@ -778,6 +778,66 @@ TEST_CASE("DormantSubspace maintains row-column invariants and exact rollback ac
     }
 }
 
+TEST_CASE("DormantSubspace snapshots restore the exact basis into any subspace of the same width",
+          "[active_width]") {
+    for (const uint32_t n : {0u, 1u, 63u, 64u, 65u, 128u, 195u}) {
+        Xoshiro256PlusPlus rng(0x5A47C0DEU + n);
+        const auto random_update = [&](DormantSubspace& target) {
+            PauliString body(n);
+            if (n > 0) {
+                const uint32_t weight = 1 + static_cast<uint32_t>(rng() % 5);
+                for (uint32_t w = 0; w < weight; ++w) {
+                    const uint64_t bits = rng();
+                    body.set_pauli(static_cast<uint32_t>(rng() % n), (bits & 1U) != 0,
+                                   (bits & 2U) != 0);
+                }
+            }
+            if ((rng() & 1U) != 0) {
+                target.apply_rotation(body);
+            } else {
+                target.apply_measurement(body);
+            }
+        };
+
+        DormantSubspace subspace(n);
+        // A second subspace that has diverged, as another beam state would.
+        DormantSubspace other(n);
+        for (uint32_t step = 0; step < 40; ++step) {
+            CAPTURE(n, step);
+            for (uint32_t i = 0; i < 1 + rng() % 4; ++i) {
+                random_update(subspace);
+                random_update(other);
+            }
+            const DormantSubspace::Snapshot saved = subspace.snapshot();
+            const std::vector<PauliString> generators = subspace.generators();
+            const uint32_t width = subspace.active_width();
+
+            // Restoring replaces whatever the target held, including itself
+            // after further updates.
+            other.restore(saved);
+            REQUIRE_NOTHROW(other.verify_invariants());
+            REQUIRE(other.active_width() == width);
+            REQUIRE(other.generators() == generators);
+
+            for (uint32_t i = 0; i < 1 + rng() % 4; ++i) {
+                random_update(subspace);
+            }
+            subspace.restore(saved);
+            REQUIRE_NOTHROW(subspace.verify_invariants());
+            REQUIRE(subspace.active_width() == width);
+            REQUIRE(subspace.generators() == generators);
+
+            // Both copies evolve identically from the restored state.
+            PauliString probe(n);
+            if (n > 0) {
+                probe.set_pauli(static_cast<uint32_t>(rng() % n), true, (rng() & 1U) != 0);
+            }
+            REQUIRE(subspace.apply_measurement(probe) == other.apply_measurement(probe));
+            REQUIRE(subspace.generators() == other.generators());
+        }
+    }
+}
+
 TEST_CASE("summarize_active_width agrees with full trace and dense work across circuits and orders",
           "[active_width]") {
     auto require_summary_matches = [](const HirModule& hir) {

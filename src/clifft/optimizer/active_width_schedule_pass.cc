@@ -297,25 +297,67 @@ void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace
 }
 
 // A partial schedule after closure, with accumulated costs and replay state.
+// Its dormant subspace is stored as a snapshot; WorkingSubspace holds the one
+// dense copy that scoring and replay operate on.
 
 struct BeamState {
-    BeamState(SearchFrontier frontier_in, DormantSubspace subspace_in)
-        : frontier(std::move(frontier_in)), subspace(std::move(subspace_in)) {}
+    explicit BeamState(SearchFrontier frontier_in) : frontier(std::move(frontier_in)) {}
 
     SearchFrontier frontier;
-    DormantSubspace subspace;
+    DormantSubspace::Snapshot subspace;
+    // Distinguishes states so the working subspace knows which one it holds.
+    uint64_t id = 0;
     uint32_t peak = 0;
     double dense_work = 0.0;
     std::vector<uint32_t> order;
 };
 
+// The dense dormant subspace shared by every beam state. A dense subspace
+// costs O(num_qubits^2) bits, so the search keeps one and moves it between
+// states instead of giving each state its own.
+class WorkingSubspace {
+  public:
+    explicit WorkingSubspace(uint32_t num_qubits) : subspace_(num_qubits) {}
+
+    // The dense subspace before any state exists: the span of Z on every qubit.
+    DormantSubspace& initial() {
+        assert(next_id_ == 1 && "the working subspace already holds a beam state");
+        return subspace_;
+    }
+
+    // Make the dense subspace equal to the state's, then return it. The
+    // caller must either leave it unchanged or call store() afterwards.
+    DormantSubspace& load(const BeamState& state) {
+        if (loaded_ != state.id) {
+            subspace_.restore(state.subspace);
+            loaded_ = state.id;
+        }
+        return subspace_;
+    }
+
+    // Record the dense subspace, as left by the caller, as the state's.
+    void store(BeamState& state) {
+        state.id = next_id_++;
+        state.subspace = subspace_.snapshot();
+        loaded_ = state.id;
+    }
+
+  private:
+    DormantSubspace subspace_;
+    // Beam states take ids from one upward; zero matches no state.
+    uint64_t loaded_ = 0;
+    uint64_t next_id_ = 1;
+};
+
 BeamState make_initial_beam_state(const HirModule& hir,
-                                  const detail::ScheduleDependence& dependence, SearchWork& work) {
-    BeamState state(SearchFrontier(dependence), DormantSubspace(hir.num_qubits));
+                                  const detail::ScheduleDependence& dependence,
+                                  WorkingSubspace& working, SearchWork& work) {
+    BeamState state{SearchFrontier(dependence)};
     std::vector<UndoStep> discarded_log;
     std::vector<uint32_t> discarded_newly_ready;
-    run_closure(hir, state.frontier, state.subspace, state.order, discarded_log,
+    run_closure(hir, state.frontier, working.initial(), state.order, discarded_log,
                 discarded_newly_ready, work, state.peak, state.dense_work);
+    working.store(state);
     return state;
 }
 
@@ -349,8 +391,10 @@ struct ScoredCandidate {
 // candidates never copy either structure. Stop comparing alternatives at the
 // swept-op threshold.
 std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& parent,
-                                              uint32_t parent_index, SearchWork& work) {
+                                              uint32_t parent_index, WorkingSubspace& working,
+                                              SearchWork& work) {
     std::vector<ScoredCandidate> scored;
+    DormantSubspace& subspace = working.load(parent);
     DormantSubspace::UndoLog subspace_undo;
     std::vector<UndoStep> log;
     std::vector<uint32_t> newly_ready_log;
@@ -368,7 +412,7 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
         candidate.ops.push_back(op);
 
         const WidthTransition first_transition =
-            classify_and_apply(hir, hir.ops[op], parent.subspace, &subspace_undo);
+            classify_and_apply(hir, hir.ops[op], subspace, &subspace_undo);
         assert(is_expanding_effect(first_transition.effect) &&
                "score_candidates chose a ready op is_expanding did not classify as expanding");
         candidate.peak = std::max(parent.peak, first_transition.after);
@@ -377,13 +421,13 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
                                                                 first_transition.before,
                                                                 first_transition.after);
 
-        run_closure(hir, parent.frontier, parent.subspace, candidate.ops, log, newly_ready_log,
-                    work, candidate.peak, candidate.dense_work, &subspace_undo);
+        run_closure(hir, parent.frontier, subspace, candidate.ops, log, newly_ready_log, work,
+                    candidate.peak, candidate.dense_work, &subspace_undo);
 
-        candidate.width_after_closure = parent.subspace.active_width();
+        candidate.width_after_closure = subspace.active_width();
         candidate.executed_bits = parent.frontier.executed_bits();
 
-        parent.subspace.rollback(subspace_undo);
+        subspace.rollback(subspace_undo);
         undo_all(parent.frontier, log, newly_ready_log);
         scored.push_back(std::move(candidate));
 
@@ -399,7 +443,8 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
 // Charge replay to the swept-op budget as well as speculative execution.
 BeamState materialize_candidate(const HirModule& hir, std::vector<BeamState>& beam,
                                 const ScoredCandidate& candidate, bool steal_parent,
-                                SearchWork& work) {
+                                WorkingSubspace& working, SearchWork& work) {
+    DormantSubspace& subspace = working.load(beam[candidate.parent_index]);
     BeamState state =
         steal_parent ? std::move(beam[candidate.parent_index]) : beam[candidate.parent_index];
     state.order.reserve(state.order.size() + candidate.ops.size());
@@ -408,15 +453,16 @@ BeamState materialize_candidate(const HirModule& hir, std::vector<BeamState>& be
     std::vector<uint32_t> discarded_newly_ready;
     for (uint32_t op : candidate.ops) {
         state.frontier.execute(op, discarded_newly_ready);
-        const WidthTransition transition = classify_and_apply(hir, hir.ops[op], state.subspace);
+        const WidthTransition transition = classify_and_apply(hir, hir.ops[op], subspace);
         state.peak = std::max(state.peak, transition.after);
         state.dense_work +=
             detail::dense_work_contribution(transition.effect, transition.before, transition.after);
         state.order.push_back(op);
         ++work.swept_ops;
     }
+    working.store(state);
 
-    assert(state.subspace.active_width() == candidate.width_after_closure &&
+    assert(subspace.active_width() == candidate.width_after_closure &&
            "materialize_candidate's replay disagrees with score_candidates' speculative width");
     assert(state.peak == candidate.peak &&
            "materialize_candidate's replay disagrees with score_candidates' speculative peak");
@@ -508,8 +554,9 @@ void append_pareto_front(const std::vector<BeamState>& beam,
 std::vector<uint32_t> run_beam_search(const HirModule& hir,
                                       const detail::ScheduleDependence& dependence,
                                       uint32_t beam_width, SearchWork& work) {
+    WorkingSubspace working(hir.num_qubits);
     std::vector<BeamState> beam;
-    beam.push_back(make_initial_beam_state(hir, dependence, work));
+    beam.push_back(make_initial_beam_state(hir, dependence, working, work));
 
     std::optional<BeamState> best;
     while (!beam.empty()) {
@@ -518,18 +565,20 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
         if (beam.size() == 1 && beam.front().frontier.lowest_ready() < dependence.num_ops() &&
             (work.greedy() || (!work.limit && beam.front().frontier.has_single_ready()))) {
             BeamState& state = beam.front();
+            DormantSubspace& subspace = working.load(state);
             const uint32_t op = state.frontier.lowest_ready();
             std::vector<uint32_t> newly_ready;
             state.frontier.execute(op, newly_ready);
             state.order.push_back(op);
             ++work.swept_ops;
-            const WidthTransition transition = classify_and_apply(hir, hir.ops[op], state.subspace);
+            const WidthTransition transition = classify_and_apply(hir, hir.ops[op], subspace);
             state.peak = std::max(state.peak, transition.after);
             state.dense_work += detail::dense_work_contribution(
                 transition.effect, transition.before, transition.after);
             std::vector<UndoStep> log;
-            run_closure(hir, state.frontier, state.subspace, state.order, log, newly_ready, work,
+            run_closure(hir, state.frontier, subspace, state.order, log, newly_ready, work,
                         state.peak, state.dense_work);
+            working.store(state);
             continue;
         }
 
@@ -542,7 +591,7 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
                 parent_has_candidates.resize(beam.size());
                 break;
             }
-            std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i, work);
+            std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i, working, work);
             if (!scored.empty()) {
                 parent_has_candidates[i] = true;
                 for (ScoredCandidate& candidate : scored) {
@@ -614,7 +663,8 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
         next_beam.reserve(take);
         for (size_t i = 0; i < take; ++i) {
             const bool steal_parent = (--parent_uses[deduped[i].parent_index] == 0);
-            next_beam.push_back(materialize_candidate(hir, beam, deduped[i], steal_parent, work));
+            next_beam.push_back(
+                materialize_candidate(hir, beam, deduped[i], steal_parent, working, work));
         }
         beam = std::move(next_beam);
     }
