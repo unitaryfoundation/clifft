@@ -19,6 +19,28 @@
 namespace clifft::test {
 namespace {
 
+std::string sample_pauli_channel_3_instruction() {
+    std::string line = "PAULI_CHANNEL_3(";
+    for (int i = 0; i < 63; ++i) {
+        if (i != 0)
+            line += ",";
+        if (i == 0)
+            line += "0.03";  // IIX
+        else if (i == 6)
+            line += "0.05";  // IXZ
+        else if (i == 26)
+            line += "0.07";  // XYZ
+        else if (i == 41)
+            line += "0.04";  // YYY
+        else if (i == 62)
+            line += "0.06";  // ZZZ
+        else
+            line += "0";
+    }
+    line += ") 0 1 2\n";
+    return line;
+}
+
 std::vector<std::string> reconstruction_law_cases() {
     return {
         "",
@@ -37,6 +59,24 @@ std::vector<std::string> reconstruction_law_cases() {
         "H 0\nT 0\nM 0\nDETECTOR rec[-1]\nREADOUT_NOISE(0.25) rec[-1]\nCX rec[-1] 1\nM "
         "1\nOBSERVABLE_INCLUDE(0) rec[-1]\n",
         "H 0\nT 0\nMX 0\nREPEAT 2 {\nCZ rec[-1] 0\nT_DAG 0\nMX 0\n}\nDETECTOR rec[-3] rec[-1]\n",
+        "R_X(0.19) 0\nZ_ERROR(0.22) 0\nR_Y(-0.31) 1\nX_ERROR(0.18) 1\nCX 0 1\nR_Z(0.43) 1\n"
+        "M(0.12) 0\nCZ rec[-1] 1\nMY 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n",
+        "H 0\nX_ERROR(0.21) 0\nU3(0.31,-0.47,0.19) 0\nU3(0.5,0.13,1.0) 1\nCX 0 1\n"
+        "U3(0.0,-0.5,0.29) 1\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]\n",
+        "H 0 1\nDEPOLARIZE2(0.24) 0 1\nR_XX(0.17) 0 1\nR_YY(-0.29) 0 1\nR_ZZ(0.5) 0 1\n"
+        "R_XX(1.0) 0 1\nR_YY(0.0) 0 1\nMX 0\nMY 1\nDETECTOR rec[-2] rec[-1]\n",
+        "H 0 1 2\nY_ERROR(0.19) 1\nSPP X0*!Y1*Z2\nTPP !Z0*X1\nTPP_DAG Y1*!Z2\n"
+        "SPP_DAG !X0*!Z2\nR_PAULI(0.23) !X0*Y1*Z2\nR_PAULI(0.5) !Y0*X2\n"
+        "R_PAULI(1.0) !X0*Z1*Y2\nR_PAULI(0.0) X0*Y1\nM 0 1 2\n"
+        "DETECTOR rec[-3] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]\n",
+        "H 0 1 2\nR_X(0.21) 0\nDEPOLARIZE3(0.315) 0 1 2\nR_PAULI(-0.27) X0*!Y1*Z2\n"
+        "MR(0.15) 1\nCX rec[-1] 2\nU3(0.5,0.5,-0.19) 2\nM 2\n"
+        "DETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n",
+        "H 0 1 2\nTPP X0*Y1*Z2\n" + sample_pauli_channel_3_instruction() +
+            "E(0.16) Z0*X2\nELSE_CORRELATED_ERROR(0.25) Y1*Z2\nR_ZZ(-0.37) 0 2\n"
+            "SPP !Y0*X1\nMX 0\nM 2\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(1) rec[-1]\n",
+        "H 0\nR_Z(0.23) 0\nMPAD(0.18) 1\nMPAD(0.12) !0\nCX rec[-2] 0\nMX 0\n"
+        "DETECTOR rec[-3] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2] rec[-1]\n",
     };
 }
 
@@ -127,6 +167,7 @@ std::map<uint64_t, double> reconstructed_law(const GlobalReconstruction& r) {
 void check_joint_law(const std::string& text) {
     const auto circuit = parse(text);
     const auto expected = compute_dense_circuit_distribution(circuit);
+    const auto traced = compute_exact_plan_distribution(sampling::plan_sampling(trace(circuit)));
     for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
         const auto result = reconstruct_global_sampling(circuit, mode);
         INFO(result.fallback_reason);
@@ -136,7 +177,9 @@ void check_joint_law(const std::string& text) {
                 (mode == ReconstructionOutputs::Records ? circuit.num_measurements : 0));
         REQUIRE(r.outputs.num_detectors == circuit.num_detectors);
         REQUIRE(r.outputs.num_observables == circuit.num_observables);
-        require_same_law(reconstructed_law(r), output_law(expected, r.outputs));
+        const auto actual = reconstructed_law(r);
+        require_same_law(actual, output_law(expected, r.outputs));
+        require_same_law(actual, output_law(traced, r.outputs));
     }
 }
 
@@ -241,22 +284,28 @@ TEST_CASE("Global reconstruction preserves padded constants", "[reconstruction]"
 
 TEST_CASE("Global reconstruction matches mixed small instruments", "[reconstruction]") {
     Xoshiro256PlusPlus rng(34972);
-    const std::vector<std::string> single{"H", "S", "S_DAG", "T",  "T_DAG", "X",
-                                          "Y", "Z", "R",     "RX", "RY"};
-    const std::vector<std::string> pairs{"CX", "CY", "CZ", "SWAP"};
+    const std::vector<std::string> single{
+        "H",  "S",         "S_DAG",      "T",        "T_DAG",
+        "X",  "Y",         "Z",          "R",        "RX",
+        "RY", "R_X(0.19)", "R_Y(-0.31)", "R_Z(0.5)", "U3(0.21,-0.37,0.5)"};
+    const std::vector<std::string> pairs{"CX", "CY", "CZ", "SWAP", "R_XX(0.23)", "R_ZZ(-0.5)"};
+    const std::vector<std::string> products{"SPP X0*!Y1", "SPP_DAG Y1*Z2", "TPP !X0*Z2",
+                                            "R_PAULI(-0.29) !X0*Y1*Z2"};
     const std::vector<std::string> measurements{"M", "MX", "MY", "MR", "MRX", "MRY"};
     for (uint32_t trial = 0; trial < 32; ++trial) {
         std::string text = "H 0\nT 0\n";
         uint32_t records = 0;
         for (uint32_t step = 0; step < 12; ++step) {
             const auto q = rng() % 3;
-            const auto choice = rng() % 5;
+            const auto choice = rng() % 6;
             if (choice < 2) {
                 text += single[rng() % single.size()] + " " + std::to_string(q) + "\n";
             } else if (choice == 2) {
                 text += pairs[rng() % pairs.size()] + " " + std::to_string(q) + " " +
                         std::to_string((q + 1) % 3) + "\n";
-            } else if (choice == 3 || records == 0) {
+            } else if (choice == 3) {
+                text += products[rng() % products.size()] + "\n";
+            } else if (choice == 4 || records == 0) {
                 text += measurements[rng() % measurements.size()] + " " + (rng() % 2 ? "!" : "") +
                         std::to_string(q) + "\n";
                 ++records;
@@ -264,7 +313,7 @@ TEST_CASE("Global reconstruction matches mixed small instruments", "[reconstruct
                 text += "CZ rec[-1] " + std::to_string(q) + "\n";
             }
             if (step == 5)
-                text += "Y_ERROR(0.27) 1\n";
+                text += (trial % 2 == 0) ? "Y_ERROR(0.27) 1\n" : "DEPOLARIZE3(0.21) 0 1 2\n";
         }
         text += "M 0 1 2\nDETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3] rec[-1]\n";
         INFO(text);
@@ -274,7 +323,7 @@ TEST_CASE("Global reconstruction matches mixed small instruments", "[reconstruct
 
 TEST_CASE("Global reconstruction rejects unsupported preservation requirements",
           "[reconstruction]") {
-    for (const auto& text : {"H 0\nT 0\nEXP_VAL X0\n", "R_X(0.13) 0\nM 0\n",
+    for (const auto& text : {"H 0\nT 0\nEXP_VAL X0\n", "LEAKAGE(0.1) 0\nM 0\n",
                              "M 0\nREADOUT_NOISE(0.1,0.2) rec[-1]\n"}) {
         const auto result =
             reconstruct_global_sampling(parse(text), ReconstructionOutputs::Records);
@@ -468,45 +517,135 @@ TEST_CASE("Reconstructed output snapshots do not require the source circuit", "[
 
 TEST_CASE("Global reconstruction lowering preserves reference and rejection mass",
           "[reconstruction]") {
-    const auto source = parse(
+    const std::vector<std::string> sources{
         "H 0\nT 0\nMX 0\nX_ERROR(0.2) 1\nM 1\nDETECTOR rec[-2]\nDETECTOR rec[-1] "
-        "rec[-2]\nOBSERVABLE_INCLUDE(1) rec[-2]\n");
+        "rec[-2]\nOBSERVABLE_INCLUDE(1) rec[-2]\n",
+        "R_X(0.21) 0\nU3(0.5,-0.5,0.17) 1\nH 2\nDEPOLARIZE3(0.252) 0 1 2\n"
+        "R_PAULI(-0.29) !X0*Y1*Z2\nSPP !Y0*Z2\nM(0.12) 2\n"
+        "DETECTOR rec[-1]\nDETECTOR\n"
+        "OBSERVABLE_INCLUDE(0) rec[-1]\nOBSERVABLE_INCLUDE(1) rec[-1]\n",
+        "U3(0.29,0.5,-0.19) 0\nE(0.18) X0*Z1\nELSE_CORRELATED_ERROR(0.25) Y1\n"
+        "MRX(0.11) 0\nCX rec[-1] 1\nR_PAULI(0.37) !Y0*Z1\nM 1\n"
+        "DETECTOR rec[-2] rec[-1]\nDETECTOR rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-2]\nOBSERVABLE_INCLUDE(1) rec[-1]\n",
+    };
     const auto expected_detectors = std::vector<uint8_t>{1, 0};
     const auto expected_observables = std::vector<uint8_t>{1, 1};
-    for (const auto& mask :
-         {std::vector<uint8_t>{0, 0}, std::vector<uint8_t>{1, 0}, std::vector<uint8_t>{1, 1}}) {
-        const auto expected = compute_dense_circuit_distribution(
-            source, {mask, expected_detectors, expected_observables});
-        for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
-            const auto r = reconstruct_global_sampling(source, mode);
-            REQUIRE(r.reconstruction.has_value());
-            PostselectionMetadata meta;
-            meta.mask = mask;
-            meta.expected_detectors = expected_detectors;
-            meta.expected_observables = expected_observables;
-            const auto lowered = lower_global_reconstruction(*r.reconstruction, meta);
-            REQUIRE(lowered.hir.has_value());
-            const auto actual =
-                compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
-            REQUIRE_THAT(actual.discarded_probability,
-                         Catch::Matchers::WithinAbs(expected.discarded_probability, 2e-12));
-            std::map<uint64_t, double> want, got;
-            auto key = [&](const ExactShotOutcome& o) {
-                return (mode == ReconstructionOutputs::Records ? o.visible_records : 0) |
-                       (o.detectors << 2) | (o.observables << 4);
-            };
-            for (const auto& e : expected.kept_outcomes)
-                want[key(e.outcome)] += e.probability;
-            for (const auto& e : actual.kept_outcomes)
-                got[key(e.outcome)] += e.probability;
-            for (auto [k, p] : want) {
-                REQUIRE_THAT(got[k], Catch::Matchers::WithinAbs(p, 2e-12));
-                got.erase(k);
+    for (const auto& text : sources) {
+        INFO(text);
+        const auto source = parse(text);
+        for (const auto& mask : {std::vector<uint8_t>{0, 0}, std::vector<uint8_t>{1, 0},
+                                 std::vector<uint8_t>{0, 1}, std::vector<uint8_t>{1, 1}}) {
+            const auto expected = compute_dense_circuit_distribution(
+                source, {mask, expected_detectors, expected_observables});
+            for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
+                const auto r = reconstruct_global_sampling(source, mode);
+                REQUIRE(r.reconstruction.has_value());
+                PostselectionMetadata meta;
+                meta.mask = mask;
+                meta.expected_detectors = expected_detectors;
+                meta.expected_observables = expected_observables;
+                const auto lowered = lower_global_reconstruction(*r.reconstruction, meta);
+                REQUIRE(lowered.hir.has_value());
+                const uint32_t det_shift = source.num_measurements;
+                const uint32_t obs_shift = det_shift + source.num_detectors;
+                auto key = [&](const ExactShotOutcome& o) {
+                    return (mode == ReconstructionOutputs::Records ? o.visible_records : 0) |
+                           (o.detectors << det_shift) | (o.observables << obs_shift);
+                };
+                auto check_plan = [&](const sampling::SamplingPlan& plan) {
+                    const auto actual = compute_exact_plan_distribution(plan);
+                    REQUIRE_THAT(actual.discarded_probability,
+                                 Catch::Matchers::WithinAbs(expected.discarded_probability, 2e-12));
+                    std::map<uint64_t, double> want, got;
+                    for (const auto& e : expected.kept_outcomes)
+                        want[key(e.outcome)] += e.probability;
+                    for (const auto& e : actual.kept_outcomes)
+                        got[key(e.outcome)] += e.probability;
+                    for (auto [k, p] : want) {
+                        REQUIRE_THAT(got[k], Catch::Matchers::WithinAbs(p, 2e-12));
+                        got.erase(k);
+                    }
+                    for (auto [k, p] : got)
+                        REQUIRE_THAT(p, Catch::Matchers::WithinAbs(0, 2e-12));
+                };
+                // Check raw lowered HIR directly whenever its hidden-record count
+                // fits PreparedReplayPlan's 12-record enumeration cap; wider
+                // multi-channel cases also run default HIR passes to prune records.
+                const auto raw_plan = sampling::plan_sampling(*lowered.hir);
+                if (raw_plan.num_visible_records + raw_plan.num_hidden_records <= 12) {
+                    check_plan(raw_plan);
+                }
+                auto hir = *lowered.hir;
+                default_hir_pass_manager().run(hir);
+                check_plan(sampling::plan_sampling(hir));
             }
-            for (auto [k, p] : got)
-                REQUIRE_THAT(p, Catch::Matchers::WithinAbs(0, 2e-12));
         }
     }
+}
+
+TEST_CASE("Global reconstruction absorbs Clifford angle multiples and signed axes",
+          "[reconstruction]") {
+    // Identity rotations on untouched qubits must not allocate dilation wires,
+    // magic ancillas, or hidden projective measurements, and Clifford multiples
+    // (including values within kRotationCanonicalizationTolerance) must keep
+    // reconstructed active width at zero.
+    const auto clifford_source = parse(
+        "R_Z(0.0) 100\n"
+        "R_PAULI(2.0) !X101*Y102\n"
+        "U3(0.0, -2.0, 2.0) 103\n"
+        "H 0 1 2\n"
+        "DEPOLARIZE3(0.189) 0 1 2\n"
+        "R_X(0.5000000000004) 0\n"
+        "R_Y(-0.4999999999996) 1\n"
+        "R_Z(1.0000000000004) 2\n"
+        "U3(0.5, -1.5, 1.0) 0\n"
+        "R_XX(0.5) 0 1\n"
+        "R_YY(-0.5) 1 2\n"
+        "R_ZZ(1.0) 0 2\n"
+        "SPP !X0*Y1*Z2\n"
+        "SPP_DAG !Y0*!Z1\n"
+        "R_PAULI(0.5) !X0*Z2\n"
+        "R_PAULI(-0.5) X1*!Y2\n"
+        "R_PAULI(1.0) !X0*Y1*Z2\n"
+        "R_PAULI(0.0000000000004) X0*Y1*Z2\n"
+        "M 0 2\n"
+        "DETECTOR rec[-2] rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-1]\n");
+    for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
+        const auto res = reconstruct_global_sampling(clifford_source, mode);
+        INFO(res.fallback_reason);
+        REQUIRE(res.reconstruction.has_value());
+        const auto& r = *res.reconstruction;
+        // 3 active source wires + 2 measurement ancillas; untouched 100..103 stay unallocated.
+        REQUIRE(r.dilation_qubits == 5);
+        REQUIRE(r.peak_active_width == 0);
+        REQUIRE(std::ranges::none_of(
+            r.operations, [](const ReconstructionOperation& op) { return op.half_turns != 0.0; }));
+
+        const auto lowered = lower_global_reconstruction(r);
+        REQUIRE(lowered.hir.has_value());
+        const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+        const auto expected =
+            compute_exact_plan_distribution(sampling::plan_sampling(trace(clifford_source)));
+        require_same_law(output_law(actual, r.outputs), output_law(expected, r.outputs));
+    }
+
+    // Angles outside kRotationCanonicalizationTolerance remain genuine rotations.
+    const auto outside_tolerance = parse("H 0\nR_Z(0.500000000002) 0\nMX 0\nDETECTOR rec[-1]\n");
+    const auto non_clifford =
+        reconstruct_global_sampling(outside_tolerance, ReconstructionOutputs::Records);
+    REQUIRE(non_clifford.reconstruction.has_value());
+    REQUIRE(std::ranges::any_of(
+        non_clifford.reconstruction->operations,
+        [](const ReconstructionOperation& op) { return op.half_turns != 0.0; }));
+    const auto lowered = lower_global_reconstruction(*non_clifford.reconstruction);
+    REQUIRE(lowered.hir.has_value());
+    const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+    const auto expected =
+        compute_exact_plan_distribution(sampling::plan_sampling(trace(outside_tolerance)));
+    require_same_law(output_law(actual, non_clifford.reconstruction->outputs),
+                     output_law(expected, non_clifford.reconstruction->outputs));
 }
 
 TEST_CASE("Reconstruction lowering reports bounded preparation failures", "[reconstruction]") {
@@ -795,6 +934,70 @@ TEST_CASE("Global reconstruction dilation propagates fault signs for every named
             require_same_law(output_law(actual, res.reconstruction->outputs),
                              output_law(expected, res.reconstruction->outputs));
         }
+    }
+}
+
+TEST_CASE("Global reconstruction handles multi-target AST nodes and identity no-ops",
+          "[reconstruction]") {
+    Circuit circuit;
+    circuit.num_qubits = 6;
+    circuit.num_measurements = 5;
+    circuit.num_detectors = 1;
+    circuit.num_observables = 1;
+    // Identity no-ops on untouched qubits must not allocate dilation wires.
+    circuit.nodes.push_back({GateType::I, {Target::qubit(3), Target::qubit(4)}, {}});
+    circuit.nodes.push_back({GateType::II, {Target::qubit(4), Target::qubit(5)}, {}});
+    circuit.nodes.push_back({GateType::I_ERROR, {Target::qubit(5)}, {0.4}});
+    // Broadcast multi-target nodes across Clifford, rotation, noise, padding, and measurement ops.
+    circuit.nodes.push_back(
+        {GateType::H, {Target::qubit(0), Target::qubit(1), Target::qubit(2)}, {}});
+    circuit.nodes.push_back({GateType::T, {Target::qubit(0), Target::qubit(1)}, {}});
+    circuit.nodes.push_back({GateType::R_X, {Target::qubit(1), Target::qubit(2)}, {0.19}});
+    circuit.nodes.push_back(
+        {GateType::U3, {Target::qubit(0), Target::qubit(2)}, {0.23, -0.5, 0.5}});
+    circuit.nodes.push_back(
+        {GateType::R_ZZ,
+         {Target::qubit(0), Target::qubit(1), Target::qubit(1), Target::qubit(2)},
+         {-0.31}});
+    circuit.nodes.push_back({GateType::X_ERROR, {Target::qubit(0), Target::qubit(2)}, {0.15}});
+    circuit.nodes.push_back({GateType::Z_ERROR, {Target::qubit(1), Target::qubit(2)}, {0.18}});
+    circuit.nodes.push_back(
+        {GateType::MPAD, {Target::qubit(0), Target{1 | Target::kInvertBit}}, {}});
+    circuit.nodes.push_back(
+        {GateType::M, {Target::qubit(0), Target::qubit(1), Target::qubit(2)}, {}});
+    circuit.nodes.push_back(
+        {GateType::READOUT_NOISE, {Target::rec(2), Target::rec(3), Target::rec(4)}, {0.1}});
+    circuit.nodes.push_back(
+        {GateType::DETECTOR, {Target::rec(0), Target::rec(2), Target::rec(4)}, {}});
+    circuit.nodes.push_back(
+        {GateType::OBSERVABLE_INCLUDE, {Target::rec(1), Target::rec(3)}, {0.0}});
+
+    const auto reference = parse(
+        "H 0 1 2\n"
+        "T 0 1\n"
+        "R_X(0.19) 1 2\n"
+        "U3(0.23, -0.5, 0.5) 0 2\n"
+        "R_ZZ(-0.31) 0 1 1 2\n"
+        "X_ERROR(0.15) 0 2\n"
+        "Z_ERROR(0.18) 1 2\n"
+        "MPAD 0 !1\n"
+        "M(0.1) 0 1 2\n"
+        "DETECTOR rec[-5] rec[-3] rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-4] rec[-2]\n");
+    const auto traced = compute_exact_plan_distribution(sampling::plan_sampling(trace(reference)));
+    const auto dense = compute_dense_circuit_distribution(circuit);
+    for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
+        const auto res = reconstruct_global_sampling(circuit, mode);
+        const auto ref_res = reconstruct_global_sampling(reference, mode);
+        INFO(res.fallback_reason);
+        REQUIRE(res.reconstruction.has_value());
+        REQUIRE(ref_res.reconstruction.has_value());
+        // Qubits 3..5 stay unallocated (3 source + 8 gadgets + 2 MPAD + 3 M = 16 wires).
+        REQUIRE(res.reconstruction->dilation_qubits == 16);
+        REQUIRE(res.reconstruction->dilation_qubits == ref_res.reconstruction->dilation_qubits);
+        const auto actual = reconstructed_law(*res.reconstruction);
+        require_same_law(actual, output_law(traced, res.reconstruction->outputs));
+        require_same_law(actual, output_law(dense, res.reconstruction->outputs));
     }
 }
 

@@ -327,7 +327,7 @@ def test_forced_faults_keep_original_sites_and_seeded_results(
     "source, reason",
     [
         (UNITARY + "EXP_VAL Z0\n" + OUTPUTS, "EXP_VAL"),
-        ("R_X(0.13) 0\nM 0\n", "unsupported"),
+        ("R_X(0.13) 0\nM 0\n", "does not reduce"),
         (UNITARY + OUTPUTS + "READOUT_NOISE(0.1,0.2) rec[-1]\n", "readout"),
         ("H 0\nM 0\n", "already zero"),
         (SOURCE, "does not reduce"),
@@ -344,6 +344,102 @@ def test_unsupported_or_unprofitable_sampling_falls_back(source, reason):
         assert plan.peak_active_width == original.peak_active_width
         assert plan.num_actions == original.num_actions
     assert_same_result(clifft.sample(original, 65, seed=9), clifft.sample(fallback, 65, seed=9))
+
+
+def test_general_angle_and_three_qubit_noise_select_with_default_passes():
+    # Entangled general-angle rotations with resets, feedback, 3-qubit noise, and
+    # readout flips stay at width 2 under default passes + scheduling, while
+    # global reconstruction drops peak active width to 1 on both output variants.
+    unitary_prefix = (
+        "H 0 1\n"
+        "CX 0 2 1 3\n"
+        "R_X(0.19) 0\n"
+        "U3(0.31, -0.5, 0.13) 1\n"
+        "R_PAULI(-0.27) !X2*Z0\n"
+        "SPP !Y0*Z2\n"
+        "TPP X3*!Z1\n"
+        "R_ZZ(0.23) 1 3\n"
+    )
+    noisy_circuit = (
+        "H 0 1\n"
+        "CX 0 2 1 3\n"
+        "DEPOLARIZE3(0.189) 0 1 2\n"
+        "R_X(0.19) 0\n"
+        "U3(0.31, -0.5, 0.13) 1\n"
+        "R_PAULI(-0.27) !X2*Z0\n"
+        "SPP !Y0*Z2\n"
+        "TPP X3*!Z1\n"
+        "R_ZZ(0.23) 1 3\n"
+        "MR(0.08) 2\n"
+        "CZ rec[-1] 0\n"
+        "M 0 1 3\n"
+        "DETECTOR rec[-4]\n"
+        "DETECTOR rec[-2]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-3]\n"
+        "OBSERVABLE_INCLUDE(1) rec[-1]\n"
+    )
+    passes = clifft.default_hir_pass_manager()
+    passes.add(clifft.ActiveWidthSchedulePass())
+    original = clifft.compile(
+        noisy_circuit, hir_passes=passes, postselection_mask=[1, 0], expected_detectors=[1, 0]
+    )
+    selected = clifft.compile(
+        noisy_circuit,
+        hir_passes=passes,
+        reconstruction=True,
+        postselection_mask=[1, 0],
+        expected_detectors=[1, 0],
+    )
+    assert original.peak_active_width == 2
+    for keep_records in (False, True):
+        plan = selected.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected and not plan.fallback_reason
+        assert plan.peak_active_width == 1
+
+    shots = 8192
+    ref = clifft.sample_survivors(original, shots, seed=51, keep_records=True, batch_size=1)
+    got = clifft.sample_survivors(selected, shots, seed=79, keep_records=True, batch_size=65)
+    columns = original.num_measurements + original.num_detectors + original.num_observables
+    rng = np.random.default_rng(404)
+    projections = rng.integers(0, 2, size=(columns, 16), dtype=np.uint8)
+    p = joint_frequencies(ref, shots, projections)
+    q = joint_frequencies(got, shots, projections)
+    pooled = (p + q) / 2
+    tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
+    assert np.all(np.abs(p - q) <= tolerance)
+
+    counts = clifft.sample_survivors(selected, shots, seed=93, keep_records=False, batch_size=65)
+    p_cnt = np.r_[ref.passed_shots, ref.logical_errors, ref.observable_ones] / shots
+    q_cnt = np.r_[counts.passed_shots, counts.logical_errors, counts.observable_ones] / shots
+    pooled_cnt = (p_cnt + q_cnt) / 2
+    tol_cnt = 7 * np.sqrt(2 * pooled_cnt * (1 - pooled_cnt) / shots) + 5 / shots
+    assert np.all(np.abs(p_cnt - q_cnt) <= tol_cnt)
+
+    # Exact queries and fixed-fault sampling still route to original_plan.
+    np.testing.assert_array_equal(
+        selected.noise_site_probabilities, original.noise_site_probabilities
+    )
+    assert_same_result(
+        clifft.sample_k_survivors(selected, 65, 1, seed=17, keep_records=True),
+        clifft.sample_k_survivors(original, 65, 1, seed=17, keep_records=True),
+    )
+    measured_unitary = clifft.compile(
+        unitary_prefix + "M 0 1 2 3", hir_passes=None, reconstruction=True
+    )
+    assert measured_unitary.sampling_plan(keep_records=True).reconstruction_selected
+    pure_unitary = clifft.compile(unitary_prefix, reconstruction=True)
+    expected_probs = np.abs(clifft.get_statevector(pure_unitary)) ** 2
+    records = [format(i, "04b")[::-1] for i in range(16)]
+    np.testing.assert_allclose(
+        clifft.record_probabilities(measured_unitary, records), expected_probs, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        clifft.basis_probabilities(pure_unitary, records), expected_probs, atol=1e-12
+    )
+    for record in ([0, 0, 0, 0], [1, 0, 1, 0], [1, 1, 1, 1]):
+        assert _clifft_core._replay_record(measured_unitary, record) == _clifft_core._replay_record(
+            clifft.compile(unitary_prefix + "M 0 1 2 3", hir_passes=None), record
+        )
 
 
 @pytest.mark.parametrize("pass_type", [clifft.RemoveNoisePass, clifft.DropNonUnitaryPass])
@@ -377,12 +473,17 @@ def test_python_owned_pass_preserves_reconstruction_selection():
 
 
 @pytest.mark.expensive
-@pytest.mark.parametrize("distance, width", [(5, 6), (7, 8)])
+@pytest.mark.parametrize(
+    "fixture, width",
+    [
+        ("reconstruction_msc_d5.stim", 6),
+        ("reconstruction_msc_d7.stim", 8),
+        ("coherent_d5_r5.stim", 11),
+    ],
+)
 @pytest.mark.parametrize("schedule", [False, True])
-def test_full_noisy_msc_uses_reconstructed_plans_with_default_passes(distance, width, schedule):
-    source = (
-        Path(__file__).parents[1] / "fixtures" / f"reconstruction_msc_d{distance}.stim"
-    ).read_text()
+def test_full_noisy_fixtures_use_reconstructed_plans_with_default_passes(fixture, width, schedule):
+    source = (Path(__file__).parents[1] / "fixtures" / fixture).read_text()
     passes = clifft.default_hir_pass_manager()
     if schedule:
         passes.add(clifft.ActiveWidthSchedulePass())

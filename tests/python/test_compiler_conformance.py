@@ -45,7 +45,7 @@ class UnitaryCase:
     source: str
     num_qubits: int
     witness_for: str | None = None
-    reconstructed_width: int | None = None
+    reconstructed_widths: tuple[int | None, int | None] = (None, None)
 
     @property
     def measured_source(self) -> str:
@@ -73,17 +73,23 @@ INTERFERENCE_SOURCE = "H 0 1\nT 0 1\nH 0 1"
 CASES = (
     # Neither pass alone can satisfy the other pass's width-reduction witness.
     UnitaryCase("fusion", "H 0\nT 0\nT_DAG 0\nH 0", 1, "PeepholeFusionPass"),
-    UnitaryCase("squeeze", INTERFERENCE_SOURCE, 2, "StatevectorSqueezePass", reconstructed_width=1),
-    UnitaryCase("bell", "H 0\nCX 0 1\nT 0", 2, reconstructed_width=0),
-    UnitaryCase("phase", PHASE_SOURCE, 4),
     UnitaryCase(
-        "mixed-pauli", "R_X(0.3) 0\nR_Y(0.2) 1\nH 2\nCX 1 2\nR_PAULI(0.17) X0*Y1*Z2\nH 0 1", 3
+        "squeeze", INTERFERENCE_SOURCE, 2, "StatevectorSqueezePass", reconstructed_widths=(1, 1)
+    ),
+    UnitaryCase("bell", "H 0\nCX 0 1\nT 0", 2, reconstructed_widths=(0, 0)),
+    UnitaryCase("phase", PHASE_SOURCE, 4, reconstructed_widths=(None, 1)),
+    UnitaryCase(
+        "mixed-pauli",
+        "R_X(0.3) 0\nR_Y(0.2) 1\nH 2\nCX 1 2\nR_PAULI(0.17) X0*Y1*Z2\nH 0 1",
+        3,
+        reconstructed_widths=(1, 0),
     ),
     UnitaryCase(
         "mirror",
         "H 0\nT 0\nCX 0 1\nH 1\nT 1\nCX 1 2\nR_X(0.3) 2\n"
         "R_X(-0.3) 2\nCX 1 2\nT_DAG 1\nH 1\nCX 0 1\nT_DAG 0\nH 0",
         3,
+        reconstructed_widths=(0, 0),
     ),
 )
 
@@ -153,35 +159,47 @@ def test_samples_and_annotations_match_independent_oracle(
 @pytest.mark.parametrize("mode", RECONSTRUCTION_MODES, ids=lambda mode: mode.name)
 @pytest.mark.parametrize(
     "case",
-    [case for case in CASES if case.reconstructed_width is not None],
+    [case for case in CASES if any(w is not None for w in case.reconstructed_widths)],
     ids=lambda case: case.name,
 )
 def test_reconstructed_samples_share_unitary_oracles(
     case: UnitaryCase, mode: CpuSamplingMode
 ) -> None:
     program = mode.compile(case.annotated_source, hir_passes=None, reconstruction=True)
-    for keep_records in (False, True):
+    rec_width, det_width = case.reconstructed_widths
+    for keep_records, expected_width in ((True, rec_width), (False, det_width)):
         plan = program.sampling_plan(keep_records=keep_records)
-        assert plan.reconstruction_selected and not plan.fallback_reason
-        assert plan.peak_active_width == case.reconstructed_width
-        assert plan.peak_active_width < program.original_plan.peak_active_width
-    result = mode.sample(program, 4097, seed=1907)
+        if expected_width is None:
+            assert not plan.reconstruction_selected
+            assert "does not reduce peak active width" in plan.fallback_reason
+            assert plan.peak_active_width == program.original_plan.peak_active_width
+        else:
+            assert plan.reconstruction_selected and not plan.fallback_reason
+            assert plan.peak_active_width == expected_width
+            assert plan.peak_active_width < program.original_plan.peak_active_width
     probabilities = np.abs(unitary_reference(case.source)) ** 2
-    _assert_annotated_distribution(result, probabilities, 4097, case.num_qubits)
+    if rec_width is not None:
+        result = mode.sample(program, 4097, seed=1907)
+        _assert_annotated_distribution(result, probabilities, 4097, case.num_qubits)
+    if det_width is not None:
+        syndromes = clifft.sample(
+            program, 4097, seed=1907, batch_size=mode.batch_size, keep_records="syndromes"
+        )
+        idx = np.arange(1 << case.num_qubits)
+        det_bits = ((idx & 1) ^ ((idx >> (case.num_qubits - 1)) & 1)).astype(np.uint8)
+        obs_bits = ((idx >> (case.num_qubits - 1)) & 1).astype(np.uint8)
+        expected_joint = np.bincount(det_bits + 2 * obs_bits, weights=probabilities, minlength=4)
+        joint = np.hstack((syndromes.detectors, syndromes.observables))
+        assert_joint_distribution(joint, expected_joint)
 
 
 def test_reconstruction_fallback_preserves_original_plan_width() -> None:
-    for case in (case for case in CASES if case.reconstructed_width is None):
+    for case in (case for case in CASES if case.reconstructed_widths == (None, None)):
         program = clifft.compile(case.annotated_source, hir_passes=None, reconstruction=True)
-        reason = (
-            "does not reduce peak active width"
-            if case.name == "fusion"
-            else "unsupported source operation"
-        )
         for keep_records in (False, True):
             plan = program.sampling_plan(keep_records=keep_records)
             assert not plan.reconstruction_selected
-            assert reason in plan.fallback_reason
+            assert "does not reduce peak active width" in plan.fallback_reason
             assert plan.peak_active_width == program.original_plan.peak_active_width
 
 

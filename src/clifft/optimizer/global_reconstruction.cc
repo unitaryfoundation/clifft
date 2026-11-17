@@ -2,6 +2,7 @@
 
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/tableau/tableau.h"
+#include "clifft/util/numeric.h"
 #include "clifft/util/symplectic.h"
 
 #include <algorithm>
@@ -20,10 +21,13 @@ namespace {
 
 using Bits = std::vector<uint64_t>;
 
-// Each source operation expands into at most a small constant number of
-// elementary Clifford dilation gates (e.g., H + controlled-Pauli + H).
-constexpr size_t kMaxDilationGatesPerSourceOp = 8;
+// Per-source-operation multiplier for the total dilation-gate budget
+// (`limits_.max_operations * kMaxDilationGatesPerSourceOp`). Multi-qubit
+// Pauli-product rotations can exceed 16 gates individually while staying
+// within the amortized circuit budget.
+constexpr size_t kMaxDilationGatesPerSourceOp = 16;
 constexpr double kTHalfTurns = 0.25;
+constexpr double kSHalfTurns = 0.5;
 
 void toggle(Bits& a, uint32_t i) {
     a.resize(std::max(a.size(), size_t{i / 64 + 1}), 0);
@@ -198,8 +202,9 @@ struct PreparedOp {
 
 constexpr uint32_t kUnmappedQubit = UINT32_MAX;
 
-// Purifies a noisy Clifford+T circuit by deferring measurements to ancillas,
-// allocating fresh wires on reset, and propagating Pauli fault symbols forward.
+// Purifies a noisy circuit by deferring measurements to ancillas, allocating
+// fresh wires on reset, absorbing Clifford-angle rotations into the dilation
+// frame, and propagating Pauli fault symbols forward.
 class Dilation {
   public:
     explicit Dilation(const ReconstructionLimits& limits) : limits_(limits) {}
@@ -216,6 +221,29 @@ class Dilation {
     std::vector<std::vector<ReconstructionNoiseOutcome>>& channels() { return channels_; }
 
   private:
+    using Term = std::vector<std::pair<uint32_t, char>>;
+
+    uint32_t plain_qubit_target(Target t) const {
+        require_supported(!t.is_rec() && !t.is_inverted() && !t.has_pauli(),
+                          "unsupported source operation");
+        return t.value();
+    }
+    Term pauli_product_targets(const std::vector<Target>& targets, bool& inverted) const {
+        require_supported(!targets.empty(), "unsupported source operation");
+        Term term;
+        term.reserve(targets.size());
+        inverted = false;
+        for (Target t : targets) {
+            require_supported(t.has_pauli() && !t.is_rec(), "unsupported source operation");
+            const uint32_t q = t.value();
+            require_supported(std::none_of(term.begin(), term.end(),
+                                           [q](const auto& entry) { return entry.first == q; }),
+                              "unsupported source operation");
+            term.emplace_back(q, t.pauli_char());
+            inverted ^= t.is_inverted();
+        }
+        return term;
+    }
     uint32_t fresh() {
         require_supported(n_ < limits_.max_dilation_qubits, "dilation qubit limit exceeded");
         fx_.emplace_back();
@@ -234,7 +262,8 @@ class Dilation {
         return q;
     }
     void gate(GateType type, std::span<const uint32_t> targets) {
-        require_supported(body_.size() < limits_.max_operations * kMaxDilationGatesPerSourceOp,
+        require_supported(body_.size() < saturating_multiply_u64(limits_.max_operations,
+                                                                 kMaxDilationGatesPerSourceOp),
                           "dilation operation limit exceeded");
         assert(targets.size() <= 2);
         Clifford op{type, {}, static_cast<uint8_t>(targets.size())};
@@ -269,7 +298,6 @@ class Dilation {
             xor_sign(fz_[q], sign);
         }
     }
-    using Term = std::vector<std::pair<uint32_t, char>>;
     ReconstructionSign noise_sign(const Term& term) const {
         ReconstructionSign sign;
         for (auto [q, p] : term) {
@@ -306,6 +334,12 @@ class Dilation {
         }
         return result;
     }
+    void apply_clifford(GateType type, std::span<const uint32_t> qs);
+    void apply_clifford(GateType type, std::initializer_list<uint32_t> qs) {
+        apply_clifford(type, std::span<const uint32_t>{qs.begin(), qs.size()});
+    }
+    void rotate(std::span<const std::pair<uint32_t, char>> source_term, double alpha,
+                bool inverted = false);
     void clifford(const AstNode& node);
 
     const ReconstructionLimits& limits_;
@@ -320,73 +354,55 @@ class Dilation {
     std::vector<std::vector<ReconstructionNoiseOutcome>> channels_;
 };
 
-void Dilation::clifford(const AstNode& node) {
-    require_supported(
-        is_clifford(node.gate) && node.gate != GateType::SPP && node.gate != GateType::SPP_DAG,
-        "unsupported source operation");
-    const auto& local = Tableau::from_named_gate(node.gate);
-    const uint32_t arity = local.num_qubits();
-    require_supported(node.targets.size() == arity, "unsupported Clifford operands");
-    if (std::any_of(node.targets.begin(), node.targets.end(),
-                    [](Target t) { return t.is_rec(); })) {
-        require_supported(arity == 2 && node.targets[0].is_rec() && !node.targets[1].is_rec() &&
-                              (node.gate == GateType::CX || node.gate == GateType::CZ),
-                          "unsupported feedback");
-        const auto& r = records_.at(node.targets[0].value());
-        const auto control = highest(r.z);
-        assert(control.has_value());
-        const uint32_t q = qubit(node.targets[1].value());
-        gate(node.gate, {*control, q});
-        error(q, node.gate == GateType::CX ? 'X' : 'Z', r.sign);
-        return;
+void Dilation::apply_clifford(GateType type, std::span<const uint32_t> qs) {
+    gate(type, qs);
+    switch (type) {
+        case GateType::I:
+        case GateType::II:
+        case GateType::X:
+        case GateType::Y:
+        case GateType::Z:
+            return;
+        case GateType::H:
+        case GateType::H_NXZ:
+        case GateType::SQRT_Y:
+        case GateType::SQRT_Y_DAG:
+            std::swap(fx_[qs[0]], fz_[qs[0]]);
+            return;
+        case GateType::S:
+        case GateType::S_DAG:
+        case GateType::H_XY:
+        case GateType::H_NXY:
+            xor_sign(fz_[qs[0]], fx_[qs[0]]);
+            return;
+        case GateType::SQRT_X:
+        case GateType::SQRT_X_DAG:
+        case GateType::H_YZ:
+        case GateType::H_NYZ:
+            xor_sign(fx_[qs[0]], fz_[qs[0]]);
+            return;
+        case GateType::CX:
+            assert(qs[0] != qs[1]);
+            xor_sign(fx_[qs[1]], fx_[qs[0]]);
+            xor_sign(fz_[qs[0]], fz_[qs[1]]);
+            return;
+        case GateType::CZ:
+            assert(qs[0] != qs[1]);
+            xor_sign(fz_[qs[0]], fx_[qs[1]]);
+            xor_sign(fz_[qs[1]], fx_[qs[0]]);
+            return;
+        case GateType::SWAP:
+            assert(qs[0] != qs[1]);
+            std::swap(fx_[qs[0]], fx_[qs[1]]);
+            std::swap(fz_[qs[0]], fz_[qs[1]]);
+            return;
+        default:
+            break;
     }
-    std::array<uint32_t, 2> qs{};
-    for (uint32_t i = 0; i < arity; ++i) {
-        qs[i] = qubit(node.targets[i].value());
-    }
-    gate(node.gate, std::span<const uint32_t>{qs.data(), arity});
-    if (arity == 1 || qs[0] != qs[1]) {
-        switch (node.gate) {
-            case GateType::I:
-            case GateType::II:
-            case GateType::X:
-            case GateType::Y:
-            case GateType::Z:
-                return;
-            case GateType::H:
-            case GateType::H_NXZ:
-            case GateType::SQRT_Y:
-            case GateType::SQRT_Y_DAG:
-                std::swap(fx_[qs[0]], fz_[qs[0]]);
-                return;
-            case GateType::S:
-            case GateType::S_DAG:
-            case GateType::H_XY:
-            case GateType::H_NXY:
-                xor_sign(fz_[qs[0]], fx_[qs[0]]);
-                return;
-            case GateType::SQRT_X:
-            case GateType::SQRT_X_DAG:
-            case GateType::H_YZ:
-            case GateType::H_NYZ:
-                xor_sign(fx_[qs[0]], fz_[qs[0]]);
-                return;
-            case GateType::CX:
-                xor_sign(fx_[qs[1]], fx_[qs[0]]);
-                xor_sign(fz_[qs[0]], fz_[qs[1]]);
-                return;
-            case GateType::CZ:
-                xor_sign(fz_[qs[0]], fx_[qs[1]]);
-                xor_sign(fz_[qs[1]], fx_[qs[0]]);
-                return;
-            case GateType::SWAP:
-                std::swap(fx_[qs[0]], fx_[qs[1]]);
-                std::swap(fz_[qs[0]], fz_[qs[1]]);
-                return;
-            default:
-                break;
-        }
-    }
+    const auto& local = Tableau::from_named_gate(type);
+    const uint32_t arity = static_cast<uint32_t>(qs.size());
+    assert(local.num_qubits() == arity);
+    assert(arity == 1 || qs[0] != qs[1]);
     std::array<ReconstructionSign, 2> xs, zs;
     for (uint32_t j = 0; j < arity; ++j) {
         for (uint32_t i = 0; i < arity; ++i) {
@@ -406,6 +422,111 @@ void Dilation::clifford(const AstNode& node) {
     }
 }
 
+void Dilation::rotate(std::span<const std::pair<uint32_t, char>> source_term, double alpha,
+                      bool inverted) {
+    require_supported(!source_term.empty() && is_finite_robust(alpha),
+                      "unsupported source operation");
+    const auto clifford_rot = classify_clifford_rotation(alpha);
+    if (clifford_rot == CliffordRotation::IDENTITY) {
+        return;
+    }
+
+    Term term;
+    term.reserve(source_term.size());
+    for (auto [src_q, p] : source_term) {
+        term.emplace_back(qubit(src_q), p);
+    }
+
+    if (clifford_rot == CliffordRotation::PAULI) {
+        for (auto [q, p] : term) {
+            apply_clifford(p == 'X' ? GateType::X : p == 'Y' ? GateType::Y : GateType::Z, {q});
+        }
+        return;
+    }
+
+    if (clifford_rot.has_value()) {
+        const bool dagger = (*clifford_rot == CliffordRotation::SQRT_DAG) ^ inverted;
+        if (term.size() == 1) {
+            const auto [q, p] = term[0];
+            apply_clifford(p == 'X'   ? (dagger ? GateType::SQRT_X_DAG : GateType::SQRT_X)
+                           : p == 'Y' ? (dagger ? GateType::SQRT_Y_DAG : GateType::SQRT_Y)
+                                      : (dagger ? GateType::S_DAG : GateType::S),
+                           {q});
+            return;
+        }
+        if (term.size() == 2 && term[0].second == term[1].second) {
+            const char p = term[0].second;
+            apply_clifford(p == 'X'   ? (dagger ? GateType::SQRT_XX_DAG : GateType::SQRT_XX)
+                           : p == 'Y' ? (dagger ? GateType::SQRT_YY_DAG : GateType::SQRT_YY)
+                                      : (dagger ? GateType::SQRT_ZZ_DAG : GateType::SQRT_ZZ),
+                           {term[0].first, term[1].first});
+            return;
+        }
+        auto conjugate_basis = [&] {
+            for (auto [q, p] : term) {
+                if (p == 'X')
+                    apply_clifford(GateType::H, {q});
+                else if (p == 'Y')
+                    apply_clifford(GateType::H_YZ, {q});
+            }
+        };
+        auto parity_ladder = [&] {
+            for (size_t i = 1; i < term.size(); ++i) {
+                apply_clifford(GateType::CX, {term[i].first, term[0].first});
+            }
+        };
+        conjugate_basis();
+        parity_ladder();
+        apply_clifford(dagger ? GateType::S_DAG : GateType::S, {term[0].first});
+        parity_ladder();
+        conjugate_basis();
+        return;
+    }
+
+    const uint32_t a = fresh();
+    auto sign = noise_sign(term);
+    sign.constant ^= inverted;
+    rotations_.push_back({a, alpha, std::move(sign)});
+    gate(GateType::H, {a});
+    controlled(a, term);
+    gate(GateType::H, {a});
+}
+
+void Dilation::clifford(const AstNode& node) {
+    assert(is_clifford(node.gate) && node.gate != GateType::SPP && node.gate != GateType::SPP_DAG);
+    const uint32_t arity = Tableau::from_named_gate(node.gate).num_qubits();
+    require_supported(
+        !node.targets.empty() && node.targets.size() % arity == 0 && node.args.empty(),
+        "unsupported Clifford operands");
+    if (arity == 1) {
+        for (Target t : node.targets) {
+            apply_clifford(node.gate, {qubit(plain_qubit_target(t))});
+        }
+        return;
+    }
+    for (size_t i = 0; i < node.targets.size(); i += 2) {
+        const Target t0 = node.targets[i];
+        const Target t1 = node.targets[i + 1];
+        if (t0.is_rec() || t1.is_rec()) {
+            require_supported(t0.is_rec() && !t0.is_inverted() && !t1.is_rec() &&
+                                  (node.gate == GateType::CX || node.gate == GateType::CZ) &&
+                                  t0.value() < records_.size(),
+                              "unsupported feedback");
+            const uint32_t q = qubit(plain_qubit_target(t1));
+            const auto& r = records_[t0.value()];
+            const auto control = highest(r.z);
+            assert(control.has_value());
+            gate(node.gate, {*control, q});
+            error(q, node.gate == GateType::CX ? 'X' : 'Z', r.sign);
+            continue;
+        }
+        const uint32_t q0 = plain_qubit_target(t0);
+        const uint32_t q1 = plain_qubit_target(t1);
+        require_supported(q0 != q1, "unsupported Clifford operands");
+        apply_clifford(node.gate, {qubit(q0), qubit(q1)});
+    }
+}
+
 void Dilation::parse(const Circuit& circuit) {
     require_supported(circuit.nodes.size() <= limits_.max_operations,
                       "source operation limit exceeded");
@@ -422,113 +543,331 @@ void Dilation::parse(const Circuit& circuit) {
         const auto g = node.gate;
         if (g != GateType::CORRELATED_ERROR && g != GateType::ELSE_CORRELATED_ERROR)
             chain.reset();
-        if (g == GateType::TICK)
-            continue;
-        if (g == GateType::DETECTOR) {
-            detectors_.push_back(parity(node.targets));
-        } else if (g == GateType::OBSERVABLE_INCLUDE) {
-            const auto p = parity(node.targets);
-            auto& output = observables_.at(static_cast<size_t>(node.args.at(0)));
-            xor_into(output.z, p.z);
-            xor_sign(output.sign, p.sign);
-        } else if (g == GateType::T || g == GateType::T_DAG) {
-            const uint32_t q = qubit(node.targets.at(0).value());
-            const uint32_t a = fresh();
-            rotations_.push_back(
-                {a, g == GateType::T ? kTHalfTurns : -kTHalfTurns, noise_sign({{q, 'Z'}})});
-            gate(GateType::H, {a});
-            controlled(a, {{q, 'Z'}});
-            gate(GateType::H, {a});
-        } else if (g == GateType::M || g == GateType::MX || g == GateType::MY ||
-                   g == GateType::MR || g == GateType::MRX || g == GateType::MRY ||
-                   g == GateType::R || g == GateType::RX || g == GateType::RY) {
-            const Target t = node.targets.at(0);
-            uint32_t q = qubit(t.value());
-            const char p = (g == GateType::MX || g == GateType::MRX || g == GateType::RX)   ? 'X'
-                           : (g == GateType::MY || g == GateType::MRY || g == GateType::RY) ? 'Y'
-                                                                                            : 'Z';
-            if (is_measurement(g))
-                measure({{q, p}}, t.is_inverted());
-            if (is_reset(g) || is_measure_reset(g)) {
-                // Keep the discarded wire as an environment so entanglement
-                // with deferred measurement ancillas is preserved.
-                q = fresh();
-                aliases_[t.value()] = q;
-                if (p != 'Z')
-                    gate(GateType::H, {q});
-                if (p == 'Y')
-                    gate(GateType::S, {q});
+        require_supported(static_cast<uint32_t>(g) <= static_cast<uint32_t>(GateType::UNKNOWN),
+                          "unsupported source operation");
+        // Exhaustive switch (no `default:`) so `-Werror=switch` flags new GateType values.
+        switch (g) {
+            case GateType::TICK:
+            case GateType::I:
+            case GateType::II:
+            case GateType::I_ERROR:
+            case GateType::II_ERROR:
+                break;
+            case GateType::DETECTOR:
+                detectors_.push_back(parity(node.targets));
+                break;
+            case GateType::OBSERVABLE_INCLUDE: {
+                require_supported(!node.args.empty() && node.args[0] >= 0 &&
+                                      static_cast<size_t>(node.args[0]) < observables_.size(),
+                                  "unsupported output reference");
+                const auto p = parity(node.targets);
+                auto& output = observables_[static_cast<size_t>(node.args[0])];
+                xor_into(output.z, p.z);
+                xor_sign(output.sign, p.sign);
+                break;
             }
-        } else if (g == GateType::MPP) {
-            Term term;
-            bool inverted = false;
-            for (Target t : node.targets) {
-                term.emplace_back(qubit(t.value()), t.pauli_char());
-                inverted ^= t.is_inverted();
-            }
-            measure(term, inverted);
-        } else if (g == GateType::MPAD) {
-            const Target t = node.targets.at(0);
-            const bool sign = (t.value() != 0) ^ t.is_inverted();
-            records_.push_back({unit(fresh()), {{}, sign}});
-        } else if (g == GateType::READOUT_NOISE) {
-            require_supported(node.args.size() == 1 || node.args[0] == node.args[1],
-                              "asymmetric readout requires the original program");
-            for (Target t : node.targets)
-                xor_sign(records_.at(t.value()).sign, bit_error(node.args.at(0)));
-        } else if (g == GateType::X_ERROR || g == GateType::Y_ERROR || g == GateType::Z_ERROR) {
-            const uint32_t q = qubit(node.targets.at(0).value());
-            error(q,
-                  g == GateType::X_ERROR   ? 'X'
-                  : g == GateType::Y_ERROR ? 'Y'
-                                           : 'Z',
-                  bit_error(node.args.at(0)));
-        } else if (g == GateType::DEPOLARIZE1 || g == GateType::DEPOLARIZE2 ||
-                   g == GateType::PAULI_CHANNEL_1 || g == GateType::PAULI_CHANNEL_2) {
-            const uint32_t arity = static_cast<uint32_t>(node.targets.size());
-            const uint32_t count = uint32_t{1} << (2 * arity);
-            const uint32_t start = noise_bits(2 * arity);
-            const bool depol = g == GateType::DEPOLARIZE1 || g == GateType::DEPOLARIZE2;
-            const double total =
-                depol ? node.args[0] : std::accumulate(node.args.begin(), node.args.end(), 0.0);
-            std::vector<ReconstructionNoiseOutcome> channel;
-            for (uint32_t value = 0; value < count; ++value) {
-                const double p = value == 0 ? std::max(0.0, 1 - total)
-                                 : depol    ? total / (count - 1)
-                                            : node.args[value - 1];
-                if (p == 0)
-                    continue;
-                ReconstructionNoiseOutcome outcome{p, {}};
-                for (uint32_t j = 0; j < arity; ++j) {
-                    const uint32_t digit = (value >> (2 * (arity - j - 1))) & 3U;
-                    if (digit == 1 || digit == 2)
-                        outcome.bits.push_back(start + 2 * j);
-                    if (digit == 2 || digit == 3)
-                        outcome.bits.push_back(start + 2 * j + 1);
+            case GateType::T:
+            case GateType::T_DAG: {
+                require_supported(!node.targets.empty() && node.args.empty(),
+                                  "unsupported source operation");
+                const double alpha = g == GateType::T ? kTHalfTurns : -kTHalfTurns;
+                for (Target t : node.targets) {
+                    const std::pair<uint32_t, char> term{plain_qubit_target(t), 'Z'};
+                    rotate({&term, 1}, alpha);
                 }
-                channel.push_back(std::move(outcome));
+                break;
             }
-            channels_.push_back(std::move(channel));
-            for (uint32_t j = 0; j < arity; ++j) {
-                const uint32_t q = qubit(node.targets[j].value());
-                xor_sign(fx_[q], {unit(start + 2 * j), false});
-                xor_sign(fz_[q], {unit(start + 2 * j + 1), false});
+            case GateType::R_X:
+            case GateType::R_Y:
+            case GateType::R_Z: {
+                require_supported(!node.targets.empty() && node.args.size() == 1,
+                                  "unsupported source operation");
+                const char axis = g == GateType::R_X ? 'X' : g == GateType::R_Y ? 'Y' : 'Z';
+                for (Target t : node.targets) {
+                    const std::pair<uint32_t, char> term{plain_qubit_target(t), axis};
+                    rotate({&term, 1}, node.args[0]);
+                }
+                break;
             }
-        } else if (g == GateType::CORRELATED_ERROR || g == GateType::ELSE_CORRELATED_ERROR) {
-            if (g == GateType::CORRELATED_ERROR) {
-                chain = channels_.size();
-                channels_.push_back({{1, {}}});
+            case GateType::U3: {
+                require_supported(!node.targets.empty() && node.args.size() == 3,
+                                  "unsupported source operation");
+                const double theta = node.args[0];
+                const double phi = node.args[1];
+                const double lambda = node.args[2];
+                require_supported(
+                    is_finite_robust(theta) && is_finite_robust(phi) && is_finite_robust(lambda),
+                    "unsupported source operation");
+                for (Target t : node.targets) {
+                    const uint32_t q = plain_qubit_target(t);
+                    const std::pair<uint32_t, char> z_term{q, 'Z'};
+                    const std::pair<uint32_t, char> y_term{q, 'Y'};
+                    rotate({&z_term, 1}, lambda);
+                    rotate({&y_term, 1}, theta);
+                    rotate({&z_term, 1}, phi);
+                }
+                break;
             }
-            require_supported(chain.has_value(), "unpaired correlated error branch");
-            const uint32_t i = noise_bits(1);
-            auto& channel = channels_[*chain];
-            const double p = channel.front().probability * node.args.at(0);
-            channel.front().probability -= p;
-            channel.push_back({p, {i}});
-            for (Target t : node.targets)
-                error(qubit(t.value()), t.pauli_char(), {unit(i), false});
-        } else {
-            clifford(node);
+            case GateType::R_XX:
+            case GateType::R_YY:
+            case GateType::R_ZZ: {
+                require_supported(
+                    !node.targets.empty() && node.targets.size() % 2 == 0 && node.args.size() == 1,
+                    "unsupported source operation");
+                const char axis = g == GateType::R_XX ? 'X' : g == GateType::R_YY ? 'Y' : 'Z';
+                for (size_t i = 0; i < node.targets.size(); i += 2) {
+                    const uint32_t q0 = plain_qubit_target(node.targets[i]);
+                    const uint32_t q1 = plain_qubit_target(node.targets[i + 1]);
+                    require_supported(q0 != q1, "unsupported source operation");
+                    const std::array<std::pair<uint32_t, char>, 2> term{{{q0, axis}, {q1, axis}}};
+                    rotate(term, node.args[0]);
+                }
+                break;
+            }
+            case GateType::SPP:
+            case GateType::SPP_DAG:
+            case GateType::TPP:
+            case GateType::TPP_DAG:
+            case GateType::R_PAULI: {
+                require_supported(
+                    g == GateType::R_PAULI ? node.args.size() == 1 : node.args.empty(),
+                    "unsupported source operation");
+                bool inverted = false;
+                const Term term = pauli_product_targets(node.targets, inverted);
+                const double alpha = g == GateType::SPP       ? kSHalfTurns
+                                     : g == GateType::SPP_DAG ? -kSHalfTurns
+                                     : g == GateType::TPP     ? kTHalfTurns
+                                     : g == GateType::TPP_DAG ? -kTHalfTurns
+                                                              : node.args[0];
+                rotate(term, alpha, inverted);
+                break;
+            }
+            case GateType::M:
+            case GateType::MX:
+            case GateType::MY:
+            case GateType::MR:
+            case GateType::MRX:
+            case GateType::MRY:
+            case GateType::R:
+            case GateType::RX:
+            case GateType::RY: {
+                require_supported(!node.targets.empty(), "unsupported source operation");
+                const char p = (g == GateType::MX || g == GateType::MRX || g == GateType::RX) ? 'X'
+                               : (g == GateType::MY || g == GateType::MRY || g == GateType::RY)
+                                   ? 'Y'
+                                   : 'Z';
+                for (Target t : node.targets) {
+                    require_supported(
+                        !t.is_rec() && !t.has_pauli() && (!is_reset(g) || !t.is_inverted()),
+                        "unsupported source operation");
+                    uint32_t q = qubit(t.value());
+                    if (is_measurement(g))
+                        measure({{q, p}}, t.is_inverted());
+                    if (is_reset(g) || is_measure_reset(g)) {
+                        // Keep the discarded wire as an environment so entanglement
+                        // with deferred measurement ancillas is preserved.
+                        q = fresh();
+                        aliases_[t.value()] = q;
+                        if (p != 'Z')
+                            gate(GateType::H, {q});
+                        if (p == 'Y')
+                            gate(GateType::S, {q});
+                    }
+                }
+                break;
+            }
+            case GateType::MPP: {
+                bool inverted = false;
+                const Term source_term = pauli_product_targets(node.targets, inverted);
+                Term term;
+                term.reserve(source_term.size());
+                for (auto [src_q, p] : source_term) {
+                    term.emplace_back(qubit(src_q), p);
+                }
+                measure(term, inverted);
+                break;
+            }
+            case GateType::MPAD:
+                require_supported(!node.targets.empty(), "unsupported source operation");
+                for (Target t : node.targets) {
+                    require_supported(!t.is_rec() && !t.has_pauli() && t.value() <= 1,
+                                      "unsupported source operation");
+                    const bool sign = (t.value() != 0) ^ t.is_inverted();
+                    records_.push_back({unit(fresh()), {{}, sign}});
+                }
+                break;
+            case GateType::READOUT_NOISE:
+                require_supported(!node.targets.empty() &&
+                                      (node.args.size() == 1 ||
+                                       (node.args.size() == 2 && node.args[0] == node.args[1])) &&
+                                      is_probability(node.args[0]),
+                                  "asymmetric readout requires the original program");
+                for (Target t : node.targets) {
+                    require_supported(t.is_rec() && !t.is_inverted() && t.value() < records_.size(),
+                                      "unsupported output reference");
+                    xor_sign(records_[t.value()].sign, bit_error(node.args[0]));
+                }
+                break;
+            case GateType::X_ERROR:
+            case GateType::Y_ERROR:
+            case GateType::Z_ERROR: {
+                require_supported(
+                    !node.targets.empty() && node.args.size() == 1 && is_probability(node.args[0]),
+                    "unsupported source operation");
+                const char p = g == GateType::X_ERROR ? 'X' : g == GateType::Y_ERROR ? 'Y' : 'Z';
+                for (Target t : node.targets) {
+                    const uint32_t q = qubit(plain_qubit_target(t));
+                    error(q, p, bit_error(node.args[0]));
+                }
+                break;
+            }
+            case GateType::DEPOLARIZE1:
+            case GateType::DEPOLARIZE2:
+            case GateType::DEPOLARIZE3:
+            case GateType::PAULI_CHANNEL_1:
+            case GateType::PAULI_CHANNEL_2:
+            case GateType::PAULI_CHANNEL_3: {
+                const uint32_t arity =
+                    (g == GateType::DEPOLARIZE1 || g == GateType::PAULI_CHANNEL_1)   ? 1U
+                    : (g == GateType::DEPOLARIZE2 || g == GateType::PAULI_CHANNEL_2) ? 2U
+                                                                                     : 3U;
+                const uint32_t count = uint32_t{1} << (2 * arity);
+                const bool depol = g == GateType::DEPOLARIZE1 || g == GateType::DEPOLARIZE2 ||
+                                   g == GateType::DEPOLARIZE3;
+                require_supported(!node.targets.empty() && node.targets.size() % arity == 0 &&
+                                      node.args.size() == (depol ? 1U : count - 1U),
+                                  "unsupported source operation");
+                for (double p : node.args) {
+                    require_supported(is_probability(p), "unsupported source operation");
+                }
+                const double total =
+                    depol ? node.args[0] : std::accumulate(node.args.begin(), node.args.end(), 0.0);
+                require_supported(total <= 1.0 + kProbTolerance, "unsupported source operation");
+                for (size_t offset = 0; offset < node.targets.size(); offset += arity) {
+                    std::array<uint32_t, 3> src_qs{};
+                    for (uint32_t j = 0; j < arity; ++j) {
+                        src_qs[j] = plain_qubit_target(node.targets[offset + j]);
+                        for (uint32_t prev = 0; prev < j; ++prev) {
+                            require_supported(src_qs[j] != src_qs[prev],
+                                              "unsupported source operation");
+                        }
+                    }
+                    if (depol ? (total / (count - 1) == 0.0) : (total == 0.0)) {
+                        continue;
+                    }
+                    const uint32_t start = noise_bits(2 * arity);
+                    std::vector<ReconstructionNoiseOutcome> channel;
+                    for (uint32_t value = 0; value < count; ++value) {
+                        const double p = value == 0 ? std::max(0.0, 1 - total)
+                                         : depol    ? total / (count - 1)
+                                                    : node.args[value - 1];
+                        if (p == 0)
+                            continue;
+                        ReconstructionNoiseOutcome outcome{p, {}};
+                        for (uint32_t j = 0; j < arity; ++j) {
+                            const uint32_t digit = (value >> (2 * (arity - j - 1))) & 3U;
+                            if (digit == 1 || digit == 2)
+                                outcome.bits.push_back(start + 2 * j);
+                            if (digit == 2 || digit == 3)
+                                outcome.bits.push_back(start + 2 * j + 1);
+                        }
+                        channel.push_back(std::move(outcome));
+                    }
+                    channels_.push_back(std::move(channel));
+                    for (uint32_t j = 0; j < arity; ++j) {
+                        const uint32_t q = qubit(src_qs[j]);
+                        xor_sign(fx_[q], {unit(start + 2 * j), false});
+                        xor_sign(fz_[q], {unit(start + 2 * j + 1), false});
+                    }
+                }
+                break;
+            }
+            case GateType::CORRELATED_ERROR:
+            case GateType::ELSE_CORRELATED_ERROR: {
+                require_supported(node.args.size() == 1 && is_probability(node.args[0]),
+                                  "unsupported source operation");
+                if (g == GateType::CORRELATED_ERROR) {
+                    chain = channels_.size();
+                    channels_.push_back({{1, {}}});
+                }
+                require_supported(chain.has_value(), "unpaired correlated error branch");
+                const uint32_t i = noise_bits(1);
+                auto& channel = channels_[*chain];
+                const double p = channel.front().probability * node.args[0];
+                channel.front().probability -= p;
+                channel.push_back({p, {i}});
+                for (Target t : node.targets) {
+                    require_supported(t.has_pauli() && !t.is_rec() && !t.is_inverted(),
+                                      "unsupported source operation");
+                    error(qubit(t.value()), t.pauli_char(), {unit(i), false});
+                }
+                break;
+            }
+            case GateType::H:
+            case GateType::S:
+            case GateType::S_DAG:
+            case GateType::X:
+            case GateType::Y:
+            case GateType::Z:
+            case GateType::SQRT_X:
+            case GateType::SQRT_X_DAG:
+            case GateType::SQRT_Y:
+            case GateType::SQRT_Y_DAG:
+            case GateType::H_XY:
+            case GateType::H_YZ:
+            case GateType::H_NXY:
+            case GateType::H_NXZ:
+            case GateType::H_NYZ:
+            case GateType::C_XYZ:
+            case GateType::C_ZYX:
+            case GateType::C_NXYZ:
+            case GateType::C_NZYX:
+            case GateType::C_XNYZ:
+            case GateType::C_XYNZ:
+            case GateType::C_ZNYX:
+            case GateType::C_ZYNX:
+            case GateType::CX:
+            case GateType::CY:
+            case GateType::CZ:
+            case GateType::SWAP:
+            case GateType::ISWAP:
+            case GateType::ISWAP_DAG:
+            case GateType::SQRT_XX:
+            case GateType::SQRT_XX_DAG:
+            case GateType::SQRT_YY:
+            case GateType::SQRT_YY_DAG:
+            case GateType::SQRT_ZZ:
+            case GateType::SQRT_ZZ_DAG:
+            case GateType::CXSWAP:
+            case GateType::CZSWAP:
+            case GateType::SWAPCX:
+            case GateType::XCX:
+            case GateType::XCY:
+            case GateType::XCZ:
+            case GateType::YCX:
+            case GateType::YCY:
+            case GateType::YCZ:
+                clifford(node);
+                break;
+            case GateType::EXP_VAL:
+                require_supported(false, "expectation values require the original program");
+                break;
+            case GateType::MXX:
+            case GateType::MYY:
+            case GateType::MZZ:
+            case GateType::CH:
+            case GateType::CCX:
+            case GateType::CCZ:
+            case GateType::LEVEL_TRANSITION:
+            case GateType::LEAKAGE:
+            case GateType::LOSS:
+            case GateType::HERALD_LEAKAGE_EVENT:
+            case GateType::HERALD_LOSS_EVENT:
+            case GateType::LEAKAGE_INTERACTION:
+            case GateType::LOSS_INTERACTION:
+            case GateType::UNKNOWN:
+                require_supported(false, "unsupported source operation");
+                break;
         }
     }
 }
@@ -807,7 +1146,7 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
             allowed.insert(patterns[i], unit(i));
     }
 
-    // 2. Dress each T/T_DAG gadget axis with input stabilizers so it commutes
+    // 2. Dress each rotation gadget axis with input stabilizers so it commutes
     // with all earlier gadget projections.
     std::vector<PreparedOp> dressed_rotations;
     dressed_rotations.reserve(rotations.size());

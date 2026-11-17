@@ -336,6 +336,21 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                 break;
             }
 
+            case GateType::U3: {
+                const double theta = node.args[0];
+                const double phi = node.args[1];
+                const double lambda = node.args[2];
+                for (const Target& t : node.targets) {
+                    const uint64_t bit = uint64_t{1} << t.value();
+                    for (TrajectoryBranch& br : active) {
+                        apply_pauli_rotation(br.psi, circuit.num_qubits, {0, bit, false}, lambda);
+                        apply_pauli_rotation(br.psi, circuit.num_qubits, {bit, bit, false}, theta);
+                        apply_pauli_rotation(br.psi, circuit.num_qubits, {0, bit, false}, phi);
+                    }
+                }
+                break;
+            }
+
             case GateType::R_XX:
             case GateType::R_YY:
             case GateType::R_ZZ: {
@@ -367,11 +382,7 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                                      : (node.gate == GateType::TPP)     ? 0.25
                                      : (node.gate == GateType::TPP_DAG) ? -0.25
                                                                         : node.args[0];
-                PauliSpec spec = build_target_pauli_spec(node.targets);
-                if (node.gate == GateType::R_PAULI) {
-                    // R_PAULI ignores target inversion bang per frontend.cc.
-                    spec.neg_sign = false;
-                }
+                const PauliSpec spec = build_target_pauli_spec(node.targets);
                 for (TrajectoryBranch& br : active) {
                     apply_pauli_rotation(br.psi, circuit.num_qubits, spec, alpha);
                 }
@@ -522,44 +533,59 @@ inline ExactPlanDistribution compute_dense_circuit_distribution(
                 break;
             }
 
+            case GateType::MPAD: {
+                for (const Target& t : node.targets) {
+                    const uint8_t bit = ((t.value() != 0) ^ t.is_inverted()) ? 1U : 0U;
+                    for (TrajectoryBranch& br : active) {
+                        br.records[br.next_meas++] = bit;
+                    }
+                }
+                break;
+            }
+
             case GateType::DEPOLARIZE2:
-            case GateType::PAULI_CHANNEL_2: {
-                const uint64_t first = uint64_t{1} << node.targets[0].value();
-                const uint64_t second = uint64_t{1} << node.targets[1].value();
-                const PauliSpec paulis_first[] = {
-                    {}, {first, 0, false}, {first, first, false}, {0, first, false}};
-                const PauliSpec paulis_second[] = {
-                    {}, {second, 0, false}, {second, second, false}, {0, second, false}};
-                std::vector<std::pair<PauliSpec, double>> channels;
-                double total = 0;
-                for (uint32_t a = 0; a < 4; ++a) {
-                    for (uint32_t b = 0; b < 4; ++b) {
-                        if (a == 0 && b == 0)
-                            continue;
-                        const double p = node.gate == GateType::DEPOLARIZE2
-                                             ? node.args[0] / 15
-                                             : node.args[4 * a + b - 1];
+            case GateType::DEPOLARIZE3:
+            case GateType::PAULI_CHANNEL_2:
+            case GateType::PAULI_CHANNEL_3: {
+                const uint32_t arity =
+                    (node.gate == GateType::DEPOLARIZE2 || node.gate == GateType::PAULI_CHANNEL_2)
+                        ? 2U
+                        : 3U;
+                const uint32_t count = uint32_t{1} << (2 * arity);
+                const bool depol =
+                    node.gate == GateType::DEPOLARIZE2 || node.gate == GateType::DEPOLARIZE3;
+                for (size_t offset = 0; offset + arity <= node.targets.size(); offset += arity) {
+                    std::vector<std::pair<PauliSpec, double>> channels;
+                    double total = 0.0;
+                    for (uint32_t value = 1; value < count; ++value) {
+                        const double p = depol ? node.args[0] / (count - 1) : node.args[value - 1];
                         total += p;
-                        channels.push_back(
-                            {{paulis_first[a].x_mask | paulis_second[b].x_mask,
-                              paulis_first[a].z_mask | paulis_second[b].z_mask, false},
-                             p});
+                        PauliSpec spec{};
+                        for (uint32_t j = 0; j < arity; ++j) {
+                            const uint64_t bit = uint64_t{1} << node.targets[offset + j].value();
+                            const uint32_t digit = (value >> (2 * (arity - j - 1))) & 3U;
+                            if (digit == 1 || digit == 2)
+                                spec.x_mask |= bit;
+                            if (digit == 2 || digit == 3)
+                                spec.z_mask |= bit;
+                        }
+                        channels.push_back({spec, p});
                     }
-                }
-                channels.push_back({{}, std::max(0.0, 1 - total)});
-                next_active.clear();
-                for (const auto& br : active) {
-                    for (const auto& [spec, p] : channels) {
-                        if (p <= 0)
-                            continue;
-                        auto child = br;
-                        child.psi = apply_pauli_spec(br.psi, circuit.num_qubits, spec);
-                        child.probability = checked_probability_product(br.probability, p);
-                        REQUIRE(child.probability > 0.0);
-                        next_active.push_back(std::move(child));
+                    channels.push_back({{}, std::max(0.0, 1.0 - total)});
+                    next_active.clear();
+                    for (const auto& br : active) {
+                        for (const auto& [spec, p] : channels) {
+                            if (p <= 0)
+                                continue;
+                            auto child = br;
+                            child.psi = apply_pauli_spec(br.psi, circuit.num_qubits, spec);
+                            child.probability = checked_probability_product(br.probability, p);
+                            REQUIRE(child.probability > 0.0);
+                            next_active.push_back(std::move(child));
+                        }
                     }
+                    active.swap(next_active);
                 }
-                active.swap(next_active);
                 break;
             }
 

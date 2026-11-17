@@ -172,9 +172,9 @@ Ordinary and survivor sampling select a plan according to `keep_records`.
 Use `sampling_plan(keep_records=...)`
 to inspect the selected executable, as described in
 [Inspect sampling cost](#inspect-sampling-cost). Unsupported
-circuits, resource limits, or insufficient width reduction retain the original
-plan. Supported circuits use Clifford+T gates, Pauli noise, and symmetric
-readout noise; general-angle rotations and `EXP_VAL` probes fall back.
+features (such as leakage and loss channels, `EXP_VAL` probes, asymmetric
+readout noise, or distribution-altering HIR passes), resource limits, or
+insufficient width reduction retain the original plan.
 
 Custom `hir_passes` configure the original pipeline; reconstructed candidates
 use the default passes.
@@ -182,9 +182,11 @@ use the default passes.
 Compare total compilation and sampling time at your intended shot count.
 Unsuccessful attempts can still cost several times ordinary compilation, and
 the early width guard can miss improvements found by later optimization.
-Reconstructed detector checks run at the end of the shot, which can reduce the
-benefit of early postselection. Seeded results are reproducible for a fixed
-configuration but can differ from the original plan.
+Selection compares peak active width only: on postselected circuits where
+reconstruction lowers the width by only one or two, the reconstructed plan can
+sample slower than the original, by several times on multi-round coherent-noise
+memory circuits. Seeded results are reproducible for a fixed configuration but
+can differ from the original plan.
 
 See [the reconstruction theory](../theory/stabilizer-optimization.md#closed-output-global-reconstruction)
 for the transformation, eligibility, and cost guard, and
