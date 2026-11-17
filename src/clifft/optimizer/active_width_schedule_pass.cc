@@ -297,14 +297,16 @@ void run_closure(const HirModule& hir, SearchFrontier& frontier, DormantSubspace
 }
 
 // A partial schedule after closure, with accumulated costs and replay state.
-// Its dormant subspace is stored as a snapshot; WorkingSubspace holds the one
-// dense copy that scoring and replay operate on.
+// WorkingSubspace holds the one dense dormant subspace that scoring and
+// replay operate on; a state keeps a snapshot of its own only while the
+// search holds several states.
 
 struct BeamState {
     explicit BeamState(SearchFrontier frontier_in) : frontier(std::move(frontier_in)) {}
 
     SearchFrontier frontier;
-    DormantSubspace::Snapshot subspace;
+    // Empty while the working subspace is the only copy of this state's.
+    std::optional<DormantSubspace::Snapshot> subspace;
     // Distinguishes states so the working subspace knows which one it holds.
     uint64_t id = 0;
     uint32_t peak = 0;
@@ -314,7 +316,9 @@ struct BeamState {
 
 // The dense dormant subspace shared by every beam state. A dense subspace
 // costs O(num_qubits^2) bits, so the search keeps one and moves it between
-// states instead of giving each state its own.
+// states instead of giving each state its own. A lone state needs no
+// snapshot: the working subspace is its subspace, so a search that keeps one
+// state never snapshots or restores.
 class WorkingSubspace {
   public:
     explicit WorkingSubspace(uint32_t num_qubits) : subspace_(num_qubits) {}
@@ -326,20 +330,31 @@ class WorkingSubspace {
     }
 
     // Make the dense subspace equal to the state's, then return it. The
-    // caller must either leave it unchanged or call store() afterwards.
+    // caller must either leave it unchanged or call adopt() afterwards.
     DormantSubspace& load(const BeamState& state) {
         if (loaded_ != state.id) {
-            subspace_.restore(state.subspace);
+            assert(state.subspace.has_value() && "a state left without a snapshot was evicted");
+            subspace_.restore(*state.subspace);
             loaded_ = state.id;
         }
         return subspace_;
     }
 
-    // Record the dense subspace, as left by the caller, as the state's.
-    void store(BeamState& state) {
+    // Make the dense subspace, as left by the caller, the state's subspace.
+    // Any earlier snapshot of the state is stale and is dropped.
+    void adopt(BeamState& state) {
         state.id = next_id_++;
-        state.subspace = subspace_.snapshot();
+        state.subspace.reset();
         loaded_ = state.id;
+    }
+
+    // Give the state a snapshot so the dense subspace can move to another
+    // state and come back.
+    void save(BeamState& state) {
+        if (!state.subspace.has_value()) {
+            assert(loaded_ == state.id && "only the loaded state can lack a snapshot");
+            state.subspace = subspace_.snapshot();
+        }
     }
 
   private:
@@ -357,7 +372,7 @@ BeamState make_initial_beam_state(const HirModule& hir,
     std::vector<uint32_t> discarded_newly_ready;
     run_closure(hir, state.frontier, working.initial(), state.order, discarded_log,
                 discarded_newly_ready, work, state.peak, state.dense_work);
-    working.store(state);
+    working.adopt(state);
     return state;
 }
 
@@ -443,7 +458,7 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
 // Charge replay to the swept-op budget as well as speculative execution.
 BeamState materialize_candidate(const HirModule& hir, std::vector<BeamState>& beam,
                                 const ScoredCandidate& candidate, bool steal_parent,
-                                WorkingSubspace& working, SearchWork& work) {
+                                bool keep_snapshot, WorkingSubspace& working, SearchWork& work) {
     DormantSubspace& subspace = working.load(beam[candidate.parent_index]);
     BeamState state =
         steal_parent ? std::move(beam[candidate.parent_index]) : beam[candidate.parent_index];
@@ -460,7 +475,10 @@ BeamState materialize_candidate(const HirModule& hir, std::vector<BeamState>& be
         state.order.push_back(op);
         ++work.swept_ops;
     }
-    working.store(state);
+    working.adopt(state);
+    if (keep_snapshot) {
+        working.save(state);
+    }
 
     assert(subspace.active_width() == candidate.width_after_closure &&
            "materialize_candidate's replay disagrees with score_candidates' speculative width");
@@ -578,7 +596,7 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
             std::vector<UndoStep> log;
             run_closure(hir, state.frontier, subspace, state.order, log, newly_ready, work,
                         state.peak, state.dense_work);
-            working.store(state);
+            working.adopt(state);
             continue;
         }
 
@@ -659,12 +677,23 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
         for (size_t i = 0; i < take; ++i) {
             ++parent_uses[deduped[i].parent_index];
         }
+        // Several survivors share the working subspace, so each needs a
+        // snapshot, as does every parent a replay returns to. A lone
+        // survivor keeps the working subspace as its own.
+        const bool keep_snapshots = take > 1;
+        if (keep_snapshots) {
+            for (size_t i = 0; i < beam.size(); ++i) {
+                if (parent_uses[i] != 0) {
+                    working.save(beam[i]);
+                }
+            }
+        }
         std::vector<BeamState> next_beam;
         next_beam.reserve(take);
         for (size_t i = 0; i < take; ++i) {
             const bool steal_parent = (--parent_uses[deduped[i].parent_index] == 0);
-            next_beam.push_back(
-                materialize_candidate(hir, beam, deduped[i], steal_parent, working, work));
+            next_beam.push_back(materialize_candidate(hir, beam, deduped[i], steal_parent,
+                                                      keep_snapshots, working, work));
         }
         beam = std::move(next_beam);
     }

@@ -524,13 +524,24 @@ void DormantSubspace::restore(const Snapshot& snapshot) {
         const uint32_t row = dimension_++;
         uint64_t* rx = rows_x_.data() + static_cast<size_t>(row) * words_per_row_;
         uint64_t* rz = rows_z_.data() + static_cast<size_t>(row) * words_per_row_;
+        // Write the row and its column entries from the stored words alone,
+        // without scanning the empty words between them.
+        const uint32_t rw = row / 64;
+        const uint64_t rbit = uint64_t{1} << (row % 64);
         for (const PauliWord& word : words) {
             rx[word.index] = word.x;
             rz[word.index] = word.z;
+            for (uint64_t m = word.x; m != 0; m &= m - 1) {
+                const size_t q = word.index * size_t{64} + static_cast<size_t>(std::countr_zero(m));
+                col_x_[q * words_per_row_ + rw] ^= rbit;
+            }
+            for (uint64_t m = word.z; m != 0; m &= m - 1) {
+                const size_t q = word.index * size_t{64} + static_cast<size_t>(std::countr_zero(m));
+                col_z_[q * words_per_row_ + rw] ^= rbit;
+            }
         }
         row_begin_[row] = words.front().index;
         row_end_[row] = words.back().index + 1;
-        toggle_row_in_cols(row, rx, rz, row_begin_[row], row_end_[row]);
         pivot_[row] = snapshot.pivots_[row];
         pivot_owner_[pivot_[row]] = row;
     }
