@@ -1,21 +1,29 @@
 #pragma once
 
-// PauliMaskArena: contiguous storage for fixed-width Pauli (X, Z, sign)
-// masks, indexed by an opaque PauliMaskHandle.
+// PauliMaskArena: packed storage for sparse Pauli masks, indexed by an
+// opaque PauliMaskHandle.
 //
-// All masks share the same width set at construction. Capacity is fixed at
-// construction so view references (PauliMaskView, MutablePauliMaskView)
-// returned by at()/mut_at() remain valid for the arena's lifetime; the
-// arena does not resize.
+// Each handle owns one (X, Z, sign) mask stored as its nonzero words, so a
+// mask on a wide register costs memory in proportion to its support. Storage
+// never moves: a PauliMaskView returned by at() stays valid until that same
+// handle is reassigned, even while other masks are appended or reassigned.
 //
-// Each handle owns its own (X, Z, sign) slot -- no deduplication. Storage
-// uses parallel x_/z_ word arrays plus a signs_ byte vector, which keeps
-// the read-mostly hot paths over either x or z alone reading a single
-// contiguous stride.
+// A view holds the size and sign it read: set_sign() and assign() on a
+// handle do not update views of that handle taken earlier.
+//
+// Each mask has a slot that points at its words in a chunk. Reassigning a
+// mask reuses its words in place when the new mask is no larger than the
+// slot's capacity. Otherwise the mask moves to fresh storage of at least
+// twice the old capacity, so the storage a repeatedly growing mask leaves
+// behind stays proportional to its final size; abandoned words are reclaimed
+// when the arena is copied or destroyed.
 
 #include "clifft/util/mask_view.h"
+#include "clifft/util/pauli_mask.h"
 
+#include <algorithm>
 #include <cassert>
+#include <cstddef>
 #include <cstdint>
 #include <span>
 #include <vector>
@@ -25,92 +33,185 @@ namespace clifft {
 /// Opaque handle into a PauliMaskArena.
 enum class PauliMaskHandle : uint32_t {};
 
-/// Read-only view of a single (X, Z, sign) entry in an arena.
-class PauliMaskView {
-  public:
-    PauliMaskView(MaskView x, MaskView z, const uint8_t* sign) : x_(x), z_(z), sign_(sign) {}
-
-    [[nodiscard]] MaskView x() const { return x_; }
-    [[nodiscard]] MaskView z() const { return z_; }
-    [[nodiscard]] bool sign() const { return *sign_ != 0; }
-
-  private:
-    MaskView x_;
-    MaskView z_;
-    const uint8_t* sign_;
-};
-
-[[nodiscard]] inline bool operator==(PauliMaskView a, PauliMaskView b) {
-    return a.x() == b.x() && a.z() == b.z() && a.sign() == b.sign();
-}
-
-/// Mutable view of a single (X, Z, sign) entry in an arena. Implicitly
-/// converts to PauliMaskView for read-only call sites.
-class MutablePauliMaskView {
-  public:
-    MutablePauliMaskView(MutableMaskView x, MutableMaskView z, uint8_t* sign)
-        : x_(x), z_(z), sign_(sign) {}
-
-    [[nodiscard]] MutableMaskView x() const { return x_; }
-    [[nodiscard]] MutableMaskView z() const { return z_; }
-    [[nodiscard]] bool sign() const { return *sign_ != 0; }
-    void set_sign(bool s) { *sign_ = s ? 1 : 0; }
-
-    operator PauliMaskView() const { return PauliMaskView(x_, z_, sign_); }
-
-  private:
-    MutableMaskView x_;
-    MutableMaskView z_;
-    uint8_t* sign_;
-};
-
 class PauliMaskArena {
   public:
-    /// Default construction yields a zero-width, zero-capacity arena.
-    PauliMaskArena() : PauliMaskArena(0, 0) {}
+    PauliMaskArena() = default;
+    explicit PauliMaskArena(uint32_t num_qubits) : num_words_((num_qubits + 63) / 64) {}
 
-    /// Construct with fixed capacity. All masks initialized to zero.
-    PauliMaskArena(uint32_t num_qubits, size_t num_masks)
-        : num_words_((num_qubits + 63) / 64),
-          x_(num_masks * num_words_, 0),
-          z_(num_masks * num_words_, 0),
-          signs_(num_masks, 0) {}
+    PauliMaskArena(PauliMaskArena&&) = default;
+    PauliMaskArena& operator=(PauliMaskArena&&) = default;
 
-    [[nodiscard]] uint32_t num_words() const { return num_words_; }
-    [[nodiscard]] size_t size() const { return signs_.size(); }
-
-    [[nodiscard]] PauliMaskView at(PauliMaskHandle h) const {
-        size_t i = static_cast<size_t>(h);
-        assert(i < signs_.size());
-        return PauliMaskView(slice(x_, i), slice(z_, i), &signs_[i]);
+    // A copy packs the masks into one chunk, which also drops storage that
+    // reassignment abandoned in the original.
+    PauliMaskArena(const PauliMaskArena& other)
+        : num_words_(other.num_words_), slots_(other.slots_) {
+        size_t total = 0;
+        for (const Slot& slot : slots_) {
+            total += slot.count;
+        }
+        PauliWord* out = total == 0 ? nullptr : chunks_.emplace_back(total).data();
+        for (Slot& slot : slots_) {
+            // Each copied slot still points at the original's words. Most
+            // masks on a narrow register hold exactly one word.
+            if (slot.count == 0) {
+                slot.words = nullptr;
+                slot.capacity = 0;
+                continue;
+            }
+            if (slot.count == 1) {
+                *out = *slot.words;
+            } else {
+                std::copy_n(slot.words, slot.count, out);
+            }
+            slot.words = out;
+            slot.capacity = slot.count;
+            out += slot.count;
+        }
+    }
+    PauliMaskArena& operator=(const PauliMaskArena& other) {
+        if (this != &other) {
+            *this = PauliMaskArena(other);
+        }
+        return *this;
     }
 
-    [[nodiscard]] MutablePauliMaskView mut_at(PauliMaskHandle h) {
-        size_t i = static_cast<size_t>(h);
-        assert(i < signs_.size());
-        return MutablePauliMaskView(slice(x_, i), slice(z_, i), &signs_[i]);
+    /// Register width in 64-qubit words. Every stored word index is below it.
+    [[nodiscard]] uint32_t num_words() const { return num_words_; }
+    [[nodiscard]] size_t size() const { return slots_.size(); }
+
+    [[nodiscard]] PauliMaskView at(PauliMaskHandle h) const {
+        assert(static_cast<size_t>(h) < slots_.size());
+        const Slot& slot = slots_[static_cast<size_t>(h)];
+        return PauliMaskView{{slot.words, slot.count}, slot.sign != 0};
+    }
+
+    PauliMaskHandle append(PauliMaskView mask) {
+        const size_t index = slots_.size();
+        assert(index < ~uint32_t{0} && "PauliMaskArena handle space exhausted");
+        const std::span<const PauliWord> words = mask.words();
+        assert(is_canonical(words) && "Pauli mask words must be sorted and nonzero");
+        assert((words.empty() || words.back().index < num_words_) &&
+               "Pauli mask is wider than the arena's register");
+        Slot& slot = slots_.emplace_back();
+        if (!words.empty()) {
+            std::vector<PauliWord>& chunk = chunk_with_room(words.size());
+            slot.words = chunk.data() + chunk.size();
+            chunk.insert(chunk.end(), words.begin(), words.end());
+            slot.count = static_cast<uint32_t>(words.size());
+            slot.capacity = slot.count;
+        }
+        slot.sign = mask.sign();
+        return static_cast<PauliMaskHandle>(index);
+    }
+
+    /// Replace a stored mask. Invalidates views of this handle only.
+    void assign(PauliMaskHandle h, PauliMaskView mask) {
+        assert(static_cast<size_t>(h) < slots_.size());
+        const std::span<const PauliWord> words = mask.words();
+        assert(is_canonical(words) && "Pauli mask words must be sorted and nonzero");
+        assert((words.empty() || words.back().index < num_words_) &&
+               "Pauli mask is wider than the arena's register");
+        Slot& slot = slots_[static_cast<size_t>(h)];
+        if (words.data() == slot.words) {
+            // The mask's own words, possibly with a different sign.
+            assert(words.size() == slot.count);
+        } else {
+            if (words.size() > slot.capacity) {
+                grow(slot, words.size());
+            }
+            std::ranges::copy(words, slot.words);
+            slot.count = static_cast<uint32_t>(words.size());
+        }
+        slot.sign = mask.sign();
+    }
+
+    /// Replace a stored mask with a dense Pauli, keeping only its nonzero
+    /// words. Invalidates views of this handle only.
+    void assign(PauliMaskHandle h, MaskView x, MaskView z, bool sign) {
+        assert(static_cast<size_t>(h) < slots_.size());
+        assert(x.num_words() == z.num_words() && x.num_words() <= num_words_);
+        size_t count = 0;
+        for (uint32_t w = 0; w < x.num_words(); ++w) {
+            count += (x.words[w] | z.words[w]) != 0;
+        }
+        Slot& slot = slots_[static_cast<size_t>(h)];
+        if (count > slot.capacity) {
+            grow(slot, count);
+        }
+        PauliWord* out = slot.words;
+        for (uint32_t w = 0; w < x.num_words(); ++w) {
+            if ((x.words[w] | z.words[w]) != 0) {
+                *out++ = {w, x.words[w], z.words[w]};
+            }
+        }
+        slot.count = static_cast<uint32_t>(count);
+        slot.sign = sign;
+    }
+
+    void set_sign(PauliMaskHandle h, bool sign) {
+        assert(static_cast<size_t>(h) < slots_.size());
+        slots_[static_cast<size_t>(h)].sign = sign;
+    }
+
+    /// Words held by the arena's chunks, including any that reassignment
+    /// has abandoned.
+    [[nodiscard]] size_t allocated_words() const {
+        size_t total = 0;
+        for (const std::vector<PauliWord>& chunk : chunks_) {
+            total += chunk.size();
+        }
+        return total;
+    }
+
+    /// Bytes needed to store `masks` masks holding `words` nonzero words in
+    /// total. 64-bit so the bound cannot wrap where size_t is 32 bits.
+    [[nodiscard]] static constexpr uint64_t storage_bytes(uint64_t masks, uint64_t words) {
+        return masks * sizeof(Slot) + words * sizeof(PauliWord);
     }
 
   private:
-    [[nodiscard]] std::span<uint64_t> slice(std::vector<uint64_t>& v, size_t i) {
-        // std::span from an iterator + size is well-formed when num_words_ == 0,
-        // even if v.data() is nullptr.
-        return std::span<uint64_t>{v.begin() + i * num_words_, num_words_};
-    }
-    [[nodiscard]] std::span<const uint64_t> slice(const std::vector<uint64_t>& v, size_t i) const {
-        return std::span<const uint64_t>{v.begin() + i * num_words_, num_words_};
+    // First chunk size in words; later chunks double up to kMaxChunkWords so
+    // small modules stay small and large ones make few allocations.
+    static constexpr size_t kMinChunkWords = 64;
+    static constexpr size_t kMaxChunkWords = size_t{1} << 16;
+
+    struct Slot {
+        // Null while the slot has no capacity. Points into a chunk otherwise.
+        PauliWord* words = nullptr;
+        uint32_t count = 0;
+        uint32_t capacity : 31 = 0;
+        uint32_t sign : 1 = 0;
+    };
+
+    // The chunk that can take `count` more words. A chunk is filled only
+    // within its reserved capacity, so its buffer never moves.
+    std::vector<PauliWord>& chunk_with_room(size_t count) {
+        assert(count < (uint32_t{1} << 31));
+        if (chunks_.empty() || chunks_.back().capacity() - chunks_.back().size() < count) {
+            const size_t grown = chunks_.empty() ? kMinChunkWords : 2 * chunks_.back().capacity();
+            chunks_.emplace_back().reserve(std::max(count, std::min(grown, kMaxChunkWords)));
+        }
+        return chunks_.back();
     }
 
-    uint32_t num_words_;
-    // Capacity is fixed at construction. Resizing these vectors after
-    // construction would invalidate any outstanding PauliMaskView /
-    // MutablePauliMaskView, since their span/pointer fields reference
-    // the underlying storage directly. Any future change that needs to
-    // grow an arena post-construction must move to a stable-handle
-    // representation (e.g. chunked storage) before doing so.
-    std::vector<uint64_t> x_;
-    std::vector<uint64_t> z_;
-    std::vector<uint8_t> signs_;
+    // Move a slot whose capacity is too small for `count` words. Doubling
+    // bounds what repeated growth abandons; no mask exceeds the register.
+    void grow(Slot& slot, size_t count) {
+        allocate(slot, std::max(count, std::min<size_t>(2 * size_t{slot.capacity}, num_words_)));
+    }
+
+    // Point the slot at `count` unused words.
+    void allocate(Slot& slot, size_t count) {
+        std::vector<PauliWord>& chunk = chunk_with_room(count);
+        const size_t offset = chunk.size();
+        chunk.resize(offset + count);
+        slot.words = chunk.data() + offset;
+        slot.capacity = static_cast<uint32_t>(count);
+    }
+
+    uint32_t num_words_ = 0;
+    std::vector<Slot> slots_;
+    std::vector<std::vector<PauliWord>> chunks_;
 };
 
 }  // namespace clifft

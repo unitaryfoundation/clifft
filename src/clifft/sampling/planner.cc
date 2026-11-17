@@ -253,13 +253,12 @@ class NoiseSigns {
             return sign;
         }
         ensure_site_index();
-        const MaskView x = hir_.destab_mask(op);
-        const MaskView z = hir_.stab_mask(op);
+        const PauliMaskView axis = hir_.mask_view(op);
         const uint32_t begin = std::min(noise_count, original_count);
         const uint32_t end = std::max(noise_count, original_count);
         candidate_sites_.clear();
-        collect_sites_in_range(x, sites_with_z_, begin, end);
-        collect_sites_in_range(z, sites_with_x_, begin, end);
+        collect_sites_in_range(axis.x(), sites_with_z_, begin, end);
+        collect_sites_in_range(axis.z(), sites_with_x_, begin, end);
         if (candidate_sites_.empty()) {
             return sign;
         }
@@ -267,7 +266,6 @@ class NoiseSigns {
         const auto unique_end = std::ranges::unique(candidate_sites_).begin();
         candidate_sites_.erase(unique_end, candidate_sites_.end());
 
-        const PauliCommutation commutation(x, z);
         std::vector<SymbolId> crossed_symbols;
         for (uint32_t site : candidate_sites_) {
             uint32_t local_index = 0;
@@ -275,8 +273,7 @@ class NoiseSigns {
                 if (channel.prob == 0.0) {
                     continue;
                 }
-                const PauliMaskView channel_view = hir_.noise_channel_masks.at(channel.mask);
-                if (commutation.anti_commutes(channel_view.x(), channel_view.z())) {
+                if (anti_commute(axis, hir_.noise_channel_masks.at(channel.mask))) {
                     crossed_symbols.push_back(SymbolId{symbol_bases_[site] + local_index});
                 }
                 ++local_index;
@@ -296,22 +293,17 @@ class NoiseSigns {
         site_index_built_ = true;
         sites_with_x_.resize(hir_.num_qubits);
         sites_with_z_.resize(hir_.num_qubits);
-        const uint32_t num_words = (hir_.num_qubits + 63) / 64;
-        const uint32_t tail_bits = hir_.num_qubits % 64;
-        const uint64_t last_mask = tail_bits == 0 ? ~uint64_t{0} : (uint64_t{1} << tail_bits) - 1;
-        auto record_mask = [&](MaskView mask, uint32_t site,
+        auto record_mask = [&](SparseMaskView mask, uint32_t site,
                                std::vector<std::vector<uint32_t>>& lists) {
-            for (uint32_t w = 0; w < num_words; ++w) {
-                uint64_t pending = mask.words[w] & (w + 1 == num_words ? last_mask : ~uint64_t{0});
-                while (pending != 0) {
-                    const uint32_t q = 64 * w + std::countr_zero(pending);
-                    auto& list = lists[q];
-                    if (list.empty() || list.back() != site) {
-                        list.push_back(site);
-                    }
-                    pending &= pending - 1;
+            mask.for_each_set_bit([&](uint32_t q) {
+                if (q >= hir_.num_qubits) {
+                    return;
                 }
-            }
+                auto& list = lists[q];
+                if (list.empty() || list.back() != site) {
+                    list.push_back(site);
+                }
+            });
         };
         for (uint32_t site = 0; site < hir_.noise_sites.size(); ++site) {
             for (const NoiseChannel& channel : hir_.noise_sites[site].channels) {
@@ -325,24 +317,20 @@ class NoiseSigns {
         }
     }
 
-    void collect_sites_in_range(MaskView mask, const std::vector<std::vector<uint32_t>>& lists,
-                                uint32_t begin, uint32_t end) {
-        const uint32_t num_words = (hir_.num_qubits + 63) / 64;
-        const uint32_t tail_bits = hir_.num_qubits % 64;
-        const uint64_t last_mask = tail_bits == 0 ? ~uint64_t{0} : (uint64_t{1} << tail_bits) - 1;
-        for (uint32_t w = 0; w < num_words; ++w) {
-            uint64_t pending = mask.words[w] & (w + 1 == num_words ? last_mask : ~uint64_t{0});
-            while (pending != 0) {
-                const uint32_t q = 64 * w + std::countr_zero(pending);
-                const auto& list = lists[q];
-                auto it = std::ranges::lower_bound(list, begin);
-                while (it != list.end() && *it < end) {
-                    candidate_sites_.push_back(*it);
-                    ++it;
-                }
-                pending &= pending - 1;
+    void collect_sites_in_range(SparseMaskView mask,
+                                const std::vector<std::vector<uint32_t>>& lists, uint32_t begin,
+                                uint32_t end) {
+        mask.for_each_set_bit([&](uint32_t q) {
+            if (q >= hir_.num_qubits) {
+                return;
             }
-        }
+            const auto& list = lists[q];
+            auto it = std::ranges::lower_bound(list, begin);
+            while (it != list.end() && *it < end) {
+                candidate_sites_.push_back(*it);
+                ++it;
+            }
+        });
     }
 
     const HirModule& hir_;
@@ -546,16 +534,16 @@ AffineBool process_measurement(MaskView body_x, MaskView body_z, const AffineBoo
 
 void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t next_noise_site,
                         SamplingPlan& plan, uint32_t& active_width, CoordinateFrame& coordinates,
-                        SymbolicPauliFrame& symbolic_frame,
+                        SymbolicPauliFrame& symbolic_frame, DensePauliScratch& dense,
                         std::span<const uint32_t> source_lines) {
     const InstrumentSiteId site{static_cast<uint32_t>(op.instrument_site_idx())};
     const InstrumentSite& hir_site = hir.instrument_sites.at(index(site));
     const SymbolId destination_flip_symbol = reserve_symbol(plan);
     const uint32_t symbol_prefix_size = static_cast<uint32_t>(plan.symbols.size());
-    const PauliMaskView destination_flip = hir.pauli_masks.at(hir_site.destination_flip_mask);
     const InstrumentDistribution& distribution = plan.instrument_distributions.at(index(site));
-    ResolvedPauli resolved = resolve_pauli(hir.destab_mask(op), hir.stab_mask(op),
-                                           AffineBool(hir.sign(op)), coordinates, symbolic_frame);
+    dense.load(hir.mask_view(op));
+    ResolvedPauli resolved =
+        resolve_pauli(dense.x(), dense.z(), AffineBool(hir.sign(op)), coordinates, symbolic_frame);
     const std::optional<uint32_t> dormant_pivot = first_x_at_or_above(resolved.body, active_width);
 
     InstrumentMode mode = InstrumentMode::Classical;
@@ -603,8 +591,8 @@ void process_instrument(const HirModule& hir, const HeisenbergOp& op, uint32_t n
                   source_lines);
 
     if (destination_symbol.has_value()) {
-        symbolic_frame.apply(destination_flip.x(), destination_flip.z(),
-                             AffineBool::symbol(*destination_symbol));
+        dense.load(hir.pauli_masks.at(hir_site.destination_flip_mask));
+        symbolic_frame.apply(dense.x(), dense.z(), AffineBool::symbol(*destination_symbol));
     }
     active_width = active_after;
     plan.peak_active_width = std::max(plan.peak_active_width, active_width);
@@ -651,6 +639,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     validate_assumptions(hir.postselection.mask, hir.postselection.expected_detectors);
 
     NoiseSigns noise_signs(hir);
+    // Dense copy of the HIR mask being planned, for the coordinate and
+    // symbolic frames.
+    DensePauliScratch dense((hir.num_qubits + 63) / 64);
 
     SamplingPlan plan;
     plan.num_qubits = hir.num_qubits;
@@ -726,33 +717,33 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
         switch (op.op_type()) {
             case OpType::T_GATE: {
                 const double half_turns = op.is_dagger() ? -0.25 : 0.25;
-                final_coordinates_changed |=
-                    process_rotation(hir.destab_mask(op), hir.stab_mask(op), half_turns,
-                                     noise_signs.sign_for(i, next_noise_site), plan, active_width,
-                                     coordinates, symbolic_frame, source_lines);
+                dense.load(hir.mask_view(op));
+                final_coordinates_changed |= process_rotation(
+                    dense.x(), dense.z(), half_turns, noise_signs.sign_for(i, next_noise_site),
+                    plan, active_width, coordinates, symbolic_frame, source_lines);
                 break;
             }
             case OpType::PHASE_ROTATION: {
-                final_coordinates_changed |=
-                    process_rotation(hir.destab_mask(op), hir.stab_mask(op), op.alpha(),
-                                     noise_signs.sign_for(i, next_noise_site), plan, active_width,
-                                     coordinates, symbolic_frame, source_lines);
+                dense.load(hir.mask_view(op));
+                final_coordinates_changed |= process_rotation(
+                    dense.x(), dense.z(), op.alpha(), noise_signs.sign_for(i, next_noise_site),
+                    plan, active_width, coordinates, symbolic_frame, source_lines);
                 break;
             }
             case OpType::MEASURE: {
                 const RecordSlot record{static_cast<uint32_t>(op.meas_record_idx())};
                 const SymbolId branch = reserve_symbol(plan);
+                dense.load(hir.mask_view(op));
                 const AffineBool outcome = process_measurement(
-                    hir.destab_mask(op), hir.stab_mask(op),
-                    noise_signs.sign_for(i, next_noise_site), record, branch, plan, active_width,
-                    coordinates, symbolic_frame, source_lines);
+                    dense.x(), dense.z(), noise_signs.sign_for(i, next_noise_site), record, branch,
+                    plan, active_width, coordinates, symbolic_frame, source_lines);
                 assign_record(record, outcome, i);
                 break;
             }
             case OpType::CONDITIONAL_PAULI: {
                 const RecordSlot controller{static_cast<uint32_t>(op.controlling_meas())};
-                symbolic_frame.apply(hir.destab_mask(op), hir.stab_mask(op),
-                                     require_record(controller, i));
+                dense.load(hir.mask_view(op));
+                symbolic_frame.apply(dense.x(), dense.z(), require_record(controller, i));
                 break;
             }
             case OpType::NOISE: {
@@ -770,8 +761,8 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     const SymbolId symbol{static_cast<uint32_t>(plan.symbols.size())};
                     plan.symbols.push_back(SymbolKind::Presampled);
                     plan_site.outcomes.push_back(PresampledNoiseOutcome{symbol, channel.prob});
-                    const PauliMaskView mask = hir.noise_channel_masks.at(channel.mask);
-                    symbolic_frame.apply(mask.x(), mask.z(), AffineBool::symbol(symbol));
+                    dense.load(hir.noise_channel_masks.at(channel.mask));
+                    symbolic_frame.apply(dense.x(), dense.z(), AffineBool::symbol(symbol));
                 }
                 break;
             }
@@ -812,7 +803,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                         "sampling planner instrument omits its destination flip");
                 }
                 process_instrument(hir, op, next_noise_site, plan, active_width, coordinates,
-                                   symbolic_frame, source_lines);
+                                   symbolic_frame, dense, source_lines);
                 ++next_instrument_site;
                 break;
             }
@@ -861,9 +852,9 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     throw std::invalid_argument(
                         "sampling planner expectation slot is out of range");
                 }
-                ResolvedPauli resolved =
-                    resolve_pauli(hir.destab_mask(op), hir.stab_mask(op), AffineBool(hir.sign(op)),
-                                  coordinates, symbolic_frame);
+                dense.load(hir.mask_view(op));
+                ResolvedPauli resolved = resolve_pauli(
+                    dense.x(), dense.z(), AffineBool(hir.sign(op)), coordinates, symbolic_frame);
                 const bool is_zero = first_x_at_or_above(resolved.body, active_width).has_value();
                 append_action(
                     plan,

@@ -97,7 +97,7 @@ TEST_CASE("Output aligned wide phase rewrites preserve signed eigenphases", "[op
     for (uint32_t q = 0; q < width; ++q) {
         clifford += "H " + std::to_string(q) + "\n";
     }
-    HirModule hir(width, 8 * width + 15 * (width - 9) + 42);
+    HirModule hir(width);
     hir.final_tableau = trace(parse(clifford)).final_tableau;
     std::vector<PhaseTerm> original;
     const auto emit = [&](Mask parity, bool dagger) {
@@ -109,8 +109,7 @@ TEST_CASE("Output aligned wide phase rewrites preserve signed eigenphases", "[op
         // Paired sign and dagger flips preserve the intended nonconstant phase.
         dagger ^= negative;
         original.push_back({parity, uint8_t(dagger ? 7 : 1), negative});
-        hir.append_tgate(
-            dagger, [&](MutablePauliMaskView mask) { optimizer_detail::write_axis(mask, axis); });
+        hir.append_tgate(dagger, PauliMask(axis.x(), axis.z(), axis.sign()));
     };
 
     // Identity rotations establish a full collection basis whose coordinates

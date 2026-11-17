@@ -8,13 +8,16 @@
 // appear in the HIR.
 //
 // Pauli masks live in HirModule-owned arenas and are referenced from each
-// HeisenbergOp by an opaque PauliMaskHandle. Variable-sized payloads (noise
-// channels, detector/observable target lists) live in side-tables on HirModule.
+// HeisenbergOp by an opaque PauliMaskHandle. The arenas store each mask as
+// its nonzero words, so module size follows the masks' support rather than
+// the register width. Variable-sized payloads (noise channels,
+// detector/observable target lists) live in side-tables on HirModule.
 
 #include "clifft/tableau/tableau.h"
 #include "clifft/util/config.h"
 #include "clifft/util/mask_view.h"
 #include "clifft/util/pauli_arena.h"
+#include "clifft/util/pauli_mask.h"
 
 #include <algorithm>
 #include <cassert>
@@ -213,8 +216,7 @@ enum class OpType : uint8_t {
 // means bit i of z; both set means Y_i.
 //
 // Construct via HirModule::append_* builders. For mask-carrying ops, the
-// builders take a fill callable that writes (X, Z, sign) into a freshly
-// claimed arena slot.
+// builders copy the given (X, Z, sign) mask into a new arena slot.
 struct HeisenbergOp {
     static constexpr uint8_t FLAG_IS_DAGGER = 1 << 0;
     static constexpr uint8_t FLAG_HIDDEN = 1 << 2;
@@ -295,9 +297,9 @@ struct HeisenbergOp {
 
     // Static factories. Each takes the mask handle (or kNoMask for ops with
     // no Pauli) plus the per-op payload, and produces a fully-initialized
-    // HeisenbergOp. Use HirModule::append_* or claim_*_pauli_mask helpers
-    // to allocate the slot first; these factories do not validate that the
-    // handle belongs to any specific arena.
+    // HeisenbergOp. Use HirModule::append_* to store the mask and build the
+    // op together; these factories do not validate that the handle belongs
+    // to any specific arena.
     static HeisenbergOp make_tgate(PauliMaskHandle handle, bool dagger) {
         HeisenbergOp op(OpType::T_GATE, handle);
         op.set_dagger(dagger);
@@ -477,15 +479,12 @@ struct PostselectionMetadata {
 };
 
 /// HIR module: parsed, traced output of the Front-End. Owns Pauli mask
-/// arenas, op vector, side-tables, and circuit metadata. Construct with
-/// (num_qubits, num_pauli_masks[, num_noise_channels]) so the arenas are
-/// pre-sized; default construction yields empty arenas.
+/// arenas, op vector, side-tables, and circuit metadata. Construct with the
+/// register width; default construction yields zero-width arenas.
 struct HirModule {
     HirModule() = default;
 
-    HirModule(uint32_t n_qubits, size_t num_pauli_masks, size_t num_noise_channels = 0)
-        : pauli_masks(n_qubits, num_pauli_masks),
-          noise_channel_masks(n_qubits, num_noise_channels) {
+    explicit HirModule(uint32_t n_qubits) : pauli_masks(n_qubits), noise_channel_masks(n_qubits) {
         num_qubits = n_qubits;
     }
 
@@ -598,93 +597,48 @@ struct HirModule {
 
     // --- Mask accessors ---
 
-    [[nodiscard]] MaskView destab_mask(const HeisenbergOp& op) const {
-        assert(op.has_mask());
-        return pauli_masks.at(op.mask_handle()).x();
+    [[nodiscard]] SparseMaskView destab_mask(const HeisenbergOp& op) const {
+        return mask_view(op).x();
     }
-    [[nodiscard]] MaskView stab_mask(const HeisenbergOp& op) const {
-        assert(op.has_mask());
-        return pauli_masks.at(op.mask_handle()).z();
+    [[nodiscard]] SparseMaskView stab_mask(const HeisenbergOp& op) const {
+        return mask_view(op).z();
     }
-    [[nodiscard]] bool sign(const HeisenbergOp& op) const {
-        assert(op.has_mask());
-        return pauli_masks.at(op.mask_handle()).sign();
-    }
+    [[nodiscard]] bool sign(const HeisenbergOp& op) const { return mask_view(op).sign(); }
     [[nodiscard]] PauliMaskView mask_view(const HeisenbergOp& op) const {
         assert(op.has_mask());
         return pauli_masks.at(op.mask_handle());
     }
-    [[nodiscard]] MutablePauliMaskView mask_at(const HeisenbergOp& op) {
-        assert(op.has_mask());
-        return pauli_masks.mut_at(op.mask_handle());
-    }
 
-    // --- Lambda-fill builders ---
+    // --- Builders for mask-carrying ops ---
     //
-    // The mask slot is claimed, the fill callable is invoked with a
-    // MutablePauliMaskView pointing at the freshly claimed (zeroed) slot,
-    // and the op is appended -- atomically at the call site. Example:
+    // Each builder copies the mask into pauli_masks and appends the op that
+    // references it. Example:
     //
-    //     hir.append_tgate(/*dagger=*/false, [&](MutablePauliMaskView slot) {
-    //         slot.x().xor_with(rewound.x());
-    //         slot.z().xor_with(rewound.z());
-    //         slot.set_sign(rewound.sign());
-    //     });
-    //
-    // The fill callable's MutablePauliMaskView argument starts zeroed; the
-    // callable need only write the bits it cares about.
+    //     hir.append_tgate(/*dagger=*/false, PauliMask(rewound.x(), rewound.z(), rewound.sign()));
 
-    template <typename Fill>
-    HeisenbergOp& append_tgate(bool dagger, Fill&& fill) {
-        auto h = claim_empty_pauli_mask();
-        fill(pauli_masks.mut_at(h));
-        ops.push_back(HeisenbergOp::make_tgate(h, dagger));
+    HeisenbergOp& append_tgate(bool dagger, PauliMaskView mask) {
+        ops.push_back(HeisenbergOp::make_tgate(pauli_masks.append(mask), dagger));
         return ops.back();
     }
-    template <typename Fill>
-    HeisenbergOp& append_measure(MeasRecordIdx idx, Fill&& fill) {
-        auto h = claim_empty_pauli_mask();
-        fill(pauli_masks.mut_at(h));
-        ops.push_back(HeisenbergOp::make_measure(h, idx));
+    HeisenbergOp& append_measure(MeasRecordIdx idx, PauliMaskView mask) {
+        ops.push_back(HeisenbergOp::make_measure(pauli_masks.append(mask), idx));
         return ops.back();
     }
-    template <typename Fill>
-    HeisenbergOp& append_conditional(ControllingMeasIdx idx, Fill&& fill) {
-        auto h = claim_empty_pauli_mask();
-        fill(pauli_masks.mut_at(h));
-        ops.push_back(HeisenbergOp::make_conditional(h, idx));
+    HeisenbergOp& append_conditional(ControllingMeasIdx idx, PauliMaskView mask) {
+        ops.push_back(HeisenbergOp::make_conditional(pauli_masks.append(mask), idx));
         return ops.back();
     }
-    template <typename Fill>
-    HeisenbergOp& append_phase_rotation(double alpha, Fill&& fill) {
-        auto h = claim_empty_pauli_mask();
-        fill(pauli_masks.mut_at(h));
-        ops.push_back(HeisenbergOp::make_phase_rotation(h, alpha));
+    HeisenbergOp& append_phase_rotation(double alpha, PauliMaskView mask) {
+        ops.push_back(HeisenbergOp::make_phase_rotation(pauli_masks.append(mask), alpha));
         return ops.back();
     }
-    template <typename Fill>
-    HeisenbergOp& append_exp_val(ExpValIdx idx, Fill&& fill) {
-        auto h = claim_empty_pauli_mask();
-        fill(pauli_masks.mut_at(h));
-        ops.push_back(HeisenbergOp::make_exp_val(h, idx));
+    HeisenbergOp& append_exp_val(ExpValIdx idx, PauliMaskView mask) {
+        ops.push_back(HeisenbergOp::make_exp_val(pauli_masks.append(mask), idx));
         return ops.back();
     }
-    template <typename Fill>
-    HeisenbergOp& append_instrument(InstrumentSiteIdx idx, Fill&& fill) {
-        auto h = claim_empty_pauli_mask();
-        fill(pauli_masks.mut_at(h));
-        ops.push_back(HeisenbergOp::make_instrument(h, idx));
+    HeisenbergOp& append_instrument(InstrumentSiteIdx idx, PauliMaskView mask) {
+        ops.push_back(HeisenbergOp::make_instrument(pauli_masks.append(mask), idx));
         return ops.back();
-    }
-
-    /// Claim a pauli_masks slot referenced from a side-table entry rather
-    /// than an op (e.g. an instrument's destination flip), filled via the
-    /// callable like the append_* builders.
-    template <typename Fill>
-    PauliMaskHandle claim_side_mask(Fill&& fill) {
-        auto h = claim_empty_pauli_mask();
-        fill(pauli_masks.mut_at(h));
-        return h;
     }
 
     // --- Builders for ops that don't carry a Pauli mask ---
@@ -706,38 +660,36 @@ struct HirModule {
         return ops.back();
     }
 
-    // --- Noise channel mask claims (analogous to pauli_masks) ---
-
-    /// Claim the next noise_channel_masks slot zero-initialized; caller
-    /// fills via noise_channel_masks.mut_at(h). Throws (rather than
-    /// asserting) so a stale count_noise_channels() upper bound is
-    /// caught in Release as well as Debug.
-    PauliMaskHandle claim_empty_noise_channel_mask() {
-        if (next_noise_channel_mask_ >= noise_channel_masks.size()) {
-            throw std::runtime_error(
-                "noise_channel_masks arena exhausted: pre-trace counter was too low");
-        }
-        return static_cast<PauliMaskHandle>(next_noise_channel_mask_++);
-    }
-
     // --- In-place mutation of existing op slots ---
 
-    void set_sign(const HeisenbergOp& op, bool s) { mask_at(op).set_sign(s); }
+    /// Replace an op's mask. Invalidates views of that op's mask only.
+    void set_mask(const HeisenbergOp& op, PauliMaskView mask) {
+        assert(op.has_mask());
+        pauli_masks.assign(op.mask_handle(), mask);
+    }
+
+    void set_mask(const HeisenbergOp& op, const PauliString& axis) {
+        assert(op.has_mask());
+        pauli_masks.assign(op.mask_handle(), axis.x(), axis.z(), axis.sign());
+    }
+
+    void set_sign(const HeisenbergOp& op, bool s) {
+        assert(op.has_mask());
+        pauli_masks.set_sign(op.mask_handle(), s);
+    }
 
     /// Convert an existing mask-carrying op to a T_GATE while preserving
     /// its mask handle. Resets the arena slot's sign to false to match
     /// the peephole pass's normalization convention.
     void demote_to_tgate(HeisenbergOp& op, bool dagger) {
-        assert(op.has_mask());
-        mask_at(op).set_sign(false);
+        set_sign(op, false);
         op.reset_to_tgate(dagger);
     }
 
     /// Convert an existing mask-carrying op to a PHASE_ROTATION while
     /// preserving its mask handle. Resets the arena slot's sign to false.
     void demote_to_phase_rotation(HeisenbergOp& op, double alpha) {
-        assert(op.has_mask());
-        mask_at(op).set_sign(false);
+        set_sign(op, false);
         op.reset_to_phase_rotation(alpha);
     }
 
@@ -751,19 +703,6 @@ struct HirModule {
         }
         return count;
     }
-
-  private:
-    /// Throws (rather than asserting) so a stale count_pauli_masks() upper
-    /// bound is caught in Release as well as Debug.
-    PauliMaskHandle claim_empty_pauli_mask() {
-        if (next_pauli_mask_ >= pauli_masks.size()) {
-            throw std::runtime_error("pauli_masks arena exhausted: pre-trace counter was too low");
-        }
-        return static_cast<PauliMaskHandle>(next_pauli_mask_++);
-    }
-
-    size_t next_pauli_mask_ = 0;
-    size_t next_noise_channel_mask_ = 0;
 };
 
 inline void PostselectionMetadata::record_specialization(HirModule&& before) {

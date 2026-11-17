@@ -323,8 +323,7 @@ TEST_CASE(
     const HeisenbergOp& t_op = reordered.ops[0];
     for (size_t ch = 0; ch < channels.size(); ++ch) {
         const PauliMaskView mask = reordered.noise_channel_masks.at(channels[ch].mask);
-        if (anti_commute(reordered.destab_mask(t_op), reordered.stab_mask(t_op), mask.x(),
-                         mask.z())) {
+        if (anti_commute(reordered.mask_view(t_op), mask)) {
             expected ^= AffineBool::symbol(reordered_outcomes[ch].symbol);
         }
     }
@@ -368,8 +367,7 @@ TEST_CASE(
         REQUIRE(outcomes.size() == channels.size());
         for (size_t ch = 0; ch < channels.size(); ++ch) {
             const PauliMaskView mask = original.noise_channel_masks.at(channels[ch].mask);
-            if (anti_commute(original.destab_mask(measure_op), original.stab_mask(measure_op),
-                             mask.x(), mask.z())) {
+            if (anti_commute(original.mask_view(measure_op), mask)) {
                 expected ^= AffineBool::symbol(outcomes[ch].symbol);
             }
         }

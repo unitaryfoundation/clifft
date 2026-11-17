@@ -120,8 +120,7 @@ DormantSubspace final_subspace(const HirModule& hir) {
             continue;
         }
         PauliString body(hir.num_qubits);
-        body.mut_x().xor_with(hir.destab_mask(op));
-        body.mut_z().xor_with(hir.stab_mask(op));
+        hir.mask_view(op).xor_into(body.mut_x(), body.mut_z());
         if (is_measurement) {
             subspace.apply_measurement(body);
         } else {
@@ -497,7 +496,7 @@ TEST_CASE("Different linear extensions reach the same final structural subspace"
 TEST_CASE("Reordering a four operation circuit reduces its peak active width",
           "[schedule_dependence]") {
     // Use the same Pauli bodies as the DormantSubspace confluence regression.
-    HirModule hir(2, 4);
+    HirModule hir(2);
     hir.num_measurements = 2;
     clifft::test::append_phase_rotation(hir, X(0) | X(1), 0, false, 0.3);                  // R_XX
     clifft::test::append_phase_rotation(hir, X(1), Z(0) | Z(1), false, 0.3);               // R_ZY

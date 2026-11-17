@@ -22,7 +22,6 @@ namespace {
 
 using optimizer_detail::body_bit;
 using optimizer_detail::pivot_of;
-using optimizer_detail::write_axis;
 
 PauliString product_axis(const std::vector<PauliString>& generators, uint64_t parity,
                          uint32_t width) {
@@ -97,7 +96,7 @@ bool commutes_with_prefix(const HirModule& hir, size_t start, size_t end, PauliM
         }
         if (op.has_mask()) {
             const PauliMaskView other = hir.mask_view(op);
-            if (anti_commute(target.x(), target.z(), other.x(), other.z())) {
+            if (anti_commute(target, other)) {
                 return false;
             }
         } else if (type == OpType::NOISE) {
@@ -110,7 +109,7 @@ bool commutes_with_prefix(const HirModule& hir, size_t start, size_t end, PauliM
                     continue;
                 }
                 const PauliMaskView other = hir.noise_channel_masks.at(channel.mask);
-                if (anti_commute(target.x(), target.z(), other.x(), other.z())) {
+                if (anti_commute(target, other)) {
                     return false;
                 }
             }
@@ -462,7 +461,7 @@ class Rewriter {
             generators.push_back(product_axis(block.generators, parity, hir().num_qubits));
         }
         for (const auto& observer : block.observers) {
-            write_axis(candidate_->mask_at(candidate_->ops[observer.index]), observer.pulled_axis);
+            candidate_->set_mask(candidate_->ops[observer.index], observer.pulled_axis);
         }
         for (size_t i = start; i < block.end; ++i) {
             if (hir().ops[i].op_type() != OpType::T_GATE) {
@@ -490,7 +489,7 @@ class Rewriter {
                 if (!elide_post_observer) {
                     auto& op = candidate_->ops[block.rotations[written++]];
                     candidate_->demote_to_tgate(op, dagger);
-                    write_axis(candidate_->mask_at(op), axis);
+                    candidate_->set_mask(op, axis);
                     output_.push_back(op);
                     known_.advance(hir(), op);
                     if (!hir().source_map.empty()) {
@@ -528,7 +527,7 @@ class Rewriter {
                 const bool dagger = coefficient >= 5;
                 auto& op = candidate_->ops[start + written++];
                 candidate_->demote_to_tgate(op, dagger);
-                write_axis(candidate_->mask_at(op), axis);
+                candidate_->set_mask(op, axis);
                 output_.push_back(op);
                 known_.advance(hir(), op);
                 if (!hir().source_map.empty())

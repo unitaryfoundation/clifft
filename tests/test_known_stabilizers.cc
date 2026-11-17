@@ -3,6 +3,8 @@
 #include "clifft/optimizer/symbolic_stabilizers.h"
 #include "clifft/util/xoshiro.h"
 
+#include "test_helpers.h"
+
 #include <catch2/catch_test_macros.hpp>
 #include <map>
 #include <optional>
@@ -355,23 +357,16 @@ TEST_CASE("Wide stabilizer tracking preserves multiword unit Z and entangled sub
 TEST_CASE("Repeated reset feedback reclaims stabilizer storage across rounds", "[optimizer]") {
     constexpr uint32_t kNumQubits = 256;
     auto build_reset_loop = [](size_t rounds) {
-        HirModule hir(kNumQubits, 6);
+        HirModule hir(kNumQubits);
         hir.num_hidden_measurements = 2;
         hir.ops.reserve(6 * rounds);
-        hir.append_measure(MeasRecordIdx{0},
-                           [](MutablePauliMaskView s) { s.x().bit_set(0, true); });
-        hir.append_conditional(ControllingMeasIdx{0},
-                               [](MutablePauliMaskView s) { s.z().bit_set(0, true); });
-        hir.append_measure(MeasRecordIdx{1},
-                           [](MutablePauliMaskView s) { s.z().bit_set(0, true); });
-        hir.append_conditional(ControllingMeasIdx{1},
-                               [](MutablePauliMaskView s) { s.x().bit_set(0, true); });
-        hir.append_measure(MeasRecordIdx{0}, [](MutablePauliMaskView s) {
-            s.z().bit_set(199, true);
-            s.set_sign(true);
-        });
-        hir.append_conditional(ControllingMeasIdx{0},
-                               [](MutablePauliMaskView s) { s.x().bit_set(199, true); });
+        using clifft::test::single_qubit_mask;
+        hir.append_measure(MeasRecordIdx{0}, single_qubit_mask(0, true, false));
+        hir.append_conditional(ControllingMeasIdx{0}, single_qubit_mask(0, false, true));
+        hir.append_measure(MeasRecordIdx{1}, single_qubit_mask(0, false, true));
+        hir.append_conditional(ControllingMeasIdx{1}, single_qubit_mask(0, true, false));
+        hir.append_measure(MeasRecordIdx{0}, single_qubit_mask(199, false, true, true));
+        hir.append_conditional(ControllingMeasIdx{0}, single_qubit_mask(199, true, false));
 
         for (size_t r = 1; r < rounds; ++r) {
             for (size_t j = 0; j < 6; ++j) {
@@ -582,14 +577,16 @@ class NaiveSymbolicStabilizers {
         switch (op.op_type()) {
             case OpType::T_GATE:
             case OpType::PHASE_ROTATION: {
-                const auto mask = hir.mask_view(op);
+                const PauliString mask =
+                    optimizer_detail::copy_axis(hir.mask_view(op), num_qubits_);
                 intersect(mask.x(), mask.z());
                 break;
             }
             case OpType::MEASURE: {
                 const uint32_t rec = static_cast<uint32_t>(op.meas_record_idx());
                 if (!remaining_uses_.contains(rec)) {
-                    const auto mask = hir.mask_view(op);
+                    const PauliString mask =
+                        optimizer_detail::copy_axis(hir.mask_view(op), num_qubits_);
                     intersect(mask.x(), mask.z());
                     break;
                 }
@@ -605,7 +602,8 @@ class NaiveSymbolicStabilizers {
             }
             case OpType::CONDITIONAL_PAULI: {
                 const uint32_t rec = static_cast<uint32_t>(op.controlling_meas());
-                const auto mask = hir.mask_view(op);
+                const PauliString mask =
+                    optimizer_detail::copy_axis(hir.mask_view(op), num_qubits_);
                 const auto it = records_.find(rec);
                 if (it != records_.end()) {
                     apply_pauli(mask.x(), mask.z(), it->second);
@@ -623,7 +621,8 @@ class NaiveSymbolicStabilizers {
                     hir.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
                 for (const auto& ch : channels) {
                     if (ch.prob != 0) {
-                        const auto mask = hir.noise_channel_masks.at(ch.mask);
+                        const PauliString mask = optimizer_detail::copy_axis(
+                            hir.noise_channel_masks.at(ch.mask), num_qubits_);
                         intersect(mask.x(), mask.z());
                     }
                 }

@@ -197,12 +197,20 @@ void phase_clifford_regions(benchmark::State& state, int64_t size) {
 // Forty independent axes repeatedly exhaust the default 32-variable cap,
 // exposing collection costs across many rank-limited regions.
 void phase_rank_limited_region(benchmark::State& state, int64_t size) {
-    HirModule original(40, static_cast<size_t>(size));
+    // Traced from text so the workload does not depend on the HIR builder
+    // interface, which differs between compared revisions.
+    std::ostringstream source;
     for (int64_t i = 0; i < size; ++i) {
-        original.append_tgate(false, [i](MutablePauliMaskView mask) {
-            mask.x().bit_set(static_cast<uint32_t>(i % 40), true);
-        });
+        source << "TPP X" << (i % 40) << "\n";
     }
+    HirModule original = trace(parse(source.str()));
+    if (original.ops.size() != static_cast<size_t>(size) || original.num_qubits != 40) {
+        state.SkipWithError("unexpected rank-limited HIR");
+        return;
+    }
+    // Measure the phase rewrite alone, without provenance or frame updates.
+    original.source_map.clear();
+    original.final_tableau.reset();
     for ([[maybe_unused]] auto _ : state) {
         auto hir = original;
         PhasePolynomialPass pass;

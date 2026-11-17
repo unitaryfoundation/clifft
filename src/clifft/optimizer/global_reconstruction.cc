@@ -1414,55 +1414,79 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
     const uint32_t width = r.num_qubits + noise.num_bits + (need_carrier ? 1U : 0U);
     const uint32_t carrier = width - 1;
 
+    // Bound the lowered module before building it: count its Pauli masks and
+    // the nonzero words they store. Fault-bit, feedback, and scratch-wire
+    // masks each act on one qubit.
+    const auto axis_words = [](const PauliString& axis) {
+        uint64_t words = 0;
+        for (uint32_t w = 0; w < axis.x().num_words(); ++w) {
+            words += (axis.x().words[w] | axis.z().words[w]) != 0;
+        }
+        return words;
+    };
     bool need_one = false;
-    size_t masks = noise.num_bits;
+    // 64-bit counts: the totals can exceed a 32-bit size_t before the check.
+    uint64_t masks = noise.num_bits;
+    uint64_t mask_words = noise.num_bits;
     for (size_t j = 0; j < r.operations.size(); ++j) {
         const auto& op = r.operations[j];
-        size_t terms = 0;
+        uint64_t terms = 0;
         for (auto w : noise.signs[j].words)
-            terms += std::popcount(w);
+            terms += static_cast<uint64_t>(std::popcount(w));
         if (op.half_turns != 0) {
             const uint32_t pivot = std::min(op.axis.x().lowest_bit(), op.axis.z().lowest_bit());
-            if (pivot < r.num_qubits)
+            if (pivot < r.num_qubits) {
                 masks += 2 * terms + 1;
+                mask_words += 2 * terms + axis_words(op.axis);
+            }
         } else {
             const bool is_identity = op.axis.x().is_zero() && op.axis.z().is_zero();
             const bool constant = noise.signs[j].constant ^ op.axis.sign();
-            if (!op.output) {
-                if (!is_identity)
-                    ++masks;
-                continue;
+            if (!is_identity) {
+                ++masks;
+                mask_words += axis_words(op.axis);
             }
+            if (!op.output)
+                continue;
             if (constant)
                 need_one = true;
-            if (!is_identity)
-                ++masks;
             if (*op.output < visible) {
-                const size_t parity_len = terms + (!is_identity ? 1 : 0) + (constant ? 1 : 0);
+                const uint64_t parity_len = terms + (!is_identity ? 1 : 0) + (constant ? 1 : 0);
                 masks += 2 * parity_len + 1;
+                mask_words += 2 * parity_len + 1;
             }
         }
     }
     if (need_one)
         ++masks;
 
-    size_t noise_masks = 0;
     for (const auto& channel : noise.channels) {
         for (const auto& outcome : channel) {
-            if (!outcome.bits.empty() && outcome.probability != 0)
-                ++noise_masks;
+            if (!outcome.bits.empty() && outcome.probability != 0) {
+                ++masks;
+                // An upper bound: bits sharing a word store one word.
+                mask_words += outcome.bits.size();
+            }
         }
     }
-    const size_t bytes_per_mask = 2 * ((size_t{width} + 63) / 64) * sizeof(uint64_t) + 1;
-    require_supported(masks + noise_masks <= limits.max_lowering_bytes / bytes_per_mask,
+    require_supported(PauliMaskArena::storage_bytes(masks, mask_words) <= limits.max_lowering_bytes,
                       "lowering mask memory limit exceeded");
-    HirModule hir(width, masks, noise_masks);
+    HirModule hir(width);
     hir.num_measurements = visible;
     hir.num_detectors = r.outputs.num_detectors;
     hir.num_observables = r.outputs.num_observables;
     hir.postselection.mask = postselection.mask;
     hir.postselection.expected_detectors = postselection.expected_detectors;
     hir.postselection.expected_observables = postselection.expected_observables;
+
+    // Scratch for every mask built below.
+    PauliMask mask;
+    // X or Z on one wire.
+    auto single = [&](uint32_t qubit, bool x) -> PauliMaskView {
+        mask.clear();
+        mask.toggle(qubit, x, !x);
+        return mask;
+    };
 
     // 2. Emit compressed categorical noise channels as X flips on the auxiliary
     // fault-bit wires, then measure each fault wire into a hidden record.
@@ -1471,11 +1495,10 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
         for (const auto& outcome : channel) {
             if (outcome.bits.empty() || outcome.probability == 0)
                 continue;
-            const auto handle = hir.claim_empty_noise_channel_mask();
-            auto slot = hir.noise_channel_masks.mut_at(handle);
+            mask.clear();
             for (uint32_t i : outcome.bits)
-                slot.x().bit_set(r.num_qubits + i, true);
-            site.channels.push_back({handle, outcome.probability});
+                mask.toggle(r.num_qubits + i, true, false);
+            site.channels.push_back({hir.noise_channel_masks.append(mask), outcome.probability});
             site.total_probability += outcome.probability;
         }
         // Clamp minor floating-point excess from convolution so the noise site
@@ -1489,19 +1512,18 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
         hir.noise_sites.push_back(std::move(site));
         hir.append_noise(NoiseSiteIdx{index});
     }
-    auto hidden_measure = [&](auto&& fill) {
+    auto hidden_measure = [&](PauliMaskView body) {
         const auto record = visible + hir.num_hidden_measurements++;
-        hir.append_measure(MeasRecordIdx{record}, fill).set_hidden(true);
+        hir.append_measure(MeasRecordIdx{record}, body).set_hidden(true);
         return record;
     };
     std::vector<uint32_t> fault_records;
     fault_records.reserve(noise.num_bits);
     for (uint32_t i = 0; i < noise.num_bits; ++i) {
-        fault_records.push_back(
-            hidden_measure([&](MutablePauliMaskView p) { p.z().bit_set(r.num_qubits + i, true); }));
+        fault_records.push_back(hidden_measure(single(r.num_qubits + i, false)));
     }
-    const uint32_t one =
-        need_one ? hidden_measure([](MutablePauliMaskView p) { p.set_sign(true); }) : 0;
+    // Measuring -I records a constant 1.
+    const uint32_t one = need_one ? hidden_measure(PauliMaskView{{}, true}) : 0;
 
     // 3. Emit scheduled rotations and measurements. Identity-axis measurements
     // act trivially on the quantum state, so their parities reference fault
@@ -1509,11 +1531,10 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
     std::vector<std::vector<uint32_t>> output_parities(r.outputs.num_outputs());
     for (size_t j = 0; j < r.operations.size(); ++j) {
         const auto& op = r.operations[j];
-        auto fill_axis = [&](MutablePauliMaskView p) {
-            for (uint32_t w = 0; w < op.axis.x().num_words(); ++w) {
-                p.x().words[w] = op.axis.x().words[w];
-                p.z().words[w] = op.axis.z().words[w];
-            }
+        // The unsigned axis; noise.signs carries its sign.
+        auto axis_body = [&]() -> PauliMaskView {
+            mask.assign(op.axis.x(), op.axis.z(), false);
+            return mask;
         };
         if (op.half_turns != 0) {
             const uint32_t pivot = std::min(op.axis.x().lowest_bit(), op.axis.z().lowest_bit());
@@ -1523,31 +1544,25 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
             each_bit(noise.signs[j].words, [&](uint32_t i) { parity.push_back(fault_records[i]); });
             auto feedback = [&] {
                 for (auto record : parity)
-                    hir.append_conditional(ControllingMeasIdx{record}, [&](MutablePauliMaskView p) {
-                        if (op.axis.x().bit_get(pivot))
-                            p.z().bit_set(pivot, true);
-                        else
-                            p.x().bit_set(pivot, true);
-                    });
+                    hir.append_conditional(ControllingMeasIdx{record},
+                                           single(pivot, !op.axis.x().bit_get(pivot)));
             };
             feedback();
-            hir.append_phase_rotation(op.half_turns, [&](MutablePauliMaskView p) {
-                fill_axis(p);
-                p.set_sign(noise.signs[j].constant ^ op.axis.sign());
-            });
+            mask.assign(op.axis.x(), op.axis.z(), noise.signs[j].constant ^ op.axis.sign());
+            hir.append_phase_rotation(op.half_turns, mask);
             feedback();
         } else {
             const bool is_identity = op.axis.x().is_zero() && op.axis.z().is_zero();
             const bool constant = noise.signs[j].constant ^ op.axis.sign();
             if (!op.output) {
                 if (!is_identity)
-                    hidden_measure(fill_axis);
+                    hidden_measure(axis_body());
                 continue;
             }
             std::vector<uint32_t> parity;
             each_bit(noise.signs[j].words, [&](uint32_t i) { parity.push_back(fault_records[i]); });
             if (!is_identity)
-                parity.push_back(hidden_measure(fill_axis));
+                parity.push_back(hidden_measure(axis_body()));
             if (constant)
                 parity.push_back(one);
             const uint32_t out_idx = *op.output;
@@ -1557,13 +1572,10 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
                 // and uncompute the controls so the wire is reusable.
                 auto copy_parity = [&] {
                     for (auto record : parity)
-                        hir.append_conditional(
-                            ControllingMeasIdx{record},
-                            [&](MutablePauliMaskView p) { p.x().bit_set(carrier, true); });
+                        hir.append_conditional(ControllingMeasIdx{record}, single(carrier, true));
                 };
                 copy_parity();
-                hir.append_measure(MeasRecordIdx{out_idx},
-                                   [&](MutablePauliMaskView p) { p.z().bit_set(carrier, true); });
+                hir.append_measure(MeasRecordIdx{out_idx}, single(carrier, false));
                 copy_parity();
             }
         }

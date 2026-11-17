@@ -90,7 +90,7 @@ class Rewriter {
                     } else {
                         candidate_->demote_to_phase_rotation(op, term.angle);
                     }
-                    optimizer_detail::write_axis(candidate_->mask_at(op), term.axis);
+                    candidate_->set_mask(op, term.axis);
                     known_.advance(*candidate_, op);
                     output_.push_back(op);
                     if (!input_.source_map.empty()) {

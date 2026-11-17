@@ -67,8 +67,8 @@ struct InstrumentTraceOptions {
 //   before tracing.
 //
 // Throws std::runtime_error if the circuit exceeds the conservative
-// 65536-qubit safety ceiling. Pauli mask storage is otherwise sized at
-// runtime.
+// 65536-qubit safety ceiling, which bounds the dense tableau. Pauli masks
+// are stored sparsely and grow with the traced operations.
 // Throws std::overflow_error when circuit-node indices exceed the HIR's
 // source-node range.
 [[nodiscard]] HirModule trace(const Circuit& circuit,

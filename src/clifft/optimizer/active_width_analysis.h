@@ -56,6 +56,20 @@ class DormantSubspace {
         std::vector<uint64_t> words_;
     };
 
+    // A copy of S that stores each generator as its nonzero words, so it costs
+    // memory in proportion to the generators' support. A search that keeps
+    // many alternative subspaces holds snapshots and restores one at a time
+    // into a single working DormantSubspace.
+    class Snapshot {
+      private:
+        friend class DormantSubspace;
+
+        std::vector<uint32_t> pivots_;
+        // Row i owns words_[row_ends_[i - 1], row_ends_[i]).
+        std::vector<size_t> row_ends_;
+        std::vector<PauliWord> words_;
+    };
+
     explicit DormantSubspace(uint32_t num_qubits);
 
     DormantSubspace(const DormantSubspace&) = default;
@@ -65,24 +79,27 @@ class DormantSubspace {
 
     [[nodiscard]] uint32_t active_width() const { return num_qubits_ - dimension_; }
 
+    // Pauli arguments are unsigned bodies; signs do not affect S. The sparse
+    // overloads cost time in proportion to the body's support.
+
     // True when `p` commutes with every current generator of S.
     [[nodiscard]] bool commutes_with_all(const PauliString& p) const {
-        return commutes_with_all(p.x(), p.z());
+        return commutes_with_all(body_of(p));
     }
     // A remembered row is only a hint: basis updates can replace or remove it.
-    [[nodiscard]] bool commutes_with_all(MaskView x, MaskView z,
+    [[nodiscard]] bool commutes_with_all(PauliMaskView body,
                                          uint32_t* anticommuting_row = nullptr) const;
 
     // True when the unsigned Pauli body belongs to S. For a Pauli commuting
     // with S, this distinguishes a stabilizer from an active operation.
-    [[nodiscard]] bool contains(const PauliString& p) const { return contains(p.x(), p.z()); }
-    [[nodiscard]] bool contains(MaskView x, MaskView z) const;
+    [[nodiscard]] bool contains(const PauliString& p) const { return contains(body_of(p)); }
+    [[nodiscard]] bool contains(PauliMaskView body) const;
 
     // If axis anticommutes with S, restrict S to generators commuting with
     // axis and return true: dimension drops by one and active width grows by one.
     // Otherwise leave S unchanged and return false.
-    bool apply_rotation(const PauliString& axis) { return apply_rotation(axis.x(), axis.z()); }
-    bool apply_rotation(MaskView x, MaskView z, UndoLog* undo = nullptr);
+    bool apply_rotation(const PauliString& axis) { return apply_rotation(body_of(axis)); }
+    bool apply_rotation(PauliMaskView axis, UndoLog* undo = nullptr);
 
     enum class MeasurementEffect : uint8_t { DormantRandom, Classical, Active };
 
@@ -90,12 +107,17 @@ class DormantSubspace {
     // width unchanged). A body in S is Classical and leaves S unchanged.
     // A commuting body outside S adds a generator (Active, width drops by one).
     MeasurementEffect apply_measurement(const PauliString& body) {
-        return apply_measurement(body.x(), body.z());
+        return apply_measurement(body_of(body));
     }
-    MeasurementEffect apply_measurement(MaskView x, MaskView z, UndoLog* undo = nullptr);
+    MeasurementEffect apply_measurement(PauliMaskView body, UndoLog* undo = nullptr);
 
     // Reverses all mutations recorded in `undo` in LIFO order and clears `undo`.
     void rollback(UndoLog& undo);
+
+    [[nodiscard]] Snapshot snapshot() const;
+    // Replaces S with a snapshot taken from a subspace on the same register.
+    // The basis rows return in their original order with their original pivots.
+    void restore(const Snapshot& snapshot);
 
     // Returns unsigned generators. Bases need not match element-for-element;
     // compare subspaces by checking mutual containment of their generators.
@@ -107,6 +129,10 @@ class DormantSubspace {
   private:
     static constexpr uint32_t kNoOwner = ~uint32_t{0};
 
+    [[nodiscard]] static PauliMask body_of(const PauliString& p) {
+        return PauliMask(p.x(), p.z(), false);
+    }
+
     [[nodiscard]] MaskView row_x(uint32_t index) const {
         return MaskView{std::span<const uint64_t>(
             rows_x_.data() + static_cast<size_t>(index) * words_per_row_, words_per_row_)};
@@ -117,8 +143,8 @@ class DormantSubspace {
     }
 
     // Populates `anti_out[0 .. active_row_words)` with the bitmask of rows
-    // anticommuting with (x, z).
-    void compute_anticommuting_rows(MaskView x, MaskView z, std::span<uint64_t> anti_out) const;
+    // anticommuting with `body`.
+    void compute_anticommuting_rows(PauliMaskView body, std::span<uint64_t> anti_out) const;
 
     void toggle_row_in_cols(uint32_t row_idx, const uint64_t* vx, const uint64_t* vz,
                             uint32_t begin_w, uint32_t end_w);
@@ -132,13 +158,13 @@ class DormantSubspace {
     void move_row(uint32_t from, uint32_t to);
     void erase_row(uint32_t k);
 
-    // Reduces (x, z) modulo S into scratch_[scratch_begin_ .. scratch_end_).
+    // Reduces `body` modulo S into scratch_[scratch_begin_ .. scratch_end_).
     // An empty range means membership in S; otherwise insert_reduced consumes it.
-    void reduce_into_scratch(MaskView x, MaskView z) const;
+    void reduce_into_scratch(PauliMaskView body) const;
 
-    // Restricts S to the subspace commuting with (x, z). Returns whether a
+    // Restricts S to the subspace commuting with `body`. Returns whether a
     // generator was removed; otherwise leaves S unchanged.
-    bool intersect(MaskView x, MaskView z, UndoLog* undo);
+    bool intersect(PauliMaskView body, UndoLog* undo);
 
     // Inserts the nonzero reduced vector currently in scratch, clearing its new
     // pivot from existing rows to preserve the reduced basis.
@@ -219,12 +245,9 @@ inline bool is_expanding(const HirModule& hir, const HeisenbergOp& op,
     switch (op.op_type()) {
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION:
-            return !subspace.commutes_with_all(hir.destab_mask(op), hir.stab_mask(op),
-                                               &anticommuting_row);
+            return !subspace.commutes_with_all(hir.mask_view(op), &anticommuting_row);
         case OpType::INSTRUMENT: {
-            const MaskView x = hir.destab_mask(op);
-            const MaskView z = hir.stab_mask(op);
-            if (subspace.commutes_with_all(x, z, &anticommuting_row)) {
+            if (subspace.commutes_with_all(hir.mask_view(op), &anticommuting_row)) {
                 return false;  // Classical or Active: non-expanding.
             }
             return !instrument_damping_neglected(hir, op);
@@ -241,7 +264,7 @@ inline WidthTransition apply_non_expanding(const HirModule& hir, const Heisenber
                                            DormantSubspace::UndoLog* undo = nullptr) {
     if (op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION) {
         const uint32_t width = subspace.active_width();
-        const bool stabilizer = subspace.contains(hir.destab_mask(op), hir.stab_mask(op));
+        const bool stabilizer = subspace.contains(hir.mask_view(op));
         return {width, width,
                 stabilizer ? WidthEffect::RotationStabilizer : WidthEffect::RotationNeutral};
     }

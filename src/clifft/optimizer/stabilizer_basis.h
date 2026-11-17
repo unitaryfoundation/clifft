@@ -202,10 +202,14 @@ class StabilizerBasis {
     }
 
     [[nodiscard]] bool commutes(MaskView ax, MaskView az) const {
+        return empty() || commutes(PauliCommutation(ax, az));
+    }
+
+    [[nodiscard]] bool commutes(const PauliCommutation& comm) const {
         if (empty()) {
             return true;
         }
-        const PauliCommutation comm(ax, az);
+        const MaskView ax = comm.x();
         if (comm.begin_word() == comm.end_word()) {
             return true;
         }
@@ -288,10 +292,17 @@ class StabilizerBasis {
                    size_t max_products = std::numeric_limits<size_t>::max(),
                    size_t max_terms = std::numeric_limits<size_t>::max(),
                    bool* modified = nullptr) {
+        return empty() || intersect(PauliCommutation(ax, az), max_products, max_terms, modified);
+    }
+
+    bool intersect(const PauliCommutation& comm,
+                   size_t max_products = std::numeric_limits<size_t>::max(),
+                   size_t max_terms = std::numeric_limits<size_t>::max(),
+                   bool* modified = nullptr) {
         if (empty()) {
             return true;
         }
-        const PauliCommutation comm(ax, az);
+        const MaskView ax = comm.x();
         if (comm.begin_word() == comm.end_word()) {
             return true;
         }

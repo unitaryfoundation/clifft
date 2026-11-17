@@ -155,7 +155,7 @@ const ApplyInstrument* find_instrument_action(const SamplingPlan& plan) {
 
 TEST_CASE("Schedule pass finds the certified optimum for the four operation circuit",
           "[schedule_pass]") {
-    HirModule hir(2, 4);
+    HirModule hir(2);
     hir.num_measurements = 2;
     append_phase_rotation(hir, X(0) | X(1), 0, false, 0.3);                  // R_XX
     append_phase_rotation(hir, X(1), Z(0) | Z(1), false, 0.3);               // R_ZY
@@ -448,7 +448,7 @@ TEST_CASE("Default scheduling retains distance nine coherent improvements",
 }
 
 TEST_CASE("A single ready expansion completes without survivor replay", "[schedule_pass]") {
-    HirModule hir(1, 100);
+    HirModule hir(1);
     for (uint32_t i = 0; i < 100; ++i) {
         append_phase_rotation(hir, i % 2 == 0 ? X(0) : 0, i % 2 == 0 ? 0 : Z(0), false, 0.3);
     }
@@ -903,7 +903,7 @@ uint32_t brute_force_min_peak(const HirModule& hir) {
 // costs. Keeping only the cheaper dense-work candidate misses the optimum peak of 3.
 TEST_CASE("Schedule pass reaches the brute-force optimal peak on a beam dedup regression circuit",
           "[schedule_pass]") {
-    HirModule hir(4, 8);
+    HirModule hir(4);
     hir.num_measurements = 1;
     clifft::test::append_tgate(hir, 0x8, 0x8, false);                      // Y3
     clifft::test::append_phase_rotation(hir, 0x8, 0x8, false, 0.3);        // Y3
@@ -930,7 +930,7 @@ TEST_CASE("Schedule pass reaches the brute-force optimal peak on a beam dedup re
 // Keeping both reaches (4, 68); discarding the higher-peak candidate gives (4, 70).
 TEST_CASE("Schedule pass reaches the brute-force optimum on a beam dedup Pareto regression circuit",
           "[schedule_pass]") {
-    HirModule hir(4, 12);
+    HirModule hir(4);
     hir.num_measurements = 3;
     clifft::test::append_phase_rotation(hir, 0x2, 0x2, false, 0.875);      // Y1
     clifft::test::append_tgate(hir, 0x2, 0x0, false);                      // X1

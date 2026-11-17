@@ -71,8 +71,8 @@ void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
         case OpType::CONDITIONAL_PAULI: {
             // Keep relations common to both outcomes; future postselection
             // cannot justify a stabilizer constraint at the current program point.
-            const auto mask = hir.mask_view(op);
-            basis_.intersect(mask.x(), mask.z());
+            const PauliString axis = optimizer_detail::copy_axis(hir.mask_view(op), hir.num_qubits);
+            basis_.intersect(axis.x(), axis.z());
             break;
         }
         case OpType::NOISE: {
@@ -85,10 +85,11 @@ void KnownStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) {
                 if (channel.prob == 0) {
                     continue;
                 }
-                const auto mask = hir.noise_channel_masks.at(channel.mask);
                 // Reference-syndrome computation strips even probability-one
                 // noise after optimization, so constraints must also hold without it.
-                basis_.intersect(mask.x(), mask.z());
+                const PauliString axis = optimizer_detail::copy_axis(
+                    hir.noise_channel_masks.at(channel.mask), hir.num_qubits);
+                basis_.intersect(axis.x(), axis.z());
             }
             break;
         }
