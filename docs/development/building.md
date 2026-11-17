@@ -153,6 +153,17 @@ rejects circuits above 65,536 physical qubits as a conservative safety check.
 Below that ceiling, practical limits depend on compilation memory, active
 width, and output volume rather than a fixed-width Pauli representation.
 
+Compilation memory has two parts with different growth:
+
+- A Clifford frame is a dense tableau of `n * n / 2` bytes for `n` qubits,
+  about 800 MB at 40,000 qubits. Lowering holds three structures of that size
+  at once: the final frame carried by the HIR, the planner's working frame,
+  and the planner's coordinate tables.
+- The Pauli masks of operations and noise channels are stored as their nonzero
+  64-qubit words. They grow with the number of operations and the support of
+  each Pauli, not with the register width, so a noise-heavy circuit on a wide
+  register does not pay the register width once per noise channel.
+
 ## WebAssembly Build
 
 For the browser-based [Playground]({{ playground_url }}):
