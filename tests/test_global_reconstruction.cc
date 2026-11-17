@@ -75,6 +75,8 @@ std::vector<std::string> reconstruction_law_cases() {
         "H 0 1 2\nTPP X0*Y1*Z2\n" + sample_pauli_channel_3_instruction() +
             "E(0.16) Z0*X2\nELSE_CORRELATED_ERROR(0.25) Y1*Z2\nR_ZZ(-0.37) 0 2\n"
             "SPP !Y0*X1\nMX 0\nM 2\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(1) rec[-1]\n",
+        "H 0\nR_Z(0.23) 0\nMPAD(0.18) 1\nMPAD(0.12) !0\nCX rec[-2] 0\nMX 0\n"
+        "DETECTOR rec[-3] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2] rec[-1]\n",
     };
 }
 

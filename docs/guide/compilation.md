@@ -182,12 +182,11 @@ use the default passes.
 Compare total compilation and sampling time at your intended shot count.
 Unsuccessful attempts can still cost several times ordinary compilation, and
 the early width guard can miss improvements found by later optimization.
-Selection checks peak active width only: on postselected circuits with a low
-pass rate and a modest width drop (such as multi-round coherent QEC memory at
-large shot counts), stabilizer dressing can expand rotation counts and fault
-dependencies enough to weaken trajectory sharing and early round rejection,
-making the reconstructed plan several times slower. Seeded results are
-reproducible for a fixed configuration but can differ from the original plan.
+Selection compares peak active width only: on postselected circuits where
+reconstruction lowers the width by only one or two, the reconstructed plan can
+sample slower than the original, by several times on multi-round coherent-noise
+memory circuits. Seeded results are reproducible for a fixed configuration but
+can differ from the original plan.
 
 See [the reconstruction theory](../theory/stabilizer-optimization.md#closed-output-global-reconstruction)
 for the transformation, eligibility, and cost guard, and

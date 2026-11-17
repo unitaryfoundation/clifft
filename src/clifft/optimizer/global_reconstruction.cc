@@ -648,8 +648,7 @@ void Dilation::parse(const Circuit& circuit) {
             }
             measure(term, inverted);
         } else if (g == GateType::MPAD) {
-            require_supported(!node.targets.empty() && node.args.empty(),
-                              "unsupported source operation");
+            require_supported(!node.targets.empty(), "unsupported source operation");
             for (Target t : node.targets) {
                 require_supported(!t.is_rec() && !t.has_pauli() && t.value() <= 1,
                                   "unsupported source operation");
