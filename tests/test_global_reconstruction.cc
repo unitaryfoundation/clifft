@@ -2,6 +2,7 @@
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/global_reconstruction.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/early_postselection.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/sampler.h"
 #include "clifft/tableau/tableau.h"
@@ -1126,6 +1127,8 @@ TEST_CASE("Global reconstruction matches dense oracle on random pure-Clifford su
     const std::vector<std::string> suffix_meas{"M", "MX", "MY", "MR", "MRX", "MRY"};
     const std::vector<std::string> suffix_mpp{"MPP X0*Z1", "MPP !Y1*X2", "MPP Z0*Y2*X3"};
 
+    size_t law_checks = 0;
+    size_t plan_checks = 0;
     for (uint32_t trial = 0; trial < 24; ++trial) {
         std::string text =
             "DEPOLARIZE1(0.2) 3\nH 0 1 2\nT 0\nR_Y(0.23) 1\nCX 0 1\nTPP X1*Z2\nMR(0.1) 0\n"
@@ -1170,6 +1173,7 @@ TEST_CASE("Global reconstruction matches dense oracle on random pure-Clifford su
                 res.reconstruction->outputs.num_outputs() < 64) {
                 require_same_law(reconstructed_law(*res.reconstruction),
                                  output_law(expected, res.reconstruction->outputs));
+                ++law_checks;
             }
             auto lowered = lower_global_reconstruction(*res.reconstruction);
             REQUIRE(lowered.hir.has_value());
@@ -1187,8 +1191,105 @@ TEST_CASE("Global reconstruction matches dense oracle on random pure-Clifford su
                 const auto actual = compute_exact_plan_distribution(plan);
                 require_same_law(output_law(actual, res.reconstruction->outputs),
                                  output_law(expected, res.reconstruction->outputs));
+                ++plan_checks;
             }
         }
+    }
+    REQUIRE(law_checks >= 40);
+    REQUIRE(plan_checks >= 20);
+}
+
+TEST_CASE("Global reconstruction keeps postselected detector fault records ahead of quantum ops",
+          "[reconstruction]") {
+    const auto is_quantum_action = [](std::string_view text) {
+        return text.starts_with("PROMOTE ") || text.starts_with("ROTATE ") ||
+               text.starts_with("FUSED_ROTATION ") || text.starts_with("DYNAMIC_FUSED_ROTATION ") ||
+               text.starts_with("MEASURE_ACTIVE ") || text.starts_with("MEASURE_DORMANT ");
+    };
+
+    // Detector 0 is postselected and depends on an inverted output-only fault wire
+    // (exercising both `early_fault` and the constant `one` record), while detector 1
+    // is unpostselected and keeps its output-only fault wire deferred past rotations.
+    {
+        const auto circuit = parse(
+            "H 0\nT 0\nH 0\n"
+            "X_ERROR(0.2) 1\nM !1\nDETECTOR rec[-1]\n"
+            "X_ERROR(0.1) 2\nM 2\nDETECTOR rec[-1]\n"
+            "M 0\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+        auto original_hir = trace(circuit);
+        original_hir.postselection.mask = {1, 0};
+
+        const auto res = reconstruct_global_sampling(circuit, ReconstructionOutputs::Detectors);
+        REQUIRE(res.reconstruction.has_value());
+        auto lowered = lower_global_reconstruction(*res.reconstruction, original_hir.postselection);
+        REQUIRE(lowered.hir.has_value());
+        default_hir_pass_manager().run(*lowered.hir);
+
+        const sampling::ExecutablePlan plan(sampling::plan_sampling(*lowered.hir));
+        const auto order = sampling::EarlyPostselection::schedule(plan, true);
+        size_t first_quantum_pos = order.size();
+        size_t d0_pos = order.size();
+        size_t d1_pos = order.size();
+        for (size_t pos = 0; pos < order.size(); ++pos) {
+            const std::string action = plan.inspect_action(order[pos]);
+            if (first_quantum_pos == order.size() && is_quantum_action(action)) {
+                first_quantum_pos = pos;
+            }
+            if (action.starts_with("WRITE_DETECTOR detector=d0 ")) {
+                d0_pos = pos;
+            } else if (action.starts_with("WRITE_DETECTOR detector=d1 ")) {
+                d1_pos = pos;
+            }
+        }
+        REQUIRE(first_quantum_pos < order.size());
+        REQUIRE(d0_pos < first_quantum_pos);
+        REQUIRE(d1_pos > first_quantum_pos);
+    }
+
+    // On full postselected MSC d=5, early postselection must schedule nearly all
+    // detector checks in the initial prefix rather than after the quantum section.
+    {
+        const auto circuit =
+            parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/reconstruction_msc_d5.stim");
+        auto original_hir = trace(circuit);
+        original_hir.postselection.mask.assign(original_hir.num_detectors, 1);
+
+        const auto res = reconstruct_global_sampling(circuit, ReconstructionOutputs::Detectors);
+        REQUIRE(res.reconstruction.has_value());
+        auto lowered = lower_global_reconstruction(*res.reconstruction, original_hir.postselection);
+        REQUIRE(lowered.hir.has_value());
+        default_hir_pass_manager().run(*lowered.hir);
+
+        const sampling::ExecutablePlan plan(sampling::plan_sampling(*lowered.hir));
+        const auto order = sampling::EarlyPostselection::schedule(plan, true);
+        size_t total_quantum = 0;
+        for (size_t i = 0; i < plan.num_actions(); ++i) {
+            total_quantum += is_quantum_action(plan.inspect_action(i));
+        }
+        REQUIRE(total_quantum > 20);
+
+        size_t seen_quantum = 0;
+        size_t seen_active = 0;
+        size_t checks_before_active = 0;
+        size_t checks_before_end = 0;
+        for (size_t idx : order) {
+            const std::string action = plan.inspect_action(idx);
+            if (is_quantum_action(action)) {
+                ++seen_quantum;
+                if (!action.starts_with("MEASURE_DORMANT ")) {
+                    ++seen_active;
+                }
+            } else if (action.starts_with("WRITE_DETECTOR ")) {
+                if (seen_active == 0) {
+                    ++checks_before_active;
+                }
+                if (seen_quantum < total_quantum) {
+                    ++checks_before_end;
+                }
+            }
+        }
+        REQUIRE(checks_before_active >= 90);
+        REQUIRE(checks_before_end >= 103);
     }
 }
 

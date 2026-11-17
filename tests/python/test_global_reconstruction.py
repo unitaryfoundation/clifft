@@ -3,6 +3,7 @@
 import gc
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -505,7 +506,12 @@ def test_full_noisy_fixtures_use_reconstructed_plans_with_default_passes(fixture
 
 
 def joint_frequencies(result, attempted, projections):
-    rows = np.concatenate((result.measurements, result.detectors, result.observables), axis=1)
+    tables = (
+        (result.measurements, result.detectors, result.observables)
+        if result.measurements.shape[0] == result.detectors.shape[0]
+        else (result.detectors, result.observables)
+    )
+    rows = np.concatenate(tables, axis=1)
     parity = (rows @ projections) % 2
     return np.concatenate(([len(rows)], rows.sum(axis=0), parity.sum(axis=0))) / attempted
 
@@ -556,7 +562,7 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
     assert np.all(np.abs(p - q) <= tolerance)
 
 
-def test_pure_clifford_memory_suffix_and_wide_output_bailout():
+def test_pure_clifford_memory_suffix():
     # 1200 syndrome rounds (2400 resets + measurements) after non-Clifford preparation
     # must stay within default prefix dilation and schedule budgets.
     rounds = 1200
@@ -578,14 +584,28 @@ def test_pure_clifford_memory_suffix_and_wide_output_bailout():
         assert plan.peak_active_width == 1
 
     shots = 2048
-    ref = clifft.sample(original, shots, seed=19, keep_records="syndromes")
-    got = clifft.sample(selected, shots, seed=43, keep_records="syndromes")
-    p_obs = float(ref.observables[:, 0].mean())
-    q_obs = float(got.observables[:, 0].mean())
-    pooled = (p_obs + q_obs) / 2
-    tol = 6 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 3 / shots
-    assert abs(p_obs - q_obs) <= tol
+    rng = np.random.default_rng(712)
+    modes: tuple[tuple[bool | Literal["syndromes"], int, int], ...] = (
+        (True, 19, 43),
+        ("syndromes", 59, 83),
+    )
+    for record_mode, seed_a, seed_b in modes:
+        ref = clifft.sample(original, shots, seed=seed_a, keep_records=record_mode)
+        got = clifft.sample(selected, shots, seed=seed_b, keep_records=record_mode)
+        columns = (
+            (original.num_measurements if record_mode is True else 0)
+            + original.num_detectors
+            + original.num_observables
+        )
+        projections = rng.integers(0, 2, size=(columns, 32), dtype=np.uint8)
+        p = joint_frequencies(ref, shots, projections)
+        q = joint_frequencies(got, shots, projections)
+        pooled = (p + q) / 2
+        tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
+        assert np.all(np.abs(p - q) <= tolerance)
 
+
+def test_wide_output_bailout():
     # Wide circuits exceeding max_outputs bail out cleanly to original_plan.
     wide = "H 0 1\nT 0 1\nH 0 1\n" + ("R 2\nM 2\n" * 4100) + "M 0 1\nDETECTOR rec[-1]\n"
     fallback = clifft.compile(wide, hir_passes=None, reconstruction=True)

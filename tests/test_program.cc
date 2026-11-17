@@ -158,17 +158,6 @@ TEST_CASE("Program shares reconstruction preparation across asymmetric output va
         REQUIRE_FALSE(program.reconstruction_fallback_reason(true).empty());
         REQUIRE(&program.sampling_plan(true) == &program.original());
     }
-
-    // Circuits with zero visible records share the single compiled variant across
-    // both keep_records queries.
-    {
-        const auto source = parse("H 0 1\nT 0 1\nDETECTOR\nOBSERVABLE_INCLUDE(0)\n");
-        const auto hir = trace(source);
-        const auto program = Program::compile(source, hir, true);
-        REQUIRE(program.uses_reconstruction(false));
-        REQUIRE(program.uses_reconstruction(true));
-        REQUIRE(&program.sampling_plan(false) == &program.sampling_plan(true));
-    }
 }
 
 TEST_CASE("Selective preparation removes unrequested storage and work") {

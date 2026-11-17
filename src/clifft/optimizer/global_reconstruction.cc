@@ -2729,6 +2729,7 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
             }
         });
     }
+    const auto num_bits = static_cast<uint32_t>(rows.size());
     rows = {};
 
     // 2. Project each categorical channel onto the basis coordinates and
@@ -2849,17 +2850,7 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
     columns = {};
 
     ReconstructionNoise result;
-    result.num_bits = static_cast<uint32_t>(mapped_signs.empty() ? 0 : [&] {
-        uint32_t max_b = 0;
-        for (const auto& s : mapped_signs) {
-            if (!s.words.empty()) {
-                const auto& w = s.words.back();
-                max_b = std::max(
-                    max_b, w.index * 64 + static_cast<uint32_t>(64 - std::countl_zero(w.mask)));
-            }
-        }
-        return max_b;
-    }());
+    result.num_bits = num_bits;
     result.signs = std::move(mapped_signs);
     result.channels.reserve(grouped.size());
     for (auto& [key, distribution] : grouped) {
@@ -2957,19 +2948,17 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
         }
     }
     const uint64_t arena_bytes = PauliMaskArena::storage_bytes(masks, mask_words);
-    require_supported(arena_bytes <= limits.max_lowering_bytes,
-                      "lowering mask memory limit exceeded");
-    // Account for lowered HIR operations plus the dense `CoordinateFrame` and
-    // `DormantSubspace` bit matrices allocated during post-lowering validation
-    // and sampling-plan construction (`12 * width * ceil(width / 64) * 8` bytes).
+    // Account for lowered HIR operations plus the dense width x width bit
+    // matrices allocated during active-width analysis (`DormantSubspace`: 4)
+    // and sampling-plan construction (`CoordinateFrame`: 8).
+    constexpr uint64_t kPlannerBitMatrices = 8 + 4;
     const uint64_t width_words = (uint64_t{width} + 63) / 64;
     const uint64_t dense_frame_bytes =
-        saturating_multiply_u64(12ULL * width, width_words * sizeof(uint64_t));
+        saturating_multiply_u64(kPlannerBitMatrices * width, width_words * sizeof(uint64_t));
     const uint64_t op_bytes = saturating_multiply_u64(hir_ops, sizeof(HeisenbergOp));
-    require_supported(
-        arena_bytes <= limits.max_lowering_bytes - std::min<uint64_t>(limits.max_lowering_bytes,
-                                                                      dense_frame_bytes + op_bytes),
-        "lowering memory limit exceeded");
+    const uint64_t total_bytes =
+        saturating_add_u64(arena_bytes, saturating_add_u64(dense_frame_bytes, op_bytes));
+    require_supported(total_bytes <= limits.max_lowering_bytes, "lowering memory limit exceeded");
 
     HirModule hir(width);
     hir.ops.reserve(static_cast<size_t>(hir_ops));
@@ -2987,26 +2976,33 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
         return mask;
     };
 
-    // 2. Partition compressed categorical noise channels into those touching
-    // fault bits [0, rot_fault_end) referenced by quantum rotations and those
-    // touching only output parities [rot_fault_end, noise.num_bits), so HIR
-    // rotation passes do not analyze thousands of output-only syndrome channels.
-    uint32_t rot_fault_end = 0;
+    // 2. Partition compressed categorical noise channels into early channels
+    // touching fault bits read by quantum rotations or postselected detectors,
+    // and late channels touching only unpostselected output parities. Keeping
+    // postselected fault records ahead of the quantum section lets
+    // `EarlyPostselection::schedule` reject shots before quantum execution,
+    // while deferring unpostselected output-only channels avoids analyzing
+    // thousands of memory-tail syndrome channels during HIR rotation passes.
+    std::vector<uint8_t> early_fault(noise.num_bits, 0);
     for (size_t j = 0; j < r.operations.size(); ++j) {
-        if (r.operations[j].half_turns != 0 && !noise.signs[j].words.empty()) {
-            const auto& back = noise.signs[j].words.back();
-            rot_fault_end =
-                std::max(rot_fault_end,
-                         back.index * 64 + static_cast<uint32_t>(64 - std::countl_zero(back.mask)));
+        const auto& op = r.operations[j];
+        bool need_early = op.half_turns != 0;
+        if (!need_early && op.output.has_value() && *op.output >= visible &&
+            *op.output < visible + r.outputs.num_detectors) {
+            const uint32_t det = *op.output - visible;
+            need_early = det < postselection.mask.size() && postselection.mask[det] != 0;
+        }
+        if (need_early) {
+            each_sparse_bit(noise.signs[j].words, [&](uint32_t i) { early_fault[i] = 1; });
         }
     }
-    auto channel_touches_rotations = [&](const std::vector<ReconstructionNoiseOutcome>& ch) {
+    auto is_early_channel = [&](const std::vector<ReconstructionNoiseOutcome>& ch) {
         for (const auto& outcome : ch) {
             if (outcome.probability == 0) {
                 continue;
             }
             for (uint32_t b : outcome.bits) {
-                if (b < rot_fault_end) {
+                if (early_fault[b] != 0) {
                     return true;
                 }
             }
@@ -3042,14 +3038,17 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
     };
 
     for (const auto& channel : noise.channels) {
-        if (channel_touches_rotations(channel)) {
+        if (is_early_channel(channel)) {
             emit_noise_channel(channel);
         }
     }
     std::vector<uint32_t> fault_records(noise.num_bits, kUnmappedQubit);
-    for (uint32_t i = 0; i < rot_fault_end; ++i) {
-        fault_records[i] = hidden_measure(single(r.num_qubits + i, false));
+    for (uint32_t i = 0; i < noise.num_bits; ++i) {
+        if (early_fault[i] != 0) {
+            fault_records[i] = hidden_measure(single(r.num_qubits + i, false));
+        }
     }
+    const uint32_t one = need_one ? hidden_measure(PauliMaskView{{}, true}) : 0;
 
     // 3. Emit scheduled quantum rotations and hidden quantum measurements.
     struct PendingOutputParity {
@@ -3074,7 +3073,7 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
                 continue;
             std::vector<uint32_t> parity;
             each_sparse_bit(noise.signs[j].words, [&](uint32_t i) {
-                assert(i < rot_fault_end);
+                assert(early_fault[i] != 0);
                 parity.push_back(fault_records[i]);
             });
             auto feedback = [&] {
@@ -3107,17 +3106,18 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
         }
     }
 
-    // 4. Emit output-only noise channels and remaining fault-wire measurements,
+    // 4. Emit remaining output-only noise channels and fault-wire measurements,
     // then materialize visible records on the reusable zero scratch wire.
     for (const auto& channel : noise.channels) {
-        if (!channel_touches_rotations(channel)) {
+        if (!is_early_channel(channel)) {
             emit_noise_channel(channel);
         }
     }
-    for (uint32_t i = rot_fault_end; i < noise.num_bits; ++i) {
-        fault_records[i] = hidden_measure(single(r.num_qubits + i, false));
+    for (uint32_t i = 0; i < noise.num_bits; ++i) {
+        if (early_fault[i] == 0) {
+            fault_records[i] = hidden_measure(single(r.num_qubits + i, false));
+        }
     }
-    const uint32_t one = need_one ? hidden_measure(PauliMaskView{{}, true}) : 0;
 
     std::vector<std::vector<uint32_t>> output_parities(r.outputs.num_outputs());
     for (const PendingOutputParity& item : pending_outputs) {

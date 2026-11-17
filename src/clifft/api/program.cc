@@ -50,12 +50,8 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
         return Program(std::move(data));
     }
     const auto& original = data->original;
-    const bool has_visible_records = original.num_visible_records() != 0;
     std::optional<GlobalSamplingReconstructor> reconstructor;
     for (bool keep_records : {false, true}) {
-        if (keep_records && !has_visible_records) {
-            continue;
-        }
         auto& variant = data->variants[keep_records];
         if (!passes_preserve_sampling) {
             variant.fallback_reason =
@@ -124,19 +120,16 @@ const sampling::ExecutablePlan& Program::original() const noexcept {
 }
 
 const sampling::ExecutablePlan& Program::sampling_plan(bool keep_records) const noexcept {
-    const bool effective = keep_records && data_->original.num_visible_records() != 0;
-    const auto& candidate = data_->variants[effective].plan;
+    const auto& candidate = data_->variants[keep_records].plan;
     return candidate ? *candidate : data_->original;
 }
 
 bool Program::uses_reconstruction(bool keep_records) const noexcept {
-    const bool effective = keep_records && data_->original.num_visible_records() != 0;
-    return data_->variants[effective].plan.has_value();
+    return data_->variants[keep_records].plan.has_value();
 }
 
 const std::string& Program::reconstruction_fallback_reason(bool keep_records) const {
-    const bool effective = keep_records && data_->original.num_visible_records() != 0;
-    return data_->variants[effective].fallback_reason;
+    return data_->variants[keep_records].fallback_reason;
 }
 
 const SamplingPreparation& Program::sampling_preparation(sampling::SamplingOutputs outputs,
