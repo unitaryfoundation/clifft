@@ -119,9 +119,11 @@ lowering and the default HIR passes only when its scheduled peak active width
 is strictly smaller than the original plan's. This heuristic can miss reductions
 that later optimization would find. The optimized candidate must still have a
 strictly smaller peak active width to be selected. Dilation and scheduling
-precede the guard, so unsuccessful attempts can remain expensive. Explicit resource bounds cap circuit size, dilation qubits, noise channels, and
-scheduling work; unsupported features (`EXP_VAL` probes, asymmetric readout
-noise, or distribution-altering HIR passes) fall back to the original plan.
+precede the guard, so unsuccessful attempts can remain expensive. Explicit
+resource bounds cap circuit size, dilation qubits, noise channels, and
+scheduling work; unsupported features (such as leakage and loss channels,
+`EXP_VAL` probes, asymmetric readout noise, or distribution-altering HIR
+passes) fall back to the original plan.
 
 ## Stabilizer-Based Simplification
 

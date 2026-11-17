@@ -21,8 +21,10 @@ namespace {
 
 using Bits = std::vector<uint64_t>;
 
-// Each source operation expands into at most a small constant number of
-// elementary Clifford dilation gates (e.g., Euler U3 gadgets or Pauli ladders).
+// Per-source-operation multiplier for the total dilation-gate budget
+// (`limits_.max_operations * kMaxDilationGatesPerSourceOp`). Multi-qubit
+// Pauli-product rotations can exceed 16 gates individually while staying
+// within the amortized circuit budget.
 constexpr size_t kMaxDilationGatesPerSourceOp = 16;
 constexpr double kTHalfTurns = 0.25;
 constexpr double kSHalfTurns = 0.5;
@@ -491,9 +493,8 @@ void Dilation::rotate(std::span<const std::pair<uint32_t, char>> source_term, do
 }
 
 void Dilation::clifford(const AstNode& node) {
-    require_supported(
-        is_clifford(node.gate) && node.gate != GateType::SPP && node.gate != GateType::SPP_DAG,
-        "unsupported source operation");
+    require_supported(is_clifford(node.gate), "unsupported source operation");
+    assert(node.gate != GateType::SPP && node.gate != GateType::SPP_DAG);
     const uint32_t arity = Tableau::from_named_gate(node.gate).num_qubits();
     require_supported(
         !node.targets.empty() && node.targets.size() % arity == 0 && node.args.empty(),
@@ -647,7 +648,8 @@ void Dilation::parse(const Circuit& circuit) {
             }
             measure(term, inverted);
         } else if (g == GateType::MPAD) {
-            require_supported(!node.targets.empty(), "unsupported source operation");
+            require_supported(!node.targets.empty() && node.args.empty(),
+                              "unsupported source operation");
             for (Target t : node.targets) {
                 require_supported(!t.is_rec() && !t.has_pauli() && t.value() <= 1,
                                   "unsupported source operation");

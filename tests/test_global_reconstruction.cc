@@ -27,11 +27,11 @@ std::string sample_pauli_channel_3_instruction() {
         if (i == 0)
             line += "0.03";  // IIX
         else if (i == 6)
-            line += "0.05";  // IYY
+            line += "0.05";  // IXZ
         else if (i == 26)
-            line += "0.07";  // XZY
+            line += "0.07";  // XYZ
         else if (i == 41)
-            line += "0.04";  // YYX
+            line += "0.04";  // YYY
         else if (i == 62)
             line += "0.06";  // ZZZ
         else
@@ -165,6 +165,7 @@ std::map<uint64_t, double> reconstructed_law(const GlobalReconstruction& r) {
 void check_joint_law(const std::string& text) {
     const auto circuit = parse(text);
     const auto expected = compute_dense_circuit_distribution(circuit);
+    const auto traced = compute_exact_plan_distribution(sampling::plan_sampling(trace(circuit)));
     for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
         const auto result = reconstruct_global_sampling(circuit, mode);
         INFO(result.fallback_reason);
@@ -174,7 +175,9 @@ void check_joint_law(const std::string& text) {
                 (mode == ReconstructionOutputs::Records ? circuit.num_measurements : 0));
         REQUIRE(r.outputs.num_detectors == circuit.num_detectors);
         REQUIRE(r.outputs.num_observables == circuit.num_observables);
-        require_same_law(reconstructed_law(r), output_law(expected, r.outputs));
+        const auto actual = reconstructed_law(r);
+        require_same_law(actual, output_law(expected, r.outputs));
+        require_same_law(actual, output_law(traced, r.outputs));
     }
 }
 
@@ -542,28 +545,38 @@ TEST_CASE("Global reconstruction lowering preserves reference and rejection mass
                 meta.expected_observables = expected_observables;
                 const auto lowered = lower_global_reconstruction(*r.reconstruction, meta);
                 REQUIRE(lowered.hir.has_value());
-                auto hir = *lowered.hir;
-                default_hir_pass_manager().run(hir);
-                const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(hir));
-                REQUIRE_THAT(actual.discarded_probability,
-                             Catch::Matchers::WithinAbs(expected.discarded_probability, 2e-12));
-                std::map<uint64_t, double> want, got;
                 const uint32_t det_shift = source.num_measurements;
                 const uint32_t obs_shift = det_shift + source.num_detectors;
                 auto key = [&](const ExactShotOutcome& o) {
                     return (mode == ReconstructionOutputs::Records ? o.visible_records : 0) |
                            (o.detectors << det_shift) | (o.observables << obs_shift);
                 };
-                for (const auto& e : expected.kept_outcomes)
-                    want[key(e.outcome)] += e.probability;
-                for (const auto& e : actual.kept_outcomes)
-                    got[key(e.outcome)] += e.probability;
-                for (auto [k, p] : want) {
-                    REQUIRE_THAT(got[k], Catch::Matchers::WithinAbs(p, 2e-12));
-                    got.erase(k);
+                auto check_plan = [&](const sampling::SamplingPlan& plan) {
+                    const auto actual = compute_exact_plan_distribution(plan);
+                    REQUIRE_THAT(actual.discarded_probability,
+                                 Catch::Matchers::WithinAbs(expected.discarded_probability, 2e-12));
+                    std::map<uint64_t, double> want, got;
+                    for (const auto& e : expected.kept_outcomes)
+                        want[key(e.outcome)] += e.probability;
+                    for (const auto& e : actual.kept_outcomes)
+                        got[key(e.outcome)] += e.probability;
+                    for (auto [k, p] : want) {
+                        REQUIRE_THAT(got[k], Catch::Matchers::WithinAbs(p, 2e-12));
+                        got.erase(k);
+                    }
+                    for (auto [k, p] : got)
+                        REQUIRE_THAT(p, Catch::Matchers::WithinAbs(0, 2e-12));
+                };
+                // Check raw lowered HIR directly whenever its hidden-record count
+                // fits PreparedReplayPlan's 12-record enumeration cap; wider
+                // multi-channel cases also run default HIR passes to prune records.
+                const auto raw_plan = sampling::plan_sampling(*lowered.hir);
+                if (raw_plan.num_visible_records + raw_plan.num_hidden_records <= 12) {
+                    check_plan(raw_plan);
                 }
-                for (auto [k, p] : got)
-                    REQUIRE_THAT(p, Catch::Matchers::WithinAbs(0, 2e-12));
+                auto hir = *lowered.hir;
+                default_hir_pass_manager().run(hir);
+                check_plan(sampling::plan_sampling(hir));
             }
         }
     }
@@ -919,6 +932,70 @@ TEST_CASE("Global reconstruction dilation propagates fault signs for every named
             require_same_law(output_law(actual, res.reconstruction->outputs),
                              output_law(expected, res.reconstruction->outputs));
         }
+    }
+}
+
+TEST_CASE("Global reconstruction handles multi-target AST nodes and identity no-ops",
+          "[reconstruction]") {
+    Circuit circuit;
+    circuit.num_qubits = 6;
+    circuit.num_measurements = 5;
+    circuit.num_detectors = 1;
+    circuit.num_observables = 1;
+    // Identity no-ops on untouched qubits must not allocate dilation wires.
+    circuit.nodes.push_back({GateType::I, {Target::qubit(3), Target::qubit(4)}, {}});
+    circuit.nodes.push_back({GateType::II, {Target::qubit(4), Target::qubit(5)}, {}});
+    circuit.nodes.push_back({GateType::I_ERROR, {Target::qubit(5)}, {0.4}});
+    // Broadcast multi-target nodes across Clifford, rotation, noise, padding, and measurement ops.
+    circuit.nodes.push_back(
+        {GateType::H, {Target::qubit(0), Target::qubit(1), Target::qubit(2)}, {}});
+    circuit.nodes.push_back({GateType::T, {Target::qubit(0), Target::qubit(1)}, {}});
+    circuit.nodes.push_back({GateType::R_X, {Target::qubit(1), Target::qubit(2)}, {0.19}});
+    circuit.nodes.push_back(
+        {GateType::U3, {Target::qubit(0), Target::qubit(2)}, {0.23, -0.5, 0.5}});
+    circuit.nodes.push_back(
+        {GateType::R_ZZ,
+         {Target::qubit(0), Target::qubit(1), Target::qubit(1), Target::qubit(2)},
+         {-0.31}});
+    circuit.nodes.push_back({GateType::X_ERROR, {Target::qubit(0), Target::qubit(2)}, {0.15}});
+    circuit.nodes.push_back({GateType::Z_ERROR, {Target::qubit(1), Target::qubit(2)}, {0.18}});
+    circuit.nodes.push_back(
+        {GateType::MPAD, {Target::qubit(0), Target{1 | Target::kInvertBit}}, {}});
+    circuit.nodes.push_back(
+        {GateType::M, {Target::qubit(0), Target::qubit(1), Target::qubit(2)}, {}});
+    circuit.nodes.push_back(
+        {GateType::READOUT_NOISE, {Target::rec(2), Target::rec(3), Target::rec(4)}, {0.1}});
+    circuit.nodes.push_back(
+        {GateType::DETECTOR, {Target::rec(0), Target::rec(2), Target::rec(4)}, {}});
+    circuit.nodes.push_back(
+        {GateType::OBSERVABLE_INCLUDE, {Target::rec(1), Target::rec(3)}, {0.0}});
+
+    const auto reference = parse(
+        "H 0 1 2\n"
+        "T 0 1\n"
+        "R_X(0.19) 1 2\n"
+        "U3(0.23, -0.5, 0.5) 0 2\n"
+        "R_ZZ(-0.31) 0 1 1 2\n"
+        "X_ERROR(0.15) 0 2\n"
+        "Z_ERROR(0.18) 1 2\n"
+        "MPAD 0 !1\n"
+        "M(0.1) 0 1 2\n"
+        "DETECTOR rec[-5] rec[-3] rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-4] rec[-2]\n");
+    const auto traced = compute_exact_plan_distribution(sampling::plan_sampling(trace(reference)));
+    const auto dense = compute_dense_circuit_distribution(circuit);
+    for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
+        const auto res = reconstruct_global_sampling(circuit, mode);
+        const auto ref_res = reconstruct_global_sampling(reference, mode);
+        INFO(res.fallback_reason);
+        REQUIRE(res.reconstruction.has_value());
+        REQUIRE(ref_res.reconstruction.has_value());
+        // Qubits 3..5 stay unallocated (3 source + 8 gadgets + 2 MPAD + 3 M = 16 wires).
+        REQUIRE(res.reconstruction->dilation_qubits == 16);
+        REQUIRE(res.reconstruction->dilation_qubits == ref_res.reconstruction->dilation_qubits);
+        const auto actual = reconstructed_law(*res.reconstruction);
+        require_same_law(actual, output_law(traced, res.reconstruction->outputs));
+        require_same_law(actual, output_law(dense, res.reconstruction->outputs));
     }
 }
 
