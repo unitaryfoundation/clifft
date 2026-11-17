@@ -172,9 +172,9 @@ Ordinary and survivor sampling select a plan according to `keep_records`.
 Use `sampling_plan(keep_records=...)`
 to inspect the selected executable, as described in
 [Inspect sampling cost](#inspect-sampling-cost). Unsupported
-circuits, resource limits, or insufficient width reduction retain the original
-plan. Supported circuits use Clifford+T gates, Pauli noise, and symmetric
-readout noise; general-angle rotations and `EXP_VAL` probes fall back.
+features (`EXP_VAL` probes, asymmetric readout noise, or distribution-altering
+HIR passes), resource limits, or insufficient width reduction retain the
+original plan.
 
 Custom `hir_passes` configure the original pipeline; reconstructed candidates
 use the default passes.

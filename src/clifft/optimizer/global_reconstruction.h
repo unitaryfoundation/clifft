@@ -2,13 +2,15 @@
 
 // Closed-output global reconstruction for CPU sampling.
 //
-// Given a noisy Clifford+T circuit and a requested output set (all measurement
+// Given a noisy quantum circuit and a requested output set (all measurement
 // records, detectors, and observables, or only detectors and observables),
 // reconstruction builds an equivalent smaller sampling problem in three steps:
 //   1. reconstruct_global_sampling: dilate measurements into ancillas and
-//      resets into fresh wires, dress T/T_DAG gadgets with input stabilizers,
-//      fold the gadget projections into the input state, reduce to the
-//      X-support basis, and schedule commuting measurements and rotations.
+//      resets into fresh wires, absorb Clifford-angle rotations into the
+//      dilation frame, dress non-Clifford rotation gadgets with input
+//      stabilizers, fold the gadget projections into the input state, reduce
+//      to the X-support basis, and schedule commuting measurements and
+//      rotations.
 //   2. compress_reconstruction_noise: project categorical noise channels onto
 //      the basis of operation sign masks and convolve channels with identical
 //      image support.

@@ -82,10 +82,13 @@ reconstruction=True)` can reformulate the entire sampling problem to reduce the
 number of active coordinates that must stay entangled at once.
 
 The reconstruction compiler defers measurements onto fresh record ancillas and
-moves discarded reset states onto environment wires. It replaces each $\pi/4$
-rotation with a Clifford gadget and a magic-state projection, dresses those
-rotation axes with causal input stabilizers, and folds a maximally commuting
-subset of the projections back into the initial stabilizer state. A native
+moves discarded reset states onto environment wires. Clifford-angle rotations
+are absorbed directly into the dilated Clifford frame, while each remaining
+non-Clifford Pauli-product rotation (including Euler-decomposed single-qubit
+gates) is replaced with a Clifford ancilla gadget whose postselected
+$|0\rangle$ projection has state-independent norm $1/\sqrt{2}$ for every real
+angle. Dressing those rotation axes with causal input stabilizers lets the
+gadget projections fold back into the initial stabilizer state. A native
 Clifford frame and linear $X$-support basis then eliminate coordinates fixed in
 $|0\rangle$. Remaining projections that commute with all retained outputs and
 remaining non-Clifford rotations are dropped, and a measurement-first schedule
@@ -116,11 +119,9 @@ lowering and the default HIR passes only when its scheduled peak active width
 is strictly smaller than the original plan's. This heuristic can miss reductions
 that later optimization would find. The optimized candidate must still have a
 strictly smaller peak active width to be selected. Dilation and scheduling
-precede the guard, so unsuccessful attempts can remain expensive. Explicit
-resource bounds cap circuit size, dilation qubits, noise channels, and scheduling
-work; unsupported operations (such as general-angle rotations, `EXP_VAL` probes,
-asymmetric readout noise, or distribution-altering HIR passes) fall back to the
-original plan.
+precede the guard, so unsuccessful attempts can remain expensive. Explicit resource bounds cap circuit size, dilation qubits, noise channels, and
+scheduling work; unsupported features (`EXP_VAL` probes, asymmetric readout
+noise, or distribution-altering HIR passes) fall back to the original plan.
 
 ## Stabilizer-Based Simplification
 
