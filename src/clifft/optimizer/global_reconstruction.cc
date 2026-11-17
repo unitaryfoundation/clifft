@@ -493,8 +493,7 @@ void Dilation::rotate(std::span<const std::pair<uint32_t, char>> source_term, do
 }
 
 void Dilation::clifford(const AstNode& node) {
-    require_supported(is_clifford(node.gate), "unsupported source operation");
-    assert(node.gate != GateType::SPP && node.gate != GateType::SPP_DAG);
+    assert(is_clifford(node.gate) && node.gate != GateType::SPP && node.gate != GateType::SPP_DAG);
     const uint32_t arity = Tableau::from_named_gate(node.gate).num_qubits();
     require_supported(
         !node.targets.empty() && node.targets.size() % arity == 0 && node.args.empty(),
@@ -544,213 +543,331 @@ void Dilation::parse(const Circuit& circuit) {
         const auto g = node.gate;
         if (g != GateType::CORRELATED_ERROR && g != GateType::ELSE_CORRELATED_ERROR)
             chain.reset();
-        if (g == GateType::TICK || is_identity_noop(g))
-            continue;
-        if (g == GateType::DETECTOR) {
-            detectors_.push_back(parity(node.targets));
-        } else if (g == GateType::OBSERVABLE_INCLUDE) {
-            require_supported(!node.args.empty() && node.args[0] >= 0 &&
-                                  static_cast<size_t>(node.args[0]) < observables_.size(),
-                              "unsupported output reference");
-            const auto p = parity(node.targets);
-            auto& output = observables_[static_cast<size_t>(node.args[0])];
-            xor_into(output.z, p.z);
-            xor_sign(output.sign, p.sign);
-        } else if (g == GateType::T || g == GateType::T_DAG) {
-            require_supported(!node.targets.empty() && node.args.empty(),
-                              "unsupported source operation");
-            const double alpha = g == GateType::T ? kTHalfTurns : -kTHalfTurns;
-            for (Target t : node.targets) {
-                const std::pair<uint32_t, char> term{plain_qubit_target(t), 'Z'};
-                rotate({&term, 1}, alpha);
-            }
-        } else if (g == GateType::R_X || g == GateType::R_Y || g == GateType::R_Z) {
-            require_supported(!node.targets.empty() && node.args.size() == 1,
-                              "unsupported source operation");
-            const char axis = g == GateType::R_X ? 'X' : g == GateType::R_Y ? 'Y' : 'Z';
-            for (Target t : node.targets) {
-                const std::pair<uint32_t, char> term{plain_qubit_target(t), axis};
-                rotate({&term, 1}, node.args[0]);
-            }
-        } else if (g == GateType::U3) {
-            require_supported(!node.targets.empty() && node.args.size() == 3,
-                              "unsupported source operation");
-            const double theta = node.args[0];
-            const double phi = node.args[1];
-            const double lambda = node.args[2];
-            require_supported(
-                is_finite_robust(theta) && is_finite_robust(phi) && is_finite_robust(lambda),
-                "unsupported source operation");
-            for (Target t : node.targets) {
-                const uint32_t q = plain_qubit_target(t);
-                const std::pair<uint32_t, char> z_term{q, 'Z'};
-                const std::pair<uint32_t, char> y_term{q, 'Y'};
-                rotate({&z_term, 1}, lambda);
-                rotate({&y_term, 1}, theta);
-                rotate({&z_term, 1}, phi);
-            }
-        } else if (g == GateType::R_XX || g == GateType::R_YY || g == GateType::R_ZZ) {
-            require_supported(
-                !node.targets.empty() && node.targets.size() % 2 == 0 && node.args.size() == 1,
-                "unsupported source operation");
-            const char axis = g == GateType::R_XX ? 'X' : g == GateType::R_YY ? 'Y' : 'Z';
-            for (size_t i = 0; i < node.targets.size(); i += 2) {
-                const uint32_t q0 = plain_qubit_target(node.targets[i]);
-                const uint32_t q1 = plain_qubit_target(node.targets[i + 1]);
-                require_supported(q0 != q1, "unsupported source operation");
-                const std::array<std::pair<uint32_t, char>, 2> term{{{q0, axis}, {q1, axis}}};
-                rotate(term, node.args[0]);
-            }
-        } else if (g == GateType::SPP || g == GateType::SPP_DAG || g == GateType::TPP ||
-                   g == GateType::TPP_DAG || g == GateType::R_PAULI) {
-            require_supported(g == GateType::R_PAULI ? node.args.size() == 1 : node.args.empty(),
-                              "unsupported source operation");
-            bool inverted = false;
-            const Term term = pauli_product_targets(node.targets, inverted);
-            const double alpha = g == GateType::SPP       ? kSHalfTurns
-                                 : g == GateType::SPP_DAG ? -kSHalfTurns
-                                 : g == GateType::TPP     ? kTHalfTurns
-                                 : g == GateType::TPP_DAG ? -kTHalfTurns
-                                                          : node.args[0];
-            rotate(term, alpha, inverted);
-        } else if (g == GateType::M || g == GateType::MX || g == GateType::MY ||
-                   g == GateType::MR || g == GateType::MRX || g == GateType::MRY ||
-                   g == GateType::R || g == GateType::RX || g == GateType::RY) {
-            require_supported(!node.targets.empty(), "unsupported source operation");
-            const char p = (g == GateType::MX || g == GateType::MRX || g == GateType::RX)   ? 'X'
-                           : (g == GateType::MY || g == GateType::MRY || g == GateType::RY) ? 'Y'
-                                                                                            : 'Z';
-            for (Target t : node.targets) {
-                require_supported(
-                    !t.is_rec() && !t.has_pauli() && (!is_reset(g) || !t.is_inverted()),
-                    "unsupported source operation");
-                uint32_t q = qubit(t.value());
-                if (is_measurement(g))
-                    measure({{q, p}}, t.is_inverted());
-                if (is_reset(g) || is_measure_reset(g)) {
-                    // Keep the discarded wire as an environment so entanglement
-                    // with deferred measurement ancillas is preserved.
-                    q = fresh();
-                    aliases_[t.value()] = q;
-                    if (p != 'Z')
-                        gate(GateType::H, {q});
-                    if (p == 'Y')
-                        gate(GateType::S, {q});
-                }
-            }
-        } else if (g == GateType::MPP) {
-            bool inverted = false;
-            const Term source_term = pauli_product_targets(node.targets, inverted);
-            Term term;
-            term.reserve(source_term.size());
-            for (auto [src_q, p] : source_term) {
-                term.emplace_back(qubit(src_q), p);
-            }
-            measure(term, inverted);
-        } else if (g == GateType::MPAD) {
-            require_supported(!node.targets.empty(), "unsupported source operation");
-            for (Target t : node.targets) {
-                require_supported(!t.is_rec() && !t.has_pauli() && t.value() <= 1,
-                                  "unsupported source operation");
-                const bool sign = (t.value() != 0) ^ t.is_inverted();
-                records_.push_back({unit(fresh()), {{}, sign}});
-            }
-        } else if (g == GateType::READOUT_NOISE) {
-            require_supported(!node.targets.empty() &&
-                                  (node.args.size() == 1 ||
-                                   (node.args.size() == 2 && node.args[0] == node.args[1])) &&
-                                  is_probability(node.args[0]),
-                              "asymmetric readout requires the original program");
-            for (Target t : node.targets) {
-                require_supported(t.is_rec() && !t.is_inverted() && t.value() < records_.size(),
+        require_supported(static_cast<uint32_t>(g) <= static_cast<uint32_t>(GateType::UNKNOWN),
+                          "unsupported source operation");
+        // Exhaustive switch (no `default:`) so `-Werror=switch` flags new GateType values.
+        switch (g) {
+            case GateType::TICK:
+            case GateType::I:
+            case GateType::II:
+            case GateType::I_ERROR:
+            case GateType::II_ERROR:
+                break;
+            case GateType::DETECTOR:
+                detectors_.push_back(parity(node.targets));
+                break;
+            case GateType::OBSERVABLE_INCLUDE: {
+                require_supported(!node.args.empty() && node.args[0] >= 0 &&
+                                      static_cast<size_t>(node.args[0]) < observables_.size(),
                                   "unsupported output reference");
-                xor_sign(records_[t.value()].sign, bit_error(node.args[0]));
+                const auto p = parity(node.targets);
+                auto& output = observables_[static_cast<size_t>(node.args[0])];
+                xor_into(output.z, p.z);
+                xor_sign(output.sign, p.sign);
+                break;
             }
-        } else if (g == GateType::X_ERROR || g == GateType::Y_ERROR || g == GateType::Z_ERROR) {
-            require_supported(
-                !node.targets.empty() && node.args.size() == 1 && is_probability(node.args[0]),
-                "unsupported source operation");
-            const char p = g == GateType::X_ERROR ? 'X' : g == GateType::Y_ERROR ? 'Y' : 'Z';
-            for (Target t : node.targets) {
-                const uint32_t q = qubit(plain_qubit_target(t));
-                error(q, p, bit_error(node.args[0]));
-            }
-        } else if (g == GateType::DEPOLARIZE1 || g == GateType::DEPOLARIZE2 ||
-                   g == GateType::DEPOLARIZE3 || g == GateType::PAULI_CHANNEL_1 ||
-                   g == GateType::PAULI_CHANNEL_2 || g == GateType::PAULI_CHANNEL_3) {
-            const uint32_t arity =
-                (g == GateType::DEPOLARIZE1 || g == GateType::PAULI_CHANNEL_1)   ? 1U
-                : (g == GateType::DEPOLARIZE2 || g == GateType::PAULI_CHANNEL_2) ? 2U
-                                                                                 : 3U;
-            const uint32_t count = uint32_t{1} << (2 * arity);
-            const bool depol = g == GateType::DEPOLARIZE1 || g == GateType::DEPOLARIZE2 ||
-                               g == GateType::DEPOLARIZE3;
-            require_supported(!node.targets.empty() && node.targets.size() % arity == 0 &&
-                                  node.args.size() == (depol ? 1U : count - 1U),
-                              "unsupported source operation");
-            for (double p : node.args) {
-                require_supported(is_probability(p), "unsupported source operation");
-            }
-            const double total =
-                depol ? node.args[0] : std::accumulate(node.args.begin(), node.args.end(), 0.0);
-            require_supported(total <= 1.0 + kProbTolerance, "unsupported source operation");
-            for (size_t offset = 0; offset < node.targets.size(); offset += arity) {
-                std::array<uint32_t, 3> src_qs{};
-                for (uint32_t j = 0; j < arity; ++j) {
-                    src_qs[j] = plain_qubit_target(node.targets[offset + j]);
-                    for (uint32_t prev = 0; prev < j; ++prev) {
-                        require_supported(src_qs[j] != src_qs[prev],
-                                          "unsupported source operation");
-                    }
-                }
-                if (depol ? (total / (count - 1) == 0.0) : (total == 0.0)) {
-                    continue;
-                }
-                const uint32_t start = noise_bits(2 * arity);
-                std::vector<ReconstructionNoiseOutcome> channel;
-                for (uint32_t value = 0; value < count; ++value) {
-                    const double p = value == 0 ? std::max(0.0, 1 - total)
-                                     : depol    ? total / (count - 1)
-                                                : node.args[value - 1];
-                    if (p == 0)
-                        continue;
-                    ReconstructionNoiseOutcome outcome{p, {}};
-                    for (uint32_t j = 0; j < arity; ++j) {
-                        const uint32_t digit = (value >> (2 * (arity - j - 1))) & 3U;
-                        if (digit == 1 || digit == 2)
-                            outcome.bits.push_back(start + 2 * j);
-                        if (digit == 2 || digit == 3)
-                            outcome.bits.push_back(start + 2 * j + 1);
-                    }
-                    channel.push_back(std::move(outcome));
-                }
-                channels_.push_back(std::move(channel));
-                for (uint32_t j = 0; j < arity; ++j) {
-                    const uint32_t q = qubit(src_qs[j]);
-                    xor_sign(fx_[q], {unit(start + 2 * j), false});
-                    xor_sign(fz_[q], {unit(start + 2 * j + 1), false});
-                }
-            }
-        } else if (g == GateType::CORRELATED_ERROR || g == GateType::ELSE_CORRELATED_ERROR) {
-            require_supported(node.args.size() == 1 && is_probability(node.args[0]),
-                              "unsupported source operation");
-            if (g == GateType::CORRELATED_ERROR) {
-                chain = channels_.size();
-                channels_.push_back({{1, {}}});
-            }
-            require_supported(chain.has_value(), "unpaired correlated error branch");
-            const uint32_t i = noise_bits(1);
-            auto& channel = channels_[*chain];
-            const double p = channel.front().probability * node.args[0];
-            channel.front().probability -= p;
-            channel.push_back({p, {i}});
-            for (Target t : node.targets) {
-                require_supported(t.has_pauli() && !t.is_rec() && !t.is_inverted(),
+            case GateType::T:
+            case GateType::T_DAG: {
+                require_supported(!node.targets.empty() && node.args.empty(),
                                   "unsupported source operation");
-                error(qubit(t.value()), t.pauli_char(), {unit(i), false});
+                const double alpha = g == GateType::T ? kTHalfTurns : -kTHalfTurns;
+                for (Target t : node.targets) {
+                    const std::pair<uint32_t, char> term{plain_qubit_target(t), 'Z'};
+                    rotate({&term, 1}, alpha);
+                }
+                break;
             }
-        } else {
-            clifford(node);
+            case GateType::R_X:
+            case GateType::R_Y:
+            case GateType::R_Z: {
+                require_supported(!node.targets.empty() && node.args.size() == 1,
+                                  "unsupported source operation");
+                const char axis = g == GateType::R_X ? 'X' : g == GateType::R_Y ? 'Y' : 'Z';
+                for (Target t : node.targets) {
+                    const std::pair<uint32_t, char> term{plain_qubit_target(t), axis};
+                    rotate({&term, 1}, node.args[0]);
+                }
+                break;
+            }
+            case GateType::U3: {
+                require_supported(!node.targets.empty() && node.args.size() == 3,
+                                  "unsupported source operation");
+                const double theta = node.args[0];
+                const double phi = node.args[1];
+                const double lambda = node.args[2];
+                require_supported(
+                    is_finite_robust(theta) && is_finite_robust(phi) && is_finite_robust(lambda),
+                    "unsupported source operation");
+                for (Target t : node.targets) {
+                    const uint32_t q = plain_qubit_target(t);
+                    const std::pair<uint32_t, char> z_term{q, 'Z'};
+                    const std::pair<uint32_t, char> y_term{q, 'Y'};
+                    rotate({&z_term, 1}, lambda);
+                    rotate({&y_term, 1}, theta);
+                    rotate({&z_term, 1}, phi);
+                }
+                break;
+            }
+            case GateType::R_XX:
+            case GateType::R_YY:
+            case GateType::R_ZZ: {
+                require_supported(
+                    !node.targets.empty() && node.targets.size() % 2 == 0 && node.args.size() == 1,
+                    "unsupported source operation");
+                const char axis = g == GateType::R_XX ? 'X' : g == GateType::R_YY ? 'Y' : 'Z';
+                for (size_t i = 0; i < node.targets.size(); i += 2) {
+                    const uint32_t q0 = plain_qubit_target(node.targets[i]);
+                    const uint32_t q1 = plain_qubit_target(node.targets[i + 1]);
+                    require_supported(q0 != q1, "unsupported source operation");
+                    const std::array<std::pair<uint32_t, char>, 2> term{{{q0, axis}, {q1, axis}}};
+                    rotate(term, node.args[0]);
+                }
+                break;
+            }
+            case GateType::SPP:
+            case GateType::SPP_DAG:
+            case GateType::TPP:
+            case GateType::TPP_DAG:
+            case GateType::R_PAULI: {
+                require_supported(
+                    g == GateType::R_PAULI ? node.args.size() == 1 : node.args.empty(),
+                    "unsupported source operation");
+                bool inverted = false;
+                const Term term = pauli_product_targets(node.targets, inverted);
+                const double alpha = g == GateType::SPP       ? kSHalfTurns
+                                     : g == GateType::SPP_DAG ? -kSHalfTurns
+                                     : g == GateType::TPP     ? kTHalfTurns
+                                     : g == GateType::TPP_DAG ? -kTHalfTurns
+                                                              : node.args[0];
+                rotate(term, alpha, inverted);
+                break;
+            }
+            case GateType::M:
+            case GateType::MX:
+            case GateType::MY:
+            case GateType::MR:
+            case GateType::MRX:
+            case GateType::MRY:
+            case GateType::R:
+            case GateType::RX:
+            case GateType::RY: {
+                require_supported(!node.targets.empty(), "unsupported source operation");
+                const char p = (g == GateType::MX || g == GateType::MRX || g == GateType::RX) ? 'X'
+                               : (g == GateType::MY || g == GateType::MRY || g == GateType::RY)
+                                   ? 'Y'
+                                   : 'Z';
+                for (Target t : node.targets) {
+                    require_supported(
+                        !t.is_rec() && !t.has_pauli() && (!is_reset(g) || !t.is_inverted()),
+                        "unsupported source operation");
+                    uint32_t q = qubit(t.value());
+                    if (is_measurement(g))
+                        measure({{q, p}}, t.is_inverted());
+                    if (is_reset(g) || is_measure_reset(g)) {
+                        // Keep the discarded wire as an environment so entanglement
+                        // with deferred measurement ancillas is preserved.
+                        q = fresh();
+                        aliases_[t.value()] = q;
+                        if (p != 'Z')
+                            gate(GateType::H, {q});
+                        if (p == 'Y')
+                            gate(GateType::S, {q});
+                    }
+                }
+                break;
+            }
+            case GateType::MPP: {
+                bool inverted = false;
+                const Term source_term = pauli_product_targets(node.targets, inverted);
+                Term term;
+                term.reserve(source_term.size());
+                for (auto [src_q, p] : source_term) {
+                    term.emplace_back(qubit(src_q), p);
+                }
+                measure(term, inverted);
+                break;
+            }
+            case GateType::MPAD:
+                require_supported(!node.targets.empty(), "unsupported source operation");
+                for (Target t : node.targets) {
+                    require_supported(!t.is_rec() && !t.has_pauli() && t.value() <= 1,
+                                      "unsupported source operation");
+                    const bool sign = (t.value() != 0) ^ t.is_inverted();
+                    records_.push_back({unit(fresh()), {{}, sign}});
+                }
+                break;
+            case GateType::READOUT_NOISE:
+                require_supported(!node.targets.empty() &&
+                                      (node.args.size() == 1 ||
+                                       (node.args.size() == 2 && node.args[0] == node.args[1])) &&
+                                      is_probability(node.args[0]),
+                                  "asymmetric readout requires the original program");
+                for (Target t : node.targets) {
+                    require_supported(t.is_rec() && !t.is_inverted() && t.value() < records_.size(),
+                                      "unsupported output reference");
+                    xor_sign(records_[t.value()].sign, bit_error(node.args[0]));
+                }
+                break;
+            case GateType::X_ERROR:
+            case GateType::Y_ERROR:
+            case GateType::Z_ERROR: {
+                require_supported(
+                    !node.targets.empty() && node.args.size() == 1 && is_probability(node.args[0]),
+                    "unsupported source operation");
+                const char p = g == GateType::X_ERROR ? 'X' : g == GateType::Y_ERROR ? 'Y' : 'Z';
+                for (Target t : node.targets) {
+                    const uint32_t q = qubit(plain_qubit_target(t));
+                    error(q, p, bit_error(node.args[0]));
+                }
+                break;
+            }
+            case GateType::DEPOLARIZE1:
+            case GateType::DEPOLARIZE2:
+            case GateType::DEPOLARIZE3:
+            case GateType::PAULI_CHANNEL_1:
+            case GateType::PAULI_CHANNEL_2:
+            case GateType::PAULI_CHANNEL_3: {
+                const uint32_t arity =
+                    (g == GateType::DEPOLARIZE1 || g == GateType::PAULI_CHANNEL_1)   ? 1U
+                    : (g == GateType::DEPOLARIZE2 || g == GateType::PAULI_CHANNEL_2) ? 2U
+                                                                                     : 3U;
+                const uint32_t count = uint32_t{1} << (2 * arity);
+                const bool depol = g == GateType::DEPOLARIZE1 || g == GateType::DEPOLARIZE2 ||
+                                   g == GateType::DEPOLARIZE3;
+                require_supported(!node.targets.empty() && node.targets.size() % arity == 0 &&
+                                      node.args.size() == (depol ? 1U : count - 1U),
+                                  "unsupported source operation");
+                for (double p : node.args) {
+                    require_supported(is_probability(p), "unsupported source operation");
+                }
+                const double total =
+                    depol ? node.args[0] : std::accumulate(node.args.begin(), node.args.end(), 0.0);
+                require_supported(total <= 1.0 + kProbTolerance, "unsupported source operation");
+                for (size_t offset = 0; offset < node.targets.size(); offset += arity) {
+                    std::array<uint32_t, 3> src_qs{};
+                    for (uint32_t j = 0; j < arity; ++j) {
+                        src_qs[j] = plain_qubit_target(node.targets[offset + j]);
+                        for (uint32_t prev = 0; prev < j; ++prev) {
+                            require_supported(src_qs[j] != src_qs[prev],
+                                              "unsupported source operation");
+                        }
+                    }
+                    if (depol ? (total / (count - 1) == 0.0) : (total == 0.0)) {
+                        continue;
+                    }
+                    const uint32_t start = noise_bits(2 * arity);
+                    std::vector<ReconstructionNoiseOutcome> channel;
+                    for (uint32_t value = 0; value < count; ++value) {
+                        const double p = value == 0 ? std::max(0.0, 1 - total)
+                                         : depol    ? total / (count - 1)
+                                                    : node.args[value - 1];
+                        if (p == 0)
+                            continue;
+                        ReconstructionNoiseOutcome outcome{p, {}};
+                        for (uint32_t j = 0; j < arity; ++j) {
+                            const uint32_t digit = (value >> (2 * (arity - j - 1))) & 3U;
+                            if (digit == 1 || digit == 2)
+                                outcome.bits.push_back(start + 2 * j);
+                            if (digit == 2 || digit == 3)
+                                outcome.bits.push_back(start + 2 * j + 1);
+                        }
+                        channel.push_back(std::move(outcome));
+                    }
+                    channels_.push_back(std::move(channel));
+                    for (uint32_t j = 0; j < arity; ++j) {
+                        const uint32_t q = qubit(src_qs[j]);
+                        xor_sign(fx_[q], {unit(start + 2 * j), false});
+                        xor_sign(fz_[q], {unit(start + 2 * j + 1), false});
+                    }
+                }
+                break;
+            }
+            case GateType::CORRELATED_ERROR:
+            case GateType::ELSE_CORRELATED_ERROR: {
+                require_supported(node.args.size() == 1 && is_probability(node.args[0]),
+                                  "unsupported source operation");
+                if (g == GateType::CORRELATED_ERROR) {
+                    chain = channels_.size();
+                    channels_.push_back({{1, {}}});
+                }
+                require_supported(chain.has_value(), "unpaired correlated error branch");
+                const uint32_t i = noise_bits(1);
+                auto& channel = channels_[*chain];
+                const double p = channel.front().probability * node.args[0];
+                channel.front().probability -= p;
+                channel.push_back({p, {i}});
+                for (Target t : node.targets) {
+                    require_supported(t.has_pauli() && !t.is_rec() && !t.is_inverted(),
+                                      "unsupported source operation");
+                    error(qubit(t.value()), t.pauli_char(), {unit(i), false});
+                }
+                break;
+            }
+            case GateType::H:
+            case GateType::S:
+            case GateType::S_DAG:
+            case GateType::X:
+            case GateType::Y:
+            case GateType::Z:
+            case GateType::SQRT_X:
+            case GateType::SQRT_X_DAG:
+            case GateType::SQRT_Y:
+            case GateType::SQRT_Y_DAG:
+            case GateType::H_XY:
+            case GateType::H_YZ:
+            case GateType::H_NXY:
+            case GateType::H_NXZ:
+            case GateType::H_NYZ:
+            case GateType::C_XYZ:
+            case GateType::C_ZYX:
+            case GateType::C_NXYZ:
+            case GateType::C_NZYX:
+            case GateType::C_XNYZ:
+            case GateType::C_XYNZ:
+            case GateType::C_ZNYX:
+            case GateType::C_ZYNX:
+            case GateType::CX:
+            case GateType::CY:
+            case GateType::CZ:
+            case GateType::SWAP:
+            case GateType::ISWAP:
+            case GateType::ISWAP_DAG:
+            case GateType::SQRT_XX:
+            case GateType::SQRT_XX_DAG:
+            case GateType::SQRT_YY:
+            case GateType::SQRT_YY_DAG:
+            case GateType::SQRT_ZZ:
+            case GateType::SQRT_ZZ_DAG:
+            case GateType::CXSWAP:
+            case GateType::CZSWAP:
+            case GateType::SWAPCX:
+            case GateType::XCX:
+            case GateType::XCY:
+            case GateType::XCZ:
+            case GateType::YCX:
+            case GateType::YCY:
+            case GateType::YCZ:
+                clifford(node);
+                break;
+            case GateType::EXP_VAL:
+                require_supported(false, "expectation values require the original program");
+                break;
+            case GateType::MXX:
+            case GateType::MYY:
+            case GateType::MZZ:
+            case GateType::CH:
+            case GateType::CCX:
+            case GateType::CCZ:
+            case GateType::LEVEL_TRANSITION:
+            case GateType::LEAKAGE:
+            case GateType::LOSS:
+            case GateType::HERALD_LEAKAGE_EVENT:
+            case GateType::HERALD_LOSS_EVENT:
+            case GateType::LEAKAGE_INTERACTION:
+            case GateType::LOSS_INTERACTION:
+            case GateType::UNKNOWN:
+                require_supported(false, "unsupported source operation");
+                break;
         }
     }
 }
