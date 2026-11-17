@@ -47,9 +47,7 @@ bool has_inline_pauli_mask(const HeisenbergOp& op) {
 class NoiseSupport {
   public:
     explicit NoiseSupport(const HirModule& hir)
-        : hir_(hir),
-          single_word_(hir.noise_channel_masks.num_words() <= 1),
-          known_(hir.noise_sites.size(), 0) {
+        : hir_(hir), single_word_(hir.num_qubits <= 64), known_(hir.noise_sites.size(), 0) {
         if (single_word_) {
             single_ux_.assign(hir.noise_sites.size(), 0);
             single_uz_.assign(hir.noise_sites.size(), 0);

@@ -641,7 +641,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     NoiseSigns noise_signs(hir);
     // Dense copy of the HIR mask being planned, for the coordinate and
     // symbolic frames.
-    DensePauliScratch dense(hir.pauli_masks.num_words());
+    DensePauliScratch dense((hir.num_qubits + 63) / 64);
 
     SamplingPlan plan;
     plan.num_qubits = hir.num_qubits;

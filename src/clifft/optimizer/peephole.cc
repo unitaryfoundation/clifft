@@ -197,10 +197,9 @@ inline void normalize_t_sign(HirModule& hir, HeisenbergOp& op) {
     }
 }
 
-/// Check whether op_j blocks op_i from commuting past it.
-/// Returns true if op_i is blocked (anti-commutes with op_j).
-inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const HirModule& hir) {
-    const PauliMaskView axis = hir.mask_view(op_i);
+/// Check whether op_j blocks an op with Pauli `axis` from commuting past it.
+/// Returns true if the op is blocked (anti-commutes with op_j).
+inline bool is_blocked(PauliMaskView axis, const HeisenbergOp& op_j, const HirModule& hir) {
     switch (op_j.op_type()) {
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION:
@@ -285,7 +284,7 @@ size_t eliminate_terminal_measurement_phases(HirModule& hir, std::vector<uint8_t
                 break;
             }
 
-            if (!is_blocked(hir.ops[i], next, hir)) {
+            if (!is_blocked(candidate, next, hir)) {
                 continue;
             }
             break;
@@ -370,7 +369,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 }
 
                 // Not a match -- check if op_j blocks commutation
-                if (is_blocked(op_i, op_j, hir)) {
+                if (is_blocked(axis_i, op_j, hir)) {
                     break;
                 }
             }
@@ -459,7 +458,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                     break;
                 }
 
-                if (is_blocked(op_i, op_j, hir)) {
+                if (is_blocked(axis_i, op_j, hir)) {
                     break;
                 }
             }

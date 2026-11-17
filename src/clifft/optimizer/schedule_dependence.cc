@@ -101,7 +101,7 @@ ScheduleDependence ScheduleDependence::build(const HirModule& hir,
         // register inspects only potential conflicts.
         const size_t num_record_slots =
             static_cast<size_t>(hir.num_measurements) + hir.num_hidden_measurements;
-        const size_t num_bit_slots = static_cast<size_t>(hir.pauli_masks.num_words()) * 64;
+        const size_t num_bit_slots = (static_cast<size_t>(hir.num_qubits) + 63) / 64 * 64;
 
         std::array<ConflictIndex, 2> index;
         for (ConflictIndex& idx : index) {

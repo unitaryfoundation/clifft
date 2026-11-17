@@ -153,21 +153,27 @@ double represented_depolarizing_probability(double probability, double outcome_c
 }
 
 NoiseSite make_single_qubit_noise_site(HirModule& hir, const Tableau& inverse,
-                                       RewoundGenerators& generators, GateType gate, uint32_t qubit,
-                                       double prob) {
-    generators.load(inverse, {qubit});
+                                       RewoundGenerators& generators, PauliMask& mask,
+                                       GateType gate, uint32_t qubit, double prob) {
+    // A single-axis error needs only that axis; channel signs are irrelevant.
+    const auto single_axis = [&](PauliAxis axis) {
+        assign_rewound_axis(mask, inverse, qubit, axis);
+        mask.set_sign(false);
+        return NoiseChannel{hir.noise_channel_masks.append(mask), prob};
+    };
     NoiseSite site;
     switch (gate) {
         case GateType::X_ERROR:
-            site.channels.push_back(generators.channel(hir, {1}, prob));
+            site.channels.push_back(single_axis(PauliAxis::X));
             break;
         case GateType::Y_ERROR:
-            site.channels.push_back(generators.channel(hir, {2}, prob));
+            site.channels.push_back(single_axis(PauliAxis::Y));
             break;
         case GateType::Z_ERROR:
-            site.channels.push_back(generators.channel(hir, {3}, prob));
+            site.channels.push_back(single_axis(PauliAxis::Z));
             break;
         case GateType::DEPOLARIZE1:
+            generators.load(inverse, {qubit});
             site.channels.push_back(generators.channel(hir, {1}, prob / 3.0));
             site.channels.push_back(generators.channel(hir, {2}, prob / 3.0));
             site.channels.push_back(generators.channel(hir, {3}, prob / 3.0));
@@ -845,7 +851,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::DEPOLARIZE1: {
                 double prob = node.args.empty() ? 0.0 : node.args[0];
                 for (const auto& target : node.targets) {
-                    NoiseSite site = make_single_qubit_noise_site(hir, inverse, generators,
+                    NoiseSite site = make_single_qubit_noise_site(hir, inverse, generators, mask,
                                                                   node.gate, target.value(), prob);
                     const double total_probability =
                         node.gate == GateType::DEPOLARIZE1
