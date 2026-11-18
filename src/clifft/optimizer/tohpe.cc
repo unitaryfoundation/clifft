@@ -15,8 +15,7 @@ namespace {
 
 // TOHPE has cubic worst-case cost in the number of columns. A fixed search
 // bound keeps the default compiler inexpensive; projection still works above it.
-constexpr size_t kMaxTerms = 128;
-using Selection = std::bitset<kMaxTerms>;
+using Selection = std::bitset<kMaxTohpeColumns>;
 
 struct Row {
     std::vector<uint64_t> features;
@@ -72,7 +71,7 @@ Selection dependency(const std::vector<uint64_t>& columns, uint32_t width) {
 
 std::vector<uint64_t> tohpe(std::vector<uint64_t> columns, uint32_t core_width) {
     assert(core_width <= 64);
-    if (columns.size() <= core_width || columns.size() > kMaxTerms) {
+    if (columns.size() <= core_width || columns.size() > kMaxTohpeColumns) {
         return columns;
     }
     std::ranges::sort(columns);

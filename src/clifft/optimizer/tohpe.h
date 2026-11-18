@@ -1,9 +1,12 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
 namespace clifft::phase_detail {
+
+inline constexpr size_t kMaxTohpeColumns = 128;
 
 // TOHPE from Vandaele, "Lower T-count with faster algorithms", Algorithm 2:
 // https://arxiv.org/abs/2407.08695

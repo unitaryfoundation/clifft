@@ -1,49 +1,95 @@
 #pragma once
 
+#include "clifft/util/bitmask.h"
+
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
-// Phase algebra for separating commuting T rotations into a smaller
-// non-Clifford core and a diagonal Clifford correction.
+// Sparse sums of XOR parities modulo eight for commuting Pauli rotations.
+// The common case uses one machine word. Only the optional two-word search
+// draws on the work allowance shared across a pass.
 namespace clifft::phase_detail {
 
-// A weighted Boolean polynomial modulo eight: linear coefficients are arbitrary,
-// quadratic coefficients are even, and cubic coefficients are multiples of four.
-// Maps monomial variable masks to coefficients: {0b0101, 4} means 4*x0*x2.
-// Zero coefficients are omitted.
-using Polynomial = std::map<uint64_t, uint8_t>;
+struct SearchLimit {};
+struct WideBudget {
+    size_t max_updates = 50000000;
+    size_t max_terms = 200000;
+    size_t updates = 0;
+    bool exhausted = false;
 
-void add_parity(Polynomial& polynomial, uint64_t parity, int coefficient);
-
-// Translations whose finite differences have an even constant and only linear
-// coefficients divisible by four. These directions carry no non-Clifford work.
-std::vector<uint64_t> clifford_kernel(const Polynomial& polynomial, uint32_t width);
-
-struct CoreBasis {
-    uint32_t core_width;
-    // New eigenbit parities in the original coordinates, including the core
-    // complement first. The polynomial is rewritten in these new coordinates.
-    std::vector<uint64_t> parities;
-    // Original eigenbit assignments for retained coordinates with kernel bits zero.
-    std::vector<uint64_t> core_columns;
+    void charge(size_t amount = 1);
+    void check_terms(size_t size);
 };
 
-CoreBasis reduce_core(Polynomial& polynomial, uint32_t width);
-// Project onto the core, reduce odd parity terms with TOHPE, and restore the
-// exact Clifford correction. The result never has more T terms than the input.
-// In terms and the result, masks select XOR parities rather than monomials.
-Polynomial synthesize_parities(const Polynomial& terms, const Polynomial& reduced,
-                               const CoreBasis& basis);
+struct OrdinaryWork {
+    void charge(size_t = 1) const {}
+    void check_terms(size_t) const {}
+};
 
+template <size_t N>
+struct PhaseReduction {
+    uint32_t core_width = 0;
+    size_t t_count = 0;
+    // Each mask addresses the original rotation axes, in emission order.
+    std::vector<std::pair<BitMask<N>, uint8_t>> phases;
+};
+
+template <size_t N>
 struct PauliDerivative {
-    uint64_t parity;
-    uint8_t constant;
+    BitMask<N> parity;
+    uint8_t constant = 0;
 };
 
-// Returns p(x xor flip) - p(x) = constant + 4 * parity(x), or no value when
-// conjugation of a Pauli with this flip is no longer a Pauli.
-std::optional<PauliDerivative> pauli_derivative(const Polynomial& polynomial, uint64_t flip);
+template <size_t N>
+class PhasePolynomial {
+  public:
+    using Mask = BitMask<N>;
+    using Work = std::conditional_t<N == 64, OrdinaryWork, WideBudget>;
+    struct Less {
+        bool operator()(const Mask& a, const Mask& b) const {
+            for (size_t i = Mask::kWords; i-- > 0;) {
+                if (a.w[i] != b.w[i])
+                    return a.w[i] < b.w[i];
+            }
+            return false;
+        }
+    };
+    using Terms = std::map<Mask, uint8_t, Less>;
+
+    const Terms& terms() const { return terms_; }
+    size_t odd_terms() const;
+    void add(Mask parity, int coefficient, Work& work);
+    // p(x xor flip) - p(x) = constant + 4 * parity(x) for a Pauli pullback.
+    std::optional<PauliDerivative<N>> derivative(Mask flip, Work& work);
+    // Independent parity coordinates for the non-Clifford core. A flip is a
+    // Clifford direction exactly when it is orthogonal to every returned mask.
+    std::vector<Mask> core_axes(uint32_t width, Work& work);
+    std::optional<PhaseReduction<N>> linear_reduction(uint32_t width, Work& work);
+    std::optional<PhaseReduction<N>> synthesize(uint32_t width, Work& work);
+
+  private:
+    // For each selected pair (i,j), bit k of odd_columns is the cubic
+    // signature entry ijk. One row packs all possible third indices.
+    struct Pair {
+        uint8_t weight = 0;  // Sum of parity coefficients modulo four.
+        Mask odd_columns;
+    };
+    struct Signature {
+        std::array<uint8_t, N> linear{};
+        std::map<std::pair<uint32_t, uint32_t>, Pair> pairs;
+        void add(Mask parity, int coefficient, Work& work);
+    };
+    const Signature& signature(Work& work);
+    Terms terms_;
+    std::optional<Signature> signature_;
+};
+
+extern template class PhasePolynomial<64>;
+extern template class PhasePolynomial<128>;
 
 }  // namespace clifft::phase_detail

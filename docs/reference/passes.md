@@ -123,21 +123,20 @@ it to skip the circuit.
 
 `max_variables` is a hard ceiling on independent phase variables analyzed
 together (default `128`, range `0` to `128`; zero disables the pass). Circuits
-can have more physical qubits than this limit. Collection starts at
-`min(32, max_variables)`, then tries a complete region up to
-`min(64, max_variables)`. `max_variables=32` disables expansion, and
-`max_variables=64` restricts collection to one-word regions.
+can have more physical qubits than this limit. Regions of up to 64 variables
+use one machine word. Larger regions can use two words when wide search is
+enabled. If expansion fails, the pass can still rewrite a prefix of up to
+32 variables.
 
-When `max_variables > 64` and the 64-variable attempt is capped, the pass can
-extend a commuting T region up to `max_variables` using two-word coordinates.
-It uses the same observer-pullback and commuting-noise rules and stops at
-instrument boundaries. It searches for a rewrite at the first wide boundary
-and at the end if the region grows. At intervening observers, a linear phase
-polynomial gives the replacement rotations directly. The search tries the
-collected basis and one derived from the final Clifford tableau. It supports
-up to 64 core variables and searches at most 128 odd parity terms. Across the
-full two-word range, rotations remaining after the final observer can be
-omitted when the phase polynomial reduces.
+Both widths keep each XOR parity as one term. A linear phase directly gives
+the replacement rotations, even above 64 variables. For nonlinear phases,
+the synthesis search supports a core of up to 64 variables and at most 128
+odd parity columns for TOHPE reduction. The wide search tries the collected
+basis first. If its T count exceeds the core rank, a basis derived from the
+final Clifford tableau can improve it. It considers the first wide boundary,
+linear prefixes at intervening observers, and the complete region.
+When a reduced region reaches the final observer, the pass can omit the
+rotations left after that observer.
 
 `max_wide_work` (default `50000000`) bounds deterministic work units shared by
 all wide attempts and both basis candidates in one pass. The units include

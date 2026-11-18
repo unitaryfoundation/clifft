@@ -178,8 +178,8 @@ reduce active execution width further, using the final measurements as well
 as the preparation.
 
 Collecting a larger complete region can expose cancellations that smaller
-regions miss. The wide search keeps each XOR parity as one term, even when
-a rotation acts on many axes. It also tries coordinates derived from the
+regions miss. The pass keeps each XOR parity as one term, even when a rotation
+acts on many axes. The wide search can also try coordinates derived from the
 final Clifford tableau, since coordinate choice affects synthesis. It retains
 a candidate only when the rewrite meets the T-count and active-width cost
 guards. The number of variables needed to analyze a region can therefore be
