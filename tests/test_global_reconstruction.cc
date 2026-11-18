@@ -14,6 +14,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <map>
+#include <numbers>
 #include <string>
 #include <utility>
 #include <vector>
@@ -80,6 +81,17 @@ std::vector<std::string> reconstruction_law_cases() {
         "H 0\nR_Z(0.23) 0\nMPAD(0.18) 1\nMPAD(0.12) !0\nCX rec[-2] 0\nMX 0\n"
         "DETECTOR rec[-3] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2] rec[-1]\n",
     };
+}
+
+ExactPlanDistribution project_outputs(ExactPlanDistribution distribution,
+                                      ReconstructionOutputs mode) {
+    if (mode == ReconstructionOutputs::Detectors) {
+        distribution.num_visible_records = 0;
+        for (auto& entry : distribution.kept_outcomes)
+            entry.outcome.visible_records = 0;
+        canonicalize_outcome_entries(distribution.kept_outcomes);
+    }
+    return distribution;
 }
 
 std::map<uint64_t, double> output_law(const ExactPlanDistribution& distribution,
@@ -493,13 +505,13 @@ TEST_CASE("Reconstructed HIR preserves complete noisy output laws", "[reconstruc
             auto lowered = lower_global_reconstruction(*r.reconstruction);
             INFO(lowered.fallback_reason);
             REQUIRE(lowered.hir.has_value());
+            const auto projected = project_outputs(expected, mode);
             for (bool optimize : {false, true}) {
                 if (optimize)
                     default_hir_pass_manager().run(*lowered.hir);
                 const auto actual =
                     compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
-                require_same_law(output_law(actual, r.reconstruction->outputs),
-                                 output_law(expected, r.reconstruction->outputs));
+                require_distributions_equal(projected, actual, 2e-12);
             }
         }
     }
@@ -558,27 +570,10 @@ TEST_CASE("Global reconstruction lowering preserves reference and rejection mass
                 meta.expected_observables = expected_observables;
                 const auto lowered = lower_global_reconstruction(*r.reconstruction, meta);
                 REQUIRE(lowered.hir.has_value());
-                const uint32_t det_shift = source.num_measurements;
-                const uint32_t obs_shift = det_shift + source.num_detectors;
-                auto key = [&](const ExactShotOutcome& o) {
-                    return (mode == ReconstructionOutputs::Records ? o.visible_records : 0) |
-                           (o.detectors << det_shift) | (o.observables << obs_shift);
-                };
+                const auto projected = project_outputs(expected, mode);
                 auto check_plan = [&](const sampling::SamplingPlan& plan) {
-                    const auto actual = compute_exact_plan_distribution(plan);
-                    REQUIRE_THAT(actual.discarded_probability,
-                                 Catch::Matchers::WithinAbs(expected.discarded_probability, 2e-12));
-                    std::map<uint64_t, double> want, got;
-                    for (const auto& e : expected.kept_outcomes)
-                        want[key(e.outcome)] += e.probability;
-                    for (const auto& e : actual.kept_outcomes)
-                        got[key(e.outcome)] += e.probability;
-                    for (auto [k, p] : want) {
-                        REQUIRE_THAT(got[k], Catch::Matchers::WithinAbs(p, 2e-12));
-                        got.erase(k);
-                    }
-                    for (auto [k, p] : got)
-                        REQUIRE_THAT(p, Catch::Matchers::WithinAbs(0, 2e-12));
+                    require_distributions_equal(projected, compute_exact_plan_distribution(plan),
+                                                2e-12);
                 };
                 // Check raw lowered HIR directly whenever its hidden-record count
                 // fits PreparedReplayPlan's 12-record enumeration cap; wider
@@ -592,6 +587,52 @@ TEST_CASE("Global reconstruction lowering preserves reference and rejection mass
                 check_plan(sampling::plan_sampling(hir));
             }
         }
+    }
+}
+
+TEST_CASE("Reconstructed postselection preserves rare accepted logical errors",
+          "[reconstruction]") {
+    constexpr double p = 0x1p-42;
+    const std::string prepare = "H 0 1\nT 0 1\nH 0 1\n";
+    const std::string measure = "M 0 1 2\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-3]\n";
+    const auto source = parse(prepare + "X_ERROR(" + precise_probability(p) + ") 2\n" + measure);
+    const auto without_fault = parse(prepare + measure);
+    PostselectionMetadata meta;
+    meta.mask = {1};
+    meta.expected_detectors = {1};
+    const auto dense =
+        compute_dense_circuit_distribution(source, {meta.mask, meta.expected_detectors});
+    // The fault on qubit 2 accepts the shot independently of the H T H measurement on qubit 0.
+    const double logical_error_mass = p * (1 - 1 / std::numbers::sqrt2) / 2;
+    const ExactComparisonBudget budget{.max_omitted_probability = logical_error_mass * 1e-9};
+
+    for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
+        CAPTURE(mode);
+        auto optimized_law = [&](const Circuit& circuit) {
+            const auto r = reconstruct_global_sampling(circuit, mode);
+            REQUIRE(r.reconstruction.has_value());
+            auto lowered = lower_global_reconstruction(*r.reconstruction, meta);
+            REQUIRE(lowered.hir.has_value());
+            default_hir_pass_manager().run(*lowered.hir);
+            return compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+        };
+        const auto expected = project_outputs(dense, mode);
+        const auto actual = optimized_law(source);
+        require_distributions_equal(expected, actual, budget);
+        double accepted = 0;
+        double accepted_errors = 0;
+        for (const auto& entry : actual.kept_outcomes) {
+            accepted += entry.probability;
+            if (entry.outcome.observables == 1)
+                accepted_errors += entry.probability;
+        }
+        REQUIRE_THAT(accepted, Catch::Matchers::WithinRel(p, budget.probability_relative));
+        REQUIRE_THAT(accepted_errors,
+                     Catch::Matchers::WithinRel(logical_error_mass, budget.probability_relative));
+
+        const auto deleted = optimized_law(without_fault);
+        REQUIRE(deleted.kept_outcomes.empty());
+        REQUIRE_FALSE(distributions_equal(expected, deleted, budget));
     }
 }
 

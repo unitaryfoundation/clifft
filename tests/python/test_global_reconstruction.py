@@ -505,6 +505,49 @@ def test_full_noisy_fixtures_use_reconstructed_plans_with_default_passes(fixture
         assert result.measurements.shape == (65 if keep_records else 0, program.num_measurements)
 
 
+@pytest.mark.parametrize(
+    "fault_qubits, fired_detectors, logical_flip",
+    [((), [], 0), ((0,), [89], 1), ((0, 3, 9, 15, 23), [], 1)],
+    ids=["fault-free", "detected-Z", "logical-Z"],
+)
+def test_d5_source_faults_before_logical_y(fault_qubits, fired_detectors, logical_flip):
+    fixture = Path(__file__).parents[1] / "fixtures" / "reconstruction_msc_d5.stim"
+    ideal = fixture.read_text().replace("(0.001)", "(0)")
+    reference = clifft.compute_reference_syndrome(clifft.trace(clifft.parse(ideal)))
+    lines = ideal.splitlines()
+    if fault_qubits:
+        # Force Z outcomes of the last depolarizing layer before the transversal T gates.
+        site = max(i for i, line in enumerate(lines) if line.startswith("DEPOLARIZE1("))
+        assert set(fault_qubits) <= set(map(int, lines[site].split()[1:]))
+        lines[site] = "Z_ERROR(1) " + " ".join(map(str, fault_qubits))
+    source = "\n".join(lines)
+
+    shots = 32
+    num_detectors = len(reference["detectors"])
+    expected_detectors = np.zeros((shots, num_detectors), dtype=np.uint8)
+    expected_detectors[:, fired_detectors] = 1
+    for reconstruction in (False, True):
+        options = dict(
+            reconstruction=reconstruction,
+            expected_detectors=reference["detectors"],
+            expected_observables=reference["observables"],
+        )
+        unfiltered = clifft.compile(source, **options)
+        postselected = clifft.compile(source, postselection_mask=[1] * num_detectors, **options)
+        for mode in (True, "syndromes"):
+            for program in (unfiltered, postselected):
+                plan = program.sampling_plan(keep_records=mode)
+                assert plan.reconstruction_selected == reconstruction
+            result = clifft.sample(unfiltered, shots, seed=7, keep_records=mode)
+            np.testing.assert_array_equal(result.detectors, expected_detectors)
+            np.testing.assert_array_equal(result.observables, np.full((shots, 1), logical_flip))
+
+            survivors = clifft.sample_survivors(postselected, shots, seed=7, keep_records=mode)
+            assert survivors.total_shots == shots
+            assert survivors.passed_shots == (0 if fired_detectors else shots)
+            assert survivors.logical_errors == survivors.passed_shots * logical_flip
+
+
 def joint_frequencies(result, attempted, projections):
     tables = (
         (result.measurements, result.detectors, result.observables)
