@@ -35,7 +35,7 @@ void add_term(Table& table, Mask mask, int coefficient, Work& work) {
 }  // namespace
 
 bool WideBudget::try_charge(size_t amount) {
-    if (exhausted || amount > max_updates - updates)
+    if (work_exhausted || amount > max_updates - updates)
         return false;
     updates += amount;
     return true;
@@ -43,14 +43,14 @@ bool WideBudget::try_charge(size_t amount) {
 
 void WideBudget::charge(size_t amount) {
     if (!try_charge(amount)) {
-        exhausted = true;
+        work_exhausted = true;
         throw SearchLimit{};
     }
 }
 
 void WideBudget::check_terms(size_t size) {
     if (size > max_terms) {
-        exhausted = true;
+        term_limit_reached = true;
         throw SearchLimit{};
     }
 }
@@ -101,6 +101,51 @@ size_t PhasePolynomial<N>::odd_terms() const {
 }
 
 template <size_t N>
+std::optional<PauliDerivative<N>> PhasePolynomial<N>::Signature::derivative(Mask flip,
+                                                                            Work& work) const {
+    // Changing a parity a contributes c*(1 - 2*a(x)) when a(flip) is odd.
+    // Contract the stored single, pair and triple moments with the flip to
+    // obtain the constant p(flip) and the weights of those changing parities.
+    PauliDerivative<N> result;
+    std::array<uint8_t, N> weights{};
+    work.charge(N + pairs.size());
+    for (auto bits = flip; !bits.is_zero(); bits.clear_lowest_bit()) {
+        const auto i = bits.lowest_bit();
+        weights.at(i) = linear.at(i);
+        result.constant += weights.at(i);
+    }
+    Mask triples;
+    for (const auto& [indices, pair] : pairs) {
+        if ((pair.odd_columns & flip).popcount() & 1)
+            return std::nullopt;  // A quadratic term survives in the derivative.
+        const auto [i, j] = indices;
+        const bool fi = flip.bit_get(i), fj = flip.bit_get(j);
+        if (fi)
+            weights[j] += pair.weight;
+        if (fj)
+            weights[i] += pair.weight;
+        if (fi && fj) {
+            result.constant -= 2 * pair.weight;
+            triples ^= pair.odd_columns;
+        }
+    }
+    // The cubic contribution to p(flip) vanishes: every pair row above
+    // has even overlap with flip.
+    result.constant &= 7;
+    if (result.constant & 1)
+        return std::nullopt;
+    result.parity = triples;
+    for (uint32_t i = 0; i < N; ++i) {
+        // The linear slope is -2*(weights[i] - 2*triples[i]) modulo eight.
+        if (weights[i] & 1)
+            return std::nullopt;
+        if (weights[i] & 2)
+            result.parity.bit_xor(i);
+    }
+    return result;
+}
+
+template <size_t N>
 std::optional<PauliDerivative<N>> PhasePolynomial<N>::derivative(Mask flip, Work& work) {
     PauliDerivative<N> result;
     if (flip.is_zero())
@@ -120,6 +165,8 @@ std::optional<PauliDerivative<N>> PhasePolynomial<N>::derivative(Mask flip, Work
         }
         return result;
     }
+    if (phase.pairs.size() < terms_.size())
+        return phase.derivative(flip, work);
     // For every parity p that changes, the difference is c*(1-2*p).
     // Its quadratic part is binary and higher degrees vanish modulo eight.
     std::array<uint8_t, N> linear{};
@@ -229,7 +276,12 @@ template <size_t N>
 PhaseReduction<N> PhasePolynomial<N>::synthesize(uint32_t width, Work& work) {
     if (auto linear = linear_reduction(width, work))
         return std::move(*linear);
-    const auto axes = core_axes(width, work);
+    return synthesize(width, core_axes(width, work), work);
+}
+
+template <size_t N>
+PhaseReduction<N> PhasePolynomial<N>::synthesize(uint32_t width, std::span<const Mask> axes,
+                                                 Work& work) {
     const auto core_width = static_cast<uint32_t>(axes.size());
 
     // Replace each pivot coordinate x_j with the parity of its reduced row.

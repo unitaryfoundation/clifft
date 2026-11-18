@@ -132,6 +132,31 @@ TEST_CASE("Parity synthesis preserves eigenphases across coordinate widths", "[o
         check_synthesis<128>(width, 8);
 }
 
+TEST_CASE("Nonlinear observer pullbacks fit in less work than scanning the parities",
+          "[optimizer]") {
+    PhasePolynomial<128> phase;
+    WideBudget work;
+    // All nonempty parities of nine bits sum to zero modulo eight. Add an S
+    // rotation across the word boundary, leaving just one quadratic term.
+    for (unsigned subset = 1; subset < 512; ++subset)
+        phase.add({subset}, 1, work);
+    Mask<128> ends{1};
+    ends.bit_set(127, true);
+    phase.add(ends, 2, work);
+    REQUIRE_FALSE(phase.linear_reduction(128, work));
+
+    WideBudget observers;
+    observers.max_updates = phase.terms().size() - 1;
+    const auto pulled = phase.derivative({1}, observers);
+    REQUIRE(pulled);
+    REQUIRE(pulled->parity == ends);
+    REQUIRE(pulled->constant == 2);
+    const auto commutes = phase.derivative(ends, observers);
+    REQUIRE(commutes);
+    REQUIRE(commutes->parity.is_zero());
+    REQUIRE(commutes->constant == 0);
+}
+
 TEST_CASE("A dense dagger rotation stays compact after canceling parity cubes", "[optimizer]") {
     PhasePolynomial<128> phase;
     WideBudget work;

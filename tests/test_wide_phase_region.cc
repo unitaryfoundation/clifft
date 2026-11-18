@@ -189,8 +189,8 @@ TEST_CASE("Output aligned wide phase rewrites preserve signed eigenphases", "[op
     const auto aligned = phase_detail::try_wide_region(hir, 0, fixed, frame, 128, aligned_budget);
     REQUIRE(ordinary);
     REQUIRE(aligned);
-    REQUIRE_FALSE(ordinary_budget.exhausted);
-    REQUIRE_FALSE(aligned_budget.exhausted);
+    REQUIRE_FALSE(ordinary_budget.work_exhausted);
+    REQUIRE_FALSE(aligned_budget.work_exhausted);
     REQUIRE(aligned->end == hir.ops.size());
     REQUIRE(aligned->t_count < ordinary->t_count);
 
@@ -199,7 +199,7 @@ TEST_CASE("Output aligned wide phase rewrites preserve signed eigenphases", "[op
     phase_detail::WideBudget limited;
     limited.max_updates = ordinary_budget.updates;
     const auto incumbent = phase_detail::try_wide_region(hir, 0, fixed, frame, 128, limited);
-    REQUIRE(limited.exhausted);
+    REQUIRE(limited.work_exhausted);
     REQUIRE(incumbent);
     REQUIRE(incumbent->rotations == ordinary->rotations);
     REQUIRE(incumbent->phases == ordinary->phases);

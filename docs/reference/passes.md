@@ -145,9 +145,10 @@ Work units are not a wall-clock limit; their cost depends on the polynomial.
 `max_wide_terms` (default `200000`) bounds the number of distinct parities in
 each wide phase table. Setting either budget to zero (or setting
 `max_variables <= 64`) disables the two-word path.
-If an extension reaches a variable or search limit, the pass keeps the best
-rewrite it has completed and processes the remaining operations normally. If
-it has yet to find a beneficial wide rewrite, it falls back to smaller regions.
+At the variable or parity limit, the pass finishes the collected prefix with
+the work still available. Later regions can use the remaining work budget.
+If work runs out, the pass keeps its best completed rewrite or falls back
+to smaller regions.
 
 Larger complete regions can uncover additional reductions, at extra compilation
 cost. The pass rejects rewrites that increase T count

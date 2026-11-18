@@ -41,11 +41,21 @@ bool PhaseRegion<N>::extend(const HirModule& hir, const KnownStabilizers& fixed,
             return false;
         }
         auto mask = coordinates(reduced);
-        if (!reduced.x().is_zero() || !reduced.z().is_zero()) {
-            if (axes.size() == variable_limit) {
-                capped = true;
+        const bool new_axis = !reduced.x().is_zero() || !reduced.z().is_zero();
+        if (new_axis && axes.size() == variable_limit) {
+            capped = true;
+            return false;
+        }
+        if constexpr (N == 128) {
+            // A full table can still update or cancel an existing parity.
+            // Stop before changing the basis so this prefix can be synthesized.
+            const auto& terms = polynomial.terms();
+            if (terms.size() == work.max_terms && (new_axis || !terms.contains(mask))) {
+                work.term_limit_reached = true;
                 return false;
             }
+        }
+        if (new_axis) {
             Mask next;
             next.bit_set(axes.size(), true);
             const auto pivot = pivot_of(reduced);
@@ -234,29 +244,51 @@ std::optional<WideRewrite> try_wide_region(const HirModule& hir, size_t start,
                 best = std::move(candidate);
             }
         };
-        auto synthesize_prefix = [&] {
+        auto synthesize_prefix = [&](bool final_observer) {
             const size_t end = rotations.back() + 1;
-            auto reduction = region.polynomial.synthesize(region.axes.size(), budget);
-            consider(materialize(reduction, region.axes, end, hir.num_qubits, budget));
+            const auto width = region.axes.size();
+            PhaseReduction<128> reduction;
+            if (final_observer) {
+                // A reduction lets us drop every phase after the pulled observers.
+                if (region.polynomial.odd_terms() < rotations.size())
+                    return true;
+                const auto core = region.polynomial.core_axes(width, budget);
+                if (core.size() < width)
+                    return true;
+                if (rotations.size() == core.size())
+                    return false;
+                reduction = region.polynomial.synthesize(width, core, budget);
+                if (reduction.t_count < rotations.size())
+                    return true;
+            } else {
+                reduction = region.polynomial.synthesize(width, budget);
+                consider(materialize(reduction, region.axes, end, hir.num_qubits, budget));
+            }
             // Core rank is a lower bound on T count in every equivalent basis.
             if (reduction.t_count == reduction.core_width)
-                return;
+                return false;
             if (auto aligned = synthesize_aligned(region, hir, end, fixed, frame, budget)) {
+                if (final_observer)
+                    return aligned->t_count < rotations.size() || aligned->core_width < width;
                 consider(std::move(*aligned));
             }
+            return false;
         };
         size_t first_search_rotations = 0;
         while (region.end < hir.ops.size()) {
             const auto type = hir.ops[region.end].op_type();
             // Search the first wide prefix and the complete region. Intervening observers
             // can use a linear polynomial directly without another basis search.
-            if (type != OpType::T_GATE && region.axes.size() > 64 && first_search_rotations == 0) {
+            const bool intermediate = !final_observer_end || region.end + 1 < *final_observer_end;
+            if (intermediate && type != OpType::T_GATE && region.axes.size() > 64 &&
+                first_search_rotations == 0) {
                 first_search_rotations = rotations.size();
-                synthesize_prefix();
+                synthesize_prefix(false);
             }
             if ((type == OpType::MEASURE || type == OpType::CONDITIONAL_PAULI ||
                  type == OpType::EXP_VAL) &&
-                first_search_rotations && rotations.size() > first_search_rotations &&
+                intermediate && first_search_rotations &&
+                rotations.size() > first_search_rotations &&
                 (observers.empty() || observers.back().index < rotations.back())) {
                 if (auto linear = region.polynomial.linear_reduction(region.axes.size(), budget)) {
                     consider(materialize(*linear, region.axes, rotations.back() + 1, hir.num_qubits,
@@ -266,15 +298,13 @@ std::optional<WideRewrite> try_wide_region(const HirModule& hir, size_t start,
             if (!region.extend(hir, fixed, frame, postselected, variable_limit, budget))
                 break;
         }
-        if (region.axes.size() > 64 && rotations.size() != first_search_rotations) {
-            synthesize_prefix();
-        }
-        if (region.axes.size() > 64 && final_observer_end && region.end >= *final_observer_end &&
-            !observers.empty()) {
-            if ((best && best_rotation_count == rotations.size()) ||
-                region.polynomial.odd_terms() < rotations.size() ||
-                region.polynomial.core_axes(region.axes.size(), budget).size() <
-                    region.axes.size()) {
+        if (region.axes.size() > 64) {
+            const bool at_final_observer =
+                final_observer_end && region.end >= *final_observer_end && !observers.empty();
+            bool elide = at_final_observer && best && best_rotation_count == rotations.size();
+            if (rotations.size() != first_search_rotations && !elide)
+                elide = synthesize_prefix(at_final_observer);
+            if (elide) {
                 return WideRewrite{region.end,           0,   0, {}, std::move(rotations),
                                    std::move(observers), true};
             }

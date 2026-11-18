@@ -264,6 +264,84 @@ def _cube_rotation(start: int, mask: int) -> str:
     return "TPP " + "*".join(f"Z{start + bit}" for bit in range(4) if mask & (1 << bit))
 
 
+def _run_phase(
+    source: str, *, postselection_mask: tuple[int, ...] = (), **limits: int
+) -> clifft.PhasePolynomialPass:
+    hir = clifft.trace(clifft.parse(source), postselection_mask=postselection_mask)
+    phase = clifft.PhasePolynomialPass(**limits)
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    return phase
+
+
+def test_canceling_rotations_meet_after_a_wide_identity_is_removed() -> None:
+    qs = " ".join(map(str, range(65)))
+    source = f"H {qs}\nTPP Y0\nT {qs}\nT_DAG {qs}\nTPP_DAG Y0\nR_X(0.137) 0"
+    phase = _run_phase(source)
+    assert phase.wide_rewrites == 1
+    assert phase.output_t_count == 0
+
+
+@pytest.mark.parametrize("selected", [False, True])
+def test_wide_region_stops_at_a_rotation_that_breaks_a_lookahead_constraint(selected: bool) -> None:
+    qs = " ".join(map(str, range(1, 66)))
+    source = (
+        f"H 0 {qs}\nDEPOLARIZE1(0.15) 0\nT {qs}\nT_DAG {qs}\n"
+        "M 0\nDETECTOR rec[-1]\nTPP X0\nTPP X0\nR_X(0.137) 1"
+    )
+    # Postselection supplies Z0 at entry. The wide rewrite must end before
+    # the X rotations, leaving M in place. Without that constraint M can move.
+    phase = _run_phase(source, postselection_mask=(int(selected),))
+    assert phase.wide_rewrites == 1
+    assert phase.pauli_pullbacks == int(not selected)
+    assert phase.output_t_count == 0
+
+
+@pytest.mark.parametrize("earlier_measurement", [False, True])
+def test_wide_final_measurement_can_elide_phases_below_the_synthesis_budget(
+    earlier_measurement: bool,
+) -> None:
+    qs = " ".join(map(str, range(68)))
+    earlier = "M 68\n" if earlier_measurement else ""
+    source = f"H {qs}\nT {qs}\n{earlier}T_DAG {qs}\nTPP Z1*Z2\nM 68"
+    # A subsequent rotation requires materializing the remaining parity.
+    materialized = _run_phase(source + "\nR_X(0.137) 0")
+    assert materialized.output_t_count == 1
+    phase = _run_phase(source, max_wide_work=materialized.wide_work - 1)
+    assert phase.wide_rewrites == 1
+    assert phase.pauli_pullbacks == 1 + int(earlier_measurement)
+    assert phase.output_t_count == 0
+    assert not phase.wide_budget_exhausted
+
+
+def test_wide_final_measurement_elides_a_reduction_found_by_synthesis() -> None:
+    qs = " ".join(map(str, range(68)))
+    # All 84 parities are distinct and the core has full rank. The fifteen
+    # parities spanned by these four pairs form an identity that TOHPE removes.
+    cube = [
+        "TPP "
+        + "*".join(f"Z{q}" for bit in range(4) if subset & (1 << bit) for q in (2 + bit, 64 + bit))
+        for subset in range(1, 16)
+    ]
+    prefix = "\n".join([f"H {qs}", f"T {qs}", "TPP Z0*Z1*Z2", *cube])
+    assert _run_phase(prefix + "\nR_X(0.137) 0").output_t_count == 69
+    phase = _run_phase(prefix + "\nM 68")
+    assert phase.wide_rewrites == 1
+    assert phase.pauli_pullbacks == 1
+    assert phase.output_t_count == 0
+
+
+def test_a_full_parity_table_leaves_work_for_the_next_region() -> None:
+    qs = " ".join(map(str, range(66)))
+    layer = f"T {qs}\nT {qs}"
+    source = f"H {qs} 66\n{layer}\nT 66\nR_X(0.137) 0\n{layer}\nR_X(0.137) 0"
+    phase = _run_phase(source, max_wide_terms=66)
+    assert phase.wide_budget_exhausted
+    assert phase.wide_rewrites == 2
+    assert phase.output_t_count == 1
+
+
 @pytest.mark.parametrize("limit", ["variables", "work", None])
 def test_wide_observer_extension_keeps_reducible_prefix(limit: str | None) -> None:
     # The 32 four-qubit parity cubes are identity. The remaining prefix
@@ -408,8 +486,10 @@ def test_wide_phase_extends_a_reduced_prefix_within_its_limits(limit: str | None
     if limit == "terms":
         # The table fits all 15 parities of each cube. The dense suffix adds one more.
         options["max_wide_terms"] = 32 * 15
-        lines.extend(["T 1", "EXP_VAL X0", f"TPP {dense_parity}", "EXP_VAL Y1", "EXP_VAL X2"])
-        expected = [1, 1, np.sqrt(0.5), np.sqrt(0.5)]
+        lines.extend(
+            ["TPP Z1*Z2", "EXP_VAL X0", f"TPP {dense_parity}", "EXP_VAL Y1*Z2", "EXP_VAL X2"]
+        )
+        expected = [1, 1, np.sqrt(0.5), 0.5]
     elif limit == "variables":
         lines.extend(["TPP_DAG Z1*Z2", "EXP_VAL X0", "T 128", "EXP_VAL Y1*Z2", "EXP_VAL X128"])
         expected = [1, 1, -np.sqrt(0.5), np.sqrt(0.5)]

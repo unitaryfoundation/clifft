@@ -134,7 +134,7 @@ class Rewriter {
                     ++expansion_attempts;
                     if (block.capped) {
                         allow_expansion_ = false;
-                        if (max_variables_ > 64 && !wide_budget_.exhausted &&
+                        if (max_variables_ > 64 && !wide_budget_.work_exhausted &&
                             wide_budget_.max_updates && wide_budget_.max_terms) {
                             ++wide_attempts;
                             auto wide = phase_detail::try_wide_region(
@@ -185,7 +185,9 @@ class Rewriter {
     size_t wide_attempts = 0;
     size_t wide_rewrites = 0;
     size_t wide_work() const { return wide_budget_.updates; }
-    bool wide_budget_exhausted() const { return wide_budget_.exhausted; }
+    bool wide_budget_exhausted() const {
+        return wide_budget_.work_exhausted || wide_budget_.term_limit_reached;
+    }
     size_t blocks_reduced = 0;
     size_t pauli_pullbacks = 0;
     size_t blocks_examined = 0;
@@ -490,6 +492,7 @@ void PhasePolynomialPass::run(HirModule& hir) {
     size_t follow_up_reduced = 0;
     size_t follow_up_pullbacks = 0;
     if (rewriter.wide_rewrites && candidate->num_t_gates() > 0) {
+        // Removing a wide region can bring canceling rotations on its two sides together.
         Rewriter follow_up(*candidate, PhasePolynomialOptions{64, 0, 0},
                            /*elide_unreduced_post_observer=*/true);
         if (auto refined = follow_up.run()) {

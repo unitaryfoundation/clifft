@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <map>
 #include <optional>
+#include <span>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -20,7 +21,8 @@ struct WideBudget {
     size_t max_updates = 50000000;
     size_t max_terms = 200000;
     size_t updates = 0;
-    bool exhausted = false;
+    bool work_exhausted = false;
+    bool term_limit_reached = false;
 
     bool try_charge(size_t amount);
     void charge(size_t amount = 1);
@@ -64,6 +66,7 @@ class PhasePolynomial {
     std::vector<Mask> core_axes(uint32_t width, Work& work);
     std::optional<PhaseReduction<N>> linear_reduction(uint32_t width, Work& work);
     PhaseReduction<N> synthesize(uint32_t width, Work& work);
+    PhaseReduction<N> synthesize(uint32_t width, std::span<const Mask> core_axes, Work& work);
 
   private:
     // For each selected pair (i,j), bit k of odd_columns is the cubic
@@ -76,6 +79,7 @@ class PhasePolynomial {
         std::array<uint8_t, N> linear{};
         std::map<std::pair<uint32_t, uint32_t>, Pair> pairs;
         void add(Mask parity, int coefficient, Work& work);
+        std::optional<PauliDerivative<N>> derivative(Mask flip, Work& work) const;
     };
     const Signature& signature(Work& work);
     Terms terms_;
