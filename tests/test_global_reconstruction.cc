@@ -1473,10 +1473,10 @@ TEST_CASE("Global reconstruction elides stabilized rotations and groups duplicat
         const auto circuit = parse(text);
         const auto expected = compute_dense_circuit_distribution(circuit);
 
-        // 13 rotations collapse to 2 distinct rotation axes + 2 output axes + 2 nullspace
-        // candidates (<= 8 unique DAG nodes), whereas ungrouped scheduling would need >= 15.
+        // The limit admits all 13 source rotations. Scheduling each rotation
+        // separately alongside the output operations would need 18 slots.
         ReconstructionLimits limits;
-        limits.max_schedule_operations = 20;
+        limits.max_schedule_operations = 15;
         const auto res =
             reconstruct_global_sampling(circuit, ReconstructionOutputs::Records, limits);
         INFO(res.fallback_reason);
