@@ -346,6 +346,7 @@ def basis_probabilities(
     Pass ``return_log=True`` to get natural-log probabilities. Zero
     probabilities map to ``-inf`` in log output.
     """
+    # Report an unavailable original plan before validating the bitstrings.
     _ = program.original_plan
     probs = cast(
         npt.NDArray[np.float64],
@@ -440,6 +441,7 @@ def record_probabilities(
     underflow float64, pass ``return_log=True`` so the log-domain values
     survive.
     """
+    # Report an unavailable original plan before validating the records.
     _ = program.original_plan
     # Reject zero-measurement programs up front so a user who passes a real
     # record string against a unitary program gets the right hint rather

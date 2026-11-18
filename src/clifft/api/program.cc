@@ -91,6 +91,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
 
     const uint32_t width_limit =
         data->original ? data->original->peak_active_width() : kDenseActiveWidthLimit;
+    const bool has_syndrome_outputs = source.num_detectors != 0 || source.num_observables != 0;
     std::optional<GlobalSamplingReconstructor> reconstructor;
     for (bool keep_records : {false, true}) {
         auto& variant = data->variants[keep_records];
@@ -107,9 +108,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
             variant.fallback_reason = "original active width is already zero";
             continue;
         }
-        if ((keep_records ? source.num_measurements : 0) + source.num_detectors +
-                source.num_observables ==
-            0) {
+        if (!has_syndrome_outputs && (!keep_records || source.num_measurements == 0)) {
             variant.fallback_reason = "no requested sampling outputs";
             continue;
         }
@@ -162,10 +161,9 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
     if (!data->original && !data->variants[false].plan && !data->variants[true].plan) {
         const std::string& det_reason = data->variants[false].fallback_reason;
         const std::string& rec_reason = data->variants[true].fallback_reason;
-        const std::string detail =
-            (det_reason == rec_reason || det_reason == "no requested sampling outputs")
-                ? rec_reason
-                : "syndromes: " + det_reason + "; records: " + rec_reason;
+        const std::string detail = (det_reason == rec_reason || !has_syndrome_outputs)
+                                       ? rec_reason
+                                       : "syndromes: " + det_reason + "; records: " + rec_reason;
         throw std::overflow_error(data->original_overflow_reason +
                                   " (reconstruction fallback: " + detail + ")");
     }
