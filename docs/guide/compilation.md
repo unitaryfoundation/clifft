@@ -95,8 +95,9 @@ Each [PlanView](../reference/python-api.md#clifft.PlanView) is read-only and
 keeps its owning program alive. Getting a view uses the already compiled
 executable; pass the `Program` itself to sampling and exact-query functions.
 The view's `reconstruction_selected` and `fallback_reason` explain whether
-reconstruction was selected for that output mode. An explicitly requested
-`original_plan` has no fallback reason.
+reconstruction was selected for that output mode. When a resource limit
+blocks reconstruction, the reason gives the limit, its value, and the count
+that triggered it. An explicitly requested `original_plan` has no fallback reason.
 
 These views describe the selected compiled plan before output preparation
 removes unused storage and evaluations. The first sampling call for an output

@@ -419,8 +419,9 @@ TEST_CASE("Noise compression reports channel work and support limits", "[reconst
             limits.max_channel_products = 0;
         const auto result = compress_reconstruction_noise(r, limits);
         REQUIRE_FALSE(result.noise);
-        REQUIRE(result.fallback_reason == (support ? "channel support limit exceeded"
-                                                   : "channel convolution work limit exceeded"));
+        REQUIRE(result.fallback_reason ==
+                (support ? "max_channel_support=1 exceeded (at least 2 distinct outcomes)"
+                         : "max_channel_products=0 exceeded (at least 4 channel products)"));
     }
     check_sign_law(r);
 
@@ -450,7 +451,8 @@ TEST_CASE("Noise compression reports channel work and support limits", "[reconst
         limits.max_channel_support = 16;
         const auto result = compress_reconstruction_noise(wide, limits);
         REQUIRE_FALSE(result.noise);
-        REQUIRE(result.fallback_reason == "channel support limit exceeded");
+        REQUIRE(result.fallback_reason ==
+                "max_channel_support=16 exceeded (at least 2048 raw channel outcomes, limit 1024)");
     }
     {
         ReconstructionLimits limits;
@@ -458,7 +460,8 @@ TEST_CASE("Noise compression reports channel work and support limits", "[reconst
         limits.max_channel_products = 100;
         const auto result = compress_reconstruction_noise(wide, limits);
         REQUIRE_FALSE(result.noise);
-        REQUIRE(result.fallback_reason == "channel convolution work limit exceeded");
+        REQUIRE(result.fallback_reason ==
+                "max_channel_products=100 exceeded (at least 4194304 channel products)");
     }
 
     // Two 65-outcome singleton channels share a key of size 65 (within support
@@ -478,7 +481,8 @@ TEST_CASE("Noise compression reports channel work and support limits", "[reconst
         limits.max_channel_products = 10000;
         const auto result = compress_reconstruction_noise(expanding, limits);
         REQUIRE_FALSE(result.noise);
-        REQUIRE(result.fallback_reason == "channel support limit exceeded");
+        REQUIRE(result.fallback_reason ==
+                "max_channel_support=100 exceeded (at least 101 distinct outcomes)");
     }
 }
 
@@ -1328,7 +1332,7 @@ TEST_CASE("Global reconstruction lowering bounds dense frame memory on wide faul
     tight.max_lowering_bytes = 4 * 1024 * 1024;
     const auto rejected = lower_global_reconstruction(wide, {}, tight);
     REQUIRE_FALSE(rejected.hir.has_value());
-    REQUIRE(rejected.fallback_reason == "lowering memory limit exceeded");
+    REQUIRE(rejected.fallback_reason.starts_with("max_lowering_bytes=4194304 exceeded (at least "));
 }
 
 TEST_CASE(
@@ -1401,7 +1405,8 @@ TEST_CASE(
         const auto rejected = reconstruct_global_sampling(parse(many_rotations),
                                                           ReconstructionOutputs::Detectors, limits);
         REQUIRE_FALSE(rejected.reconstruction.has_value());
-        REQUIRE(rejected.fallback_reason == "schedule operation limit exceeded");
+        REQUIRE(rejected.fallback_reason ==
+                "max_schedule_operations=5 exceeded (at least 6 prefix rotations)");
     }
 }
 

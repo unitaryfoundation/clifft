@@ -154,8 +154,10 @@ TEST_CASE("Program shares reconstruction preparation across asymmetric output va
         limits.max_schedule_operations = 7;
         const auto program = Program::compile(source, hir, true, true, limits);
         REQUIRE(program.uses_reconstruction(false));
+        REQUIRE(program.reconstruction_fallback_reason(false).empty());
         REQUIRE_FALSE(program.uses_reconstruction(true));
-        REQUIRE_FALSE(program.reconstruction_fallback_reason(true).empty());
+        REQUIRE(program.reconstruction_fallback_reason(true) ==
+                "max_schedule_operations=7 exceeded (at least 9 schedule operations)");
         REQUIRE(&program.sampling_plan(true) == &program.original());
     }
 }

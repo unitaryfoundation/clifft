@@ -505,6 +505,29 @@ def test_full_noisy_fixtures_use_reconstructed_plans_with_default_passes(fixture
         assert result.measurements.shape == (65 if keep_records else 0, program.num_measurements)
 
 
+@pytest.mark.expensive
+def test_coherent_z_distance_seven_four_rounds_reconstructs_both_outputs():
+    circuit = stim.Circuit.generated(
+        "surface_code:rotated_memory_z",
+        distance=7,
+        rounds=4,
+        after_clifford_depolarization=0.001,
+        after_reset_flip_probability=0.001,
+        before_measure_flip_probability=0.001,
+        before_round_data_depolarization=0.001,
+    )
+    source = (
+        str(circuit)
+        .replace("DEPOLARIZE1(0.001)", "R_Z(0.02)")
+        .replace("DEPOLARIZE2(0.001)", "R_Z(0.02)")
+    )
+    program = clifft.compile(source, reconstruction=True)
+    for keep_records in (True, "syndromes"):
+        plan = program.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected, plan.fallback_reason
+        assert plan.peak_active_width == 11
+
+
 def joint_frequencies(result, attempted, projections):
     tables = (
         (result.measurements, result.detectors, result.observables)
@@ -612,5 +635,5 @@ def test_wide_output_bailout():
     for keep_records in (False, True):
         plan = fallback.sampling_plan(keep_records=keep_records)
         assert not plan.reconstruction_selected
-        assert "output limit exceeded" in plan.fallback_reason
+        assert plan.fallback_reason == "max_outputs=4096 exceeded (at least 4102 measurements)"
         assert plan.peak_active_width == fallback.original_plan.peak_active_width

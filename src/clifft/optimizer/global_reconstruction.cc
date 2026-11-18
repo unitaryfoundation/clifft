@@ -308,6 +308,23 @@ void require_supported(bool condition, const char* reason) {
     }
 }
 
+Ineligible limit_exceeded(const char* name, uint64_t limit, uint64_t count, const char* unit,
+                          uint64_t multiplier = 1) {
+    std::string reason = std::string(name) + "=" + std::to_string(limit) + " exceeded (at least " +
+                         std::to_string(count) + " " + unit;
+    if (multiplier != 1) {
+        reason += ", limit " + std::to_string(saturating_multiply_u64(limit, multiplier));
+    }
+    return {reason + ")"};
+}
+
+void check_limit(const char* name, uint64_t limit, uint64_t count, const char* unit,
+                 uint64_t multiplier = 1) {
+    if (count > saturating_multiply_u64(limit, multiplier)) {
+        throw limit_exceeded(name, limit, count, unit, multiplier);
+    }
+}
+
 using Term = std::vector<std::pair<uint32_t, char>>;
 
 uint32_t plain_qubit_target(Target t) {
@@ -561,13 +578,12 @@ bool node_is_nonclifford(const AstNode& node) {
 }
 
 SourceScan scan_source(const Circuit& circuit, const ReconstructionLimits& limits) {
-    require_supported(circuit.nodes.size() <= limits.max_operations,
-                      "source operation limit exceeded");
+    check_limit("max_operations", limits.max_operations, circuit.nodes.size(), "source operations");
     require_supported(circuit.num_exp_vals == 0, "expectation values require the original program");
-    require_supported(
-        circuit.num_measurements <= limits.max_outputs &&
-            uint64_t{circuit.num_detectors} + circuit.num_observables <= limits.max_outputs,
-        "output limit exceeded");
+    check_limit("max_outputs", limits.max_outputs, circuit.num_measurements, "measurements");
+    check_limit("max_outputs", limits.max_outputs,
+                uint64_t{circuit.num_detectors} + circuit.num_observables,
+                "detectors and observables");
 
     SourceScan scan;
     for (size_t i = 0; i < circuit.nodes.size(); ++i) {
@@ -770,8 +786,8 @@ class NoiseChannelBuilder {
     std::vector<std::vector<ReconstructionNoiseOutcome>>& channels() { return channels_; }
 
     uint32_t allocate_bits(uint32_t count) {
-        require_supported(count <= limits_.max_noise_bits - error_bits_,
-                          "noise bit limit exceeded");
+        check_limit("max_noise_bits", limits_.max_noise_bits, uint64_t{error_bits_} + count,
+                    "noise bits");
         const uint32_t start = error_bits_;
         error_bits_ += count;
         return start;
@@ -1375,8 +1391,8 @@ class Dilation {
                 [&](GateType g, std::span<const uint32_t> qs) { apply_clifford(g, qs); })) {
             return;
         }
-        require_supported(rotations_.size() < limits_.max_schedule_operations,
-                          "schedule operation limit exceeded");
+        check_limit("max_schedule_operations", limits_.max_schedule_operations,
+                    rotations_.size() + 1, "prefix rotations");
         const uint32_t a = fresh();
         auto sign = noise_sign(term);
         sign.constant ^= inverted;
@@ -1450,7 +1466,8 @@ class Dilation {
 
   private:
     uint32_t fresh() {
-        require_supported(n_ < limits_.max_dilation_qubits, "dilation qubit limit exceeded");
+        check_limit("max_dilation_qubits", limits_.max_dilation_qubits, uint64_t{n_} + 1,
+                    "dilation qubits");
         fx_.emplace_back();
         fz_.emplace_back();
         return n_++;
@@ -1467,9 +1484,8 @@ class Dilation {
         return q;
     }
     void gate(GateType type, std::span<const uint32_t> targets) {
-        require_supported(body_.size() < saturating_multiply_u64(limits_.max_operations,
-                                                                 kMaxDilationGatesPerSourceOp),
-                          "dilation operation limit exceeded");
+        check_limit("max_operations", limits_.max_operations, body_.size() + 1, "dilation gates",
+                    kMaxDilationGatesPerSourceOp);
         assert(targets.size() <= 2);
         Clifford op{type, {}, static_cast<uint8_t>(targets.size())};
         for (size_t i = 0; i < targets.size(); ++i) {
@@ -1777,7 +1793,8 @@ class SuffixTracker {
         if (src_q < source_to_mode_.size() && source_to_mode_[src_q] != kUnmappedQubit) {
             return source_to_mode_[src_q];
         }
-        require_supported(m_ < limits_.max_dilation_qubits, "dilation qubit limit exceeded");
+        check_limit("max_dilation_qubits", limits_.max_dilation_qubits, uint64_t{m_} + 1,
+                    "dilation qubits");
         if (src_q >= source_to_mode_.size()) {
             source_to_mode_.resize(static_cast<size_t>(src_q) + 1, kUnmappedQubit);
         }
@@ -2193,8 +2210,8 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
         }
     }
 
-    require_supported(quantum_ops.size() + n <= limits.max_schedule_operations,
-                      "schedule operation limit exceeded");
+    check_limit("max_schedule_operations", limits.max_schedule_operations,
+                quantum_ops.size() + uint64_t{n}, "schedule operations");
 
     // 1. Synthesize commuting hidden measurements from the nullspace of
     // operation commutation columns to shrink the initial active subspace.
@@ -2282,7 +2299,11 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
     std::vector<Bits> predecessors(count), ancestors(count);
     size_t steps = 0;
     auto budget = [&] {
-        require_supported(steps++ < limits.max_planning_steps, "schedule work limit exceeded");
+        if (steps == limits.max_planning_steps) {
+            throw limit_exceeded("max_planning_steps", limits.max_planning_steps,
+                                 saturating_add_u64(steps, 1), "planning steps");
+        }
+        ++steps;
     };
     for (uint32_t j = 0; j < count; ++j) {
         for (uint32_t i = 0; i < j; ++i) {
@@ -2785,16 +2806,16 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
                     dist[out] = std::move(dist[i]);
                 }
                 ++out;
-                require_supported(out <= limits.max_channel_support,
-                                  "channel support limit exceeded");
+                check_limit("max_channel_support", limits.max_channel_support, out,
+                            "distinct outcomes");
             }
         }
         dist.resize(out);
     };
 
     for (const auto& channel : r.noise_channels) {
-        require_supported(channel.size() <= saturating_multiply_u64(limits.max_channel_support, 64),
-                          "channel support limit exceeded");
+        check_limit("max_channel_support", limits.max_channel_support, channel.size(),
+                    "raw channel outcomes", 64);
         image.clear();
         for (const auto& outcome : channel) {
             if (outcome.probability == 0)
@@ -2818,8 +2839,12 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
             const size_t existing_size = existing->second.size();
             const size_t image_size = image.size();
             const size_t remaining_products = limits.max_channel_products - products;
-            require_supported(existing_size <= remaining_products / image_size,
-                              "channel convolution work limit exceeded");
+            if (existing_size > remaining_products / image_size) {
+                const uint64_t required = saturating_add_u64(
+                    products, saturating_multiply_u64(existing_size, image_size));
+                throw limit_exceeded("max_channel_products", limits.max_channel_products, required,
+                                     "channel products");
+            }
             products += existing_size * image_size;
 
             // Check support growth incrementally when the Cartesian product is large.
@@ -2844,8 +2869,8 @@ ReconstructionNoise compress_noise(const GlobalReconstruction& r,
                         if (!inserted) {
                             it->second += p * q;
                         } else {
-                            require_supported(merged.size() <= limits.max_channel_support,
-                                              "channel support limit exceeded");
+                            check_limit("max_channel_support", limits.max_channel_support,
+                                        merged.size(), "distinct outcomes");
                         }
                     }
                 }
@@ -2970,7 +2995,7 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
     const uint64_t op_bytes = saturating_multiply_u64(hir_ops, sizeof(HeisenbergOp));
     const uint64_t total_bytes =
         saturating_add_u64(arena_bytes, saturating_add_u64(dense_frame_bytes, op_bytes));
-    require_supported(total_bytes <= limits.max_lowering_bytes, "lowering memory limit exceeded");
+    check_limit("max_lowering_bytes", limits.max_lowering_bytes, total_bytes, "estimated bytes");
 
     HirModule hir(width);
     hir.ops.reserve(static_cast<size_t>(hir_ops));
