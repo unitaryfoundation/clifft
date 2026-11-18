@@ -1639,8 +1639,7 @@ NB_MODULE(_clifft_core, m) {
             [](const clifft::Program& p) { return PyPlanView{&p.original(), false, {}}; },
             nb::keep_alive<0, 1>(),
             "Read-only view of the original executable used by exact queries, replay, "
-            "and fixed-fault sampling. Raises OverflowError when the original HIR exceeded "
-            "the dense active-width limit.")
+            "and fixed-fault sampling. Raises OverflowError if the original plan was too wide.")
         .def(
             "sampling_plan",
             [](const clifft::Program& p, const RecordOption& option) {
@@ -1653,11 +1652,9 @@ NB_MODULE(_clifft_core, m) {
             nb::sig("def sampling_plan(self, *, keep_records: bool | "
                     "typing.Literal['all', 'syndromes', 'measurements']) -> clifft.PlanView"),
             "Return a read-only view of the compiled plan selected for ordinary CPU sampling.\n\n"
-            "Selection is prepared during compilation. When reconstruction is disabled or "
-            "falls back, the view describes the original executable (or raises OverflowError "
-            "when the original HIR also exceeded the dense active-width limit). Output "
-            "preparation can remove actions before execution; the view retains the compiled "
-            "action count.\n\n"
+            "Compilation selects the executable for each output mode. Raises OverflowError "
+            "if no plan fits the requested mode. The view reports the compiled action count "
+            "before output preparation removes unused actions.\n\n"
             "Args:\n"
             "    keep_records: Required output choice. Match the sampling call's keep_records "
             "argument (True by default for sample(), False for sample_survivors()).\n\n"

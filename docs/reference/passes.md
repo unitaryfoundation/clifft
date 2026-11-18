@@ -133,11 +133,10 @@ extend a commuting T region up to `max_variables` using two-word coordinates.
 It uses the same observer-pullback and commuting-noise rules and stops at
 instrument boundaries. Before crossing an observer, it can save a beneficial
 rewrite of the preceding rotations. It tries the collected basis and one basis
-derived from the final Clifford tableau.
-Synthesis still supports at most 64 core variables and searches at most 128 odd
-parity terms (with a signature-rank precheck before cubic expansion), while
-regions reaching the final observer can elide reduced post-observer rotations
-directly across the full two-word variable range.
+derived from the final Clifford tableau. Synthesis supports up to 64 core
+variables and searches at most 128 odd parity terms. Across the full two-word
+range, rotations remaining after the final observer can be omitted when the
+phase polynomial reduces.
 
 `max_wide_work` (default `50000000`) bounds deterministic work units shared by
 all wide attempts and both basis candidates in one pass. The units include

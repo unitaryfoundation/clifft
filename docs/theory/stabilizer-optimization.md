@@ -118,23 +118,21 @@ Compilation builds up to two reconstructed candidates: one retaining all
 measurement records, detectors, and observables, and one retaining only
 detectors and observables. Calls retaining measurements select the first;
 syndrome and count-only calls select the second. Output preparation removes
-unrequested rows and evaluations from the selected candidate. See
-[sampling-plan inspection](../guide/compilation.md#inspect-sampling-cost) for
-the API mapping. To limit compilation cost, when the original HIR fits below the dense
-active-width limit, a candidate proceeds to lowering and the default HIR passes
-only when its scheduled peak active width is strictly smaller than the original
-plan's, and the optimized candidate must remain strictly smaller to be selected.
-When the sequential original HIR reaches the dense active-width limit,
-candidates within the resource bounds proceed through lowering and optimization.
-Compilation retains each variant whose optimized peak active width fits below
-the limit. With `normalize_syndromes=True`, a noiseless reference shot also
-uses reconstruction when the sequential reference exceeds 21 active coordinates
-and an optimized detector plan has a smaller peak width. Dilation and scheduling
-precede the width guard, so unsuccessful attempts can remain expensive. Explicit
-resource bounds cap circuit size, prefix dilation qubits, noise channels, scheduling
-work, and lowered frame memory. Unsupported features (such as leakage and loss
-channels, `EXP_VAL` probes, asymmetric readout noise, or distribution-altering HIR
-passes) fall back to the original plan when available.
+unrequested rows and evaluations from the selected candidate.
+
+When the original plan fits, a candidate must have a smaller peak active width
+both after scheduling and after optimization. If the original plan is too wide,
+the compiler optimizes each candidate within its resource bounds and keeps each
+one that fits. With `normalize_syndromes=True`, the compiler also tries a
+narrower detector plan when a noiseless reference shot would need a large
+dense state. See [Global reconstruction for sampling](../guide/compilation.md#global-reconstruction-for-sampling).
+
+Dilation and scheduling precede the width check, so unsuccessful attempts can
+remain expensive. Resource bounds cap circuit size, prefix dilation qubits,
+noise channels, scheduling work, and lowered frame memory. Circuits with
+unsupported features, such as leakage, loss, `EXP_VAL` probes, asymmetric
+readout noise, or distribution-altering HIR passes, use the original plan
+when available.
 
 ## Stabilizer-Based Simplification
 

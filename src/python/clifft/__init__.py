@@ -508,15 +508,12 @@ def compile(
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
         input_format: ``"stim"`` for Clifft's Stim-compatible syntax or
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
-        reconstruction: Opt in to bounded global reconstruction for ordinary
-            CPU sampling. Compilation prepares reconstructed plans for
-            sampling with and without measurement records, including syndrome rows
-            and survivor counts, even when the original HIR reaches the dense
-            active-width limit. Inspect
-            ``program.sampling_plan(keep_records=...)`` for details.
-            State queries, exact probabilities, replay, and fixed-fault sampling
-            require the original plan and raise ``OverflowError`` when it
-            exceeded the dense active-width limit.
+        reconstruction: Try narrower CPU sampling plans with and without
+            measurement records. Inspect the plan for your outputs with
+            ``program.sampling_plan(keep_records=...)``. If the original plan
+            is too wide, sampling can still use a reconstructed plan. State
+            queries, exact probabilities, replay, and fixed-fault sampling
+            then raise ``OverflowError``.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()

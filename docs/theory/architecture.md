@@ -186,27 +186,21 @@ browser sampling consumes the prepared scalar executable.
 ## Python Bindings
 
 `clifft.compile()` returns a `Program` owning the original `ExecutablePlan`
-when it fits below the dense active-width limit.
+when it fits.
 `clifft.sample()`, survivor sampling, fixed-fault sampling, and exact queries
 all consume that same type. One compiled program can be reused for many calls
 and shot counts.
 
-With `reconstruction=True`, compilation also prepares bounded reconstructed
-plans with and without measurement records, even when the original HIR reaches
-the dense active-width limit. Ordinary and survivor sampling
-select according to `keep_records`: calls retaining measurements use the
-full-record candidate; syndrome and count-only calls use the detector/observable
-candidate. Each falls back to the original plan when its candidate is ineligible
-or does not reduce peak active width, or raises `OverflowError` if neither a
-reconstructed plan nor an original plan fits below the dense active-width limit.
-Output preparation then removes unneeded storage and evaluations from the
-selected plan.
+With `reconstruction=True`, a `Program` can own separate plans for sampling
+with and without measurement records. Ordinary and survivor sampling select
+the plan for `keep_records`. Output preparation then removes unneeded storage
+and evaluations. See [Global reconstruction for sampling](../guide/compilation.md#global-reconstruction-for-sampling)
+for plan selection and the dense-state limit.
 
 Because the reconstructed plans preserve only the classical output distribution
 and postselection acceptance probability, state and exact-probability queries,
-replay, and fixed-fault sampling always require the original plan, exposed through
-`program.original_plan` (raising `OverflowError` when the original HIR exceeded
-the dense active-width limit). `Program.peak_active_width`, `num_actions`, and
+replay, and fixed-fault sampling require the original plan, exposed through
+`program.original_plan`. `Program.peak_active_width`, `num_actions`, and
 inspection describe the full-output sampling plan.
 `program.sampling_plan(keep_records=...)` returns a read-only `PlanView` with
 metrics, inspection, and reconstruction diagnostics for the chosen output mode.
