@@ -2,6 +2,7 @@
 
 import re
 from functools import lru_cache
+from itertools import combinations
 
 import numpy as np
 import pytest
@@ -313,6 +314,28 @@ def test_wide_final_measurement_can_elide_phases_below_the_synthesis_budget(
     assert phase.pauli_pullbacks == 1 + int(earlier_measurement)
     assert phase.output_t_count == 0
     assert not phase.wide_budget_exhausted
+
+
+def test_wide_final_measurement_elides_a_linear_phase_with_distinct_parities() -> None:
+    qs = " ".join(map(str, range(80)))
+    lines = [f"H {qs}", f"T {qs}"]
+    # Each row and column contributes the inverse of its four single-qubit T gates.
+    # Each qubit belongs to both, leaving one T_DAG per qubit across 520 distinct parities.
+    for base in range(0, 80, 16):
+        rows = [range(q, q + 4) for q in range(base, base + 16, 4)]
+        for group in (*rows, *zip(*rows, strict=True)):
+            for size in (2, 3, 4):
+                for subset in combinations(group, size):
+                    lines.append("TPP " + "*".join(f"Z{q}" for q in subset))
+    lines.extend([f"H {qs}", "M 80"])
+    phase = clifft.PhasePolynomialPass()
+    program = clifft.compile(
+        "\n".join(lines), hir_passes=clifft.default_hir_pass_manager(overrides=[phase])
+    )
+    assert phase.input_t_count == 520
+    assert phase.wide_rewrites == 1
+    assert phase.output_t_count == 0
+    assert program.peak_active_width == 0
 
 
 def test_wide_final_measurement_elides_a_reduction_found_by_synthesis() -> None:

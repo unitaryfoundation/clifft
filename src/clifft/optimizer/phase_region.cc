@@ -252,6 +252,8 @@ std::optional<WideRewrite> try_wide_region(const HirModule& hir, size_t start,
                 // A reduction lets us drop every phase after the pulled observers.
                 if (region.polynomial.odd_terms() < rotations.size())
                     return true;
+                if (auto linear = region.polynomial.linear_reduction(width, budget))
+                    return linear->t_count < rotations.size();
                 const auto core = region.polynomial.core_axes(width, budget);
                 if (core.size() < width)
                     return true;
