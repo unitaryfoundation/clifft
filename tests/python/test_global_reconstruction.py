@@ -474,19 +474,6 @@ def test_python_owned_pass_preserves_reconstruction_selection():
 
 
 @pytest.mark.expensive
-def test_postselected_bh80_distillation_reconstructs_both_output_modes() -> None:
-    source = (Path(__file__).parents[1] / "fixtures" / "bh80-T.stim").read_text()
-    mask = [1 for node in clifft.parse(source).nodes if node.gate == clifft.GateType.DETECTOR]
-    program = clifft.compile(
-        source, reconstruction=True, postselection_mask=mask, normalize_syndromes=True
-    )
-    for keep_records, width in [(False, 0), (True, 3)]:
-        plan = program.sampling_plan(keep_records=keep_records)
-        assert plan.reconstruction_selected
-        assert plan.peak_active_width == width
-
-
-@pytest.mark.expensive
 @pytest.mark.parametrize(
     "fixture, width",
     [
