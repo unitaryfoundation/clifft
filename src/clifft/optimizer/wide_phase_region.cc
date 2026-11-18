@@ -56,6 +56,28 @@ Rewrite synthesize_region(const Polynomial& terms, Polynomial polynomial,
     return result;
 }
 
+// A linear phase polynomial already gives the rotations in the collected basis.
+std::optional<Rewrite> linear_rewrite(const Polynomial& polynomial,
+                                      const std::vector<PauliString>& axes, size_t end,
+                                      size_t words, Budget& budget) {
+    if (polynomial.size() > axes.size()) {
+        return std::nullopt;
+    }
+    budget.charge(polynomial.size());
+    if (std::ranges::any_of(polynomial,
+                            [](const auto& term) { return term.first.popcount() != 1; })) {
+        return std::nullopt;
+    }
+    budget.charge(polynomial.size() * words);
+    Rewrite result{end, 0, 0, {}, {}, {}, false};
+    for (const auto& [mask, coefficient] : polynomial) {
+        result.phases.emplace_back(axes[mask.lowest_bit()], coefficient);
+        result.t_count += coefficient & 1;
+    }
+    result.core_width = static_cast<uint32_t>(result.t_count);
+    return result;
+}
+
 // Commuting rotation axes, their coordinates modulo fixed Paulis, and their phase polynomial.
 struct Region {
     std::map<uint32_t, Row> rows;
@@ -165,6 +187,7 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                                   const KnownStabilizers* postselected,
                                   std::optional<size_t> final_observer_end) {
     std::optional<Rewrite> best;
+    size_t best_rotation_count = 0;
     std::vector<size_t> rotations;
     std::vector<Observer> observers;
     try {
@@ -175,23 +198,17 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             size_t t_count = rotations.size();
             size_t core_width = region.axes.size();
             if (best) {
-                t_count -= best->rotations.size() - best->t_count;
+                t_count -= best_rotation_count - best->t_count;
                 core_width = best->core_width;
             }
             if (candidate.t_count < t_count ||
                 (candidate.t_count == t_count && candidate.core_width < core_width)) {
-                candidate.rotations = rotations;
-                candidate.observers = observers;
+                best_rotation_count = rotations.size();
                 best = std::move(candidate);
             }
         };
-        size_t considered_rotations = 0;
         auto synthesize_prefix = [&] {
-            if (rotations.size() == considered_rotations) {
-                return;
-            }
-            considered_rotations = rotations.size();
-            if (region.axes.size() <= 64 || !core_fits(region.terms, region.axes.size(), budget)) {
+            if (!core_fits(region.terms, region.axes.size(), budget)) {
                 return;
             }
             const size_t end = rotations.back() + 1;
@@ -202,13 +219,16 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                 consider(std::move(*aligned));
             }
         };
+        size_t first_search_rotations = 0;
         size_t end = start;
         const size_t words = (hir.num_qubits + 63) / 64;
         for (size_t i = start; i < hir.ops.size(); ++i) {
             const auto& op = hir.ops[i];
             const OpType type = op.op_type();
-            // Finish the preceding rotation run before spending work across a boundary.
-            if (type != OpType::T_GATE) {
+            // Search the first wide prefix and the complete region. Intervening observers
+            // can use a linear polynomial directly without another basis search.
+            if (type != OpType::T_GATE && region.axes.size() > 64 && first_search_rotations == 0) {
+                first_search_rotations = rotations.size();
                 synthesize_prefix();
             }
             if (type == OpType::T_GATE) {
@@ -226,7 +246,10 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                 auto mask = coordinates(reduced, region.rows);
                 if (!reduced.x().is_zero() || !reduced.z().is_zero()) {
                     if (region.axes.size() == variable_limit) {
-                        return best;
+                        if (first_search_rotations == 0) {
+                            return std::nullopt;
+                        }
+                        break;
                     }
                     const auto next = bit(region.axes.size());
                     const auto pivot = pivot_of(reduced);
@@ -293,7 +316,15 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                         flip.bit_set(static_cast<uint32_t>(j), true);
                     }
                 }
-                const auto difference = pauli_derivative(region.polynomial(budget), flip, budget);
+                const auto& polynomial = region.polynomial(budget);
+                if (first_search_rotations != 0 && rotations.size() > first_search_rotations &&
+                    (observers.empty() || observers.back().index < rotations.back())) {
+                    if (auto linear = linear_rewrite(polynomial, region.axes, rotations.back() + 1,
+                                                     words, budget)) {
+                        consider(std::move(*linear));
+                    }
+                }
+                const auto difference = pauli_derivative(polynomial, flip, budget);
                 if (!difference) {
                     break;
                 }
@@ -311,13 +342,14 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             }
             end = i + 1;
         }
-        synthesize_prefix();
+        if (region.axes.size() > 64 && rotations.size() != first_search_rotations) {
+            synthesize_prefix();
+        }
         if (region.axes.size() > 64 && final_observer_end && end >= *final_observer_end &&
             !observers.empty()) {
             const size_t odd_terms = static_cast<size_t>(std::ranges::count_if(
                 region.terms, [](const auto& term) { return (term.second & 1) != 0; }));
-            if ((best && best->rotations.size() == rotations.size()) ||
-                odd_terms < rotations.size() ||
+            if ((best && best_rotation_count == rotations.size()) || odd_terms < rotations.size() ||
                 !clifford_kernel(region.polynomial(budget),
                                  static_cast<uint32_t>(region.axes.size()), budget)
                      .empty()) {
@@ -325,7 +357,16 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             }
         }
     } catch (const SearchLimit&) {
-        // Completed rewrites own exactly the rotations and observers they cover.
+        // A completed prefix is still usable when an extension exhausts the budget.
+    }
+    if (best) {
+        // Both lists grow in source order. Keep only the entries covered by this rewrite.
+        rotations.resize(best_rotation_count);
+        while (!observers.empty() && observers.back().index >= best->end) {
+            observers.pop_back();
+        }
+        best->rotations = std::move(rotations);
+        best->observers = std::move(observers);
     }
     return best;
 }

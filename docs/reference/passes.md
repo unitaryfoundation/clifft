@@ -131,12 +131,13 @@ can have more physical qubits than this limit. Collection starts at
 When `max_variables > 64` and the 64-variable attempt is capped, the pass can
 extend a commuting T region up to `max_variables` using two-word coordinates.
 It uses the same observer-pullback and commuting-noise rules and stops at
-instrument boundaries. Before crossing an observer, it can save a beneficial
-rewrite of the preceding rotations. It tries the collected basis and one basis
-derived from the final Clifford tableau. Synthesis supports up to 64 core
-variables and searches at most 128 odd parity terms. Across the full two-word
-range, rotations remaining after the final observer can be omitted when the
-phase polynomial reduces.
+instrument boundaries. It searches for a rewrite at the first wide boundary
+and at the end if the region grows. At intervening observers, a linear phase
+polynomial gives the replacement rotations directly. The search tries the
+collected basis and one derived from the final Clifford tableau. It supports
+up to 64 core variables and searches at most 128 odd parity terms. Across the
+full two-word range, rotations remaining after the final observer can be
+omitted when the phase polynomial reduces.
 
 `max_wide_work` (default `50000000`) bounds deterministic work units shared by
 all wide attempts and both basis candidates in one pass. The units include

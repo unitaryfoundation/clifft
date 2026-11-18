@@ -260,15 +260,15 @@ def test_wide_phase_reduces_direct_readout_preparation() -> None:
     assert preparation.peak_active_width == 9
 
 
+def _cube_rotation(start: int, mask: int) -> str:
+    return "TPP " + "*".join(f"Z{start + bit}" for bit in range(4) if mask & (1 << bit))
+
+
 @pytest.mark.parametrize("limit", ["variables", "work", None])
 def test_wide_observer_extension_keeps_reducible_prefix(limit: str | None) -> None:
     # The 32 four-qubit parity cubes are identity. The remaining prefix
     # prepares S|+> on qubit 0 and T|+> on qubit 1.
-    cubes = [
-        "TPP " + "*".join(f"Z{q + bit}" for bit in range(4) if mask & (1 << bit))
-        for mask in range(1, 16)
-        for q in range(0, 128, 4)
-    ]
+    cubes = [_cube_rotation(q, mask) for mask in range(1, 16) for q in range(0, 128, 4)]
     preparation = "H " + " ".join(map(str, range(129)))
     prefix = "\n".join([preparation, "T 0", "TPP Z0*Z129", "EXP_VAL Y0", *cubes, "T 1"])
     boundary = prefix + "\nEXP_VAL Y0"
@@ -303,6 +303,62 @@ def test_wide_observer_extension_keeps_reducible_prefix(limit: str | None) -> No
     np.testing.assert_allclose(
         clifft.sample(program, 1, seed=7).exp_vals[0],
         [1, 1, expected_x, expected_x],
+        rtol=0,
+        atol=2e-12,
+    )
+
+
+def test_interleaved_measurements_leave_work_for_a_second_wide_region() -> None:
+    # The first region reduces to 30 T gates. The two T layers in the
+    # second region reduce to Clifford rotations.
+    lines = ["H " + " ".join(map(str, range(118)))]
+    rotations = [_cube_rotation(q, mask) for q in range(0, 88, 4) for mask in range(1, 16)]
+    rotations.extend(f"T {q}" for q in range(88, 118))
+    for rotation in rotations:
+        lines.extend([rotation, "M 118"])
+    layer = "T " + " ".join(map(str, range(70)))
+    lines.extend(["R_X(0.137) 0", layer, layer])
+
+    hir = clifft.trace(clifft.parse("\n".join(lines)))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert phase.input_t_count == 500
+    assert phase.wide_rewrites == 2
+    assert not phase.wide_budget_exhausted
+    assert hir.num_t_gates == 30
+
+
+@pytest.mark.parametrize("limit", ["terms", "variables"])
+def test_wide_phase_keeps_a_late_reduction_at_the_search_limit(limit: str) -> None:
+    targets = " ".join(map(str, range(128)))
+    lines = [f"H {targets} 128", f"T {targets}", "EXP_VAL Z129"]
+    # The first probe sees 128 independent T gates. Completing the parity
+    # cubes cancels them all before the second probe.
+    lines.extend(
+        _cube_rotation(q, mask)
+        for mask in range(1, 16)
+        if mask.bit_count() > 1
+        for q in range(0, 128, 4)
+    )
+    if limit == "terms":
+        # The linear prefix is already usable when the dense parity exhausts the budget.
+        dense_parity = "*".join(f"Z{q}" for q in range(2, 128))
+        lines.extend(["T_DAG 1", "EXP_VAL X0", f"TPP {dense_parity}", "EXP_VAL Y1", "EXP_VAL X2"])
+    else:
+        # The two-variable parity needs synthesis when the next rotation exceeds the limit.
+        lines.extend(["TPP_DAG Z1*Z2", "EXP_VAL X0", "T 128", "EXP_VAL Y1*Z2", "EXP_VAL X128"])
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    program = clifft.compile("\n".join(lines), hir_passes=manager)
+    assert phase.wide_budget_exhausted == (limit == "terms")
+    assert phase.wide_rewrites == 1
+    assert phase.output_t_count == 2
+    np.testing.assert_allclose(
+        clifft.sample(program, 1, seed=7).exp_vals[0],
+        [1, 1, -np.sqrt(0.5), np.sqrt(0.5)],
         rtol=0,
         atol=2e-12,
     )
