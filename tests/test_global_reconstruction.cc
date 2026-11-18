@@ -1405,4 +1405,46 @@ TEST_CASE(
     }
 }
 
+TEST_CASE("Global reconstruction prefers rotation-stabilizing hidden nullspace candidates",
+          "[reconstruction]") {
+    for (const char* text : {
+             "H 0\nCX 0 1\nT 0\nMPP Z1*X2\nMX 0\n",
+             "H 0\nCX 0 1\nT 0\nMPP Y1*X2\nMX 0\n",
+             "H 0\nCX 0 1\nCX 0 2\nTPP X0*Z1\nMPP Z2*X3\nMX 0\n",
+         }) {
+        INFO(text);
+        const auto circuit = parse(text);
+        const auto expected = compute_dense_circuit_distribution(circuit);
+        auto hir = trace(circuit);
+        default_hir_pass_manager().run(hir);
+        const auto program = Program::compile(circuit, hir, true);
+        REQUIRE(program.uses_reconstruction(true));
+        REQUIRE(program.sampling_plan(true).peak_active_width() == 0);
+
+        const auto res = reconstruct_global_sampling(circuit, ReconstructionOutputs::Records);
+        REQUIRE(res.reconstruction.has_value());
+        REQUIRE(res.reconstruction->peak_active_width == 0);
+        auto lowered = lower_global_reconstruction(*res.reconstruction);
+        REQUIRE(lowered.hir.has_value());
+        default_hir_pass_manager().run(*lowered.hir);
+        const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+        require_same_law(output_law(actual, res.reconstruction->outputs),
+                         output_law(expected, res.reconstruction->outputs));
+    }
+
+    // Exercise the multi-word isolated-qubit check alongside an entangled suffix
+    // reset across > 64 suffix modes without blowing up oracle width.
+    {
+        std::string wide_resets = "H 0\nT 0\nCX 0 1\n";
+        for (uint32_t q = 2; q <= 70; ++q) {
+            wide_resets += "R " + std::to_string(q) + "\n";
+        }
+        wide_resets += "RY 0\nM 0 1\nDETECTOR rec[-2] rec[-1]\n";
+        const auto circuit = parse(wide_resets);
+        const auto res = reconstruct_global_sampling(circuit, ReconstructionOutputs::Records);
+        REQUIRE(res.reconstruction.has_value());
+        REQUIRE(res.reconstruction->peak_active_width <= 1);
+    }
+}
+
 }  // namespace clifft::test

@@ -15,6 +15,7 @@
 #include <numeric>
 #include <optional>
 #include <span>
+#include <tuple>
 #include <utility>
 
 namespace clifft {
@@ -1920,17 +1921,25 @@ class SuffixTracker {
         assert(m_ > 16 || inv_.satisfies_invariants());
     }
 
-    bool mode_referenced_outside_qubit(uint32_t mode_p, uint32_t reset_q) const {
-        for (uint32_t q = 0; q < m_; ++q) {
-            if (q == reset_q) {
-                continue;
-            }
-            if (inv_.x_output(q).z().bit_get(mode_p) || inv_.z_output(q).z().bit_get(mode_p) ||
-                inv_.x_output(q).x().bit_get(mode_p) || inv_.z_output(q).x().bit_get(mode_p)) {
-                return true;
+    // By symplectic orthogonality of `inv_`, `reset_q`'s anticommuting X and Z
+    // rows are supported solely on `mode_p` if and only if every other qubit's
+    // rows act as identity on `mode_p`.
+    bool qubit_isolated_on_mode(uint32_t reset_q, uint32_t mode_p) const {
+        const size_t target_word = mode_p / 64;
+        const uint64_t allowed = uint64_t{1} << (mode_p % 64);
+        const PauliStringView x_row = inv_.x_output(reset_q);
+        const PauliStringView z_row = inv_.z_output(reset_q);
+        const auto x_xw = x_row.x().words;
+        const auto x_zw = x_row.z().words;
+        const auto z_xw = z_row.x().words;
+        const auto z_zw = z_row.z().words;
+        for (size_t w = 0; w < x_xw.size(); ++w) {
+            const uint64_t combined = x_xw[w] | x_zw[w] | z_xw[w] | z_zw[w];
+            if ((combined & ~(w == target_word ? allowed : uint64_t{0})) != 0) {
+                return false;
             }
         }
-        return false;
+        return true;
     }
 
     CollapseResult collapse_mode(const Term& term, std::optional<uint32_t> reset_qubit,
@@ -1981,7 +1990,7 @@ class SuffixTracker {
             apply_mode_collapse_to_tableau(p, zeta, p_tilde);
 
             const bool isolated_reset =
-                reset_qubit.has_value() && !mode_referenced_outside_qubit(p, *reset_qubit);
+                reset_qubit.has_value() && qubit_isolated_on_mode(*reset_qubit, p);
             PreparedOp b_raw{PauliString(n_prefix_), {}, 0};
             if (!isolated_reset || need_outcome) {
                 b_raw.sign = noise_.bernoulli(0.5);
@@ -2016,7 +2025,7 @@ class SuffixTracker {
                 ++z_count;
             });
             if (reset_qubit.has_value() && z_count == 1 &&
-                !mode_referenced_outside_qubit(single_mode, *reset_qubit)) {
+                qubit_isolated_on_mode(*reset_qubit, single_mode)) {
                 sigma_[single_mode] = {PauliString(n_prefix_), {{}, s_m}, 0};
                 return {std::move(b_raw), true};
             }
@@ -2104,7 +2113,7 @@ class SuffixTracker {
         alpha_[p] = PreparedOp{};
         beta_[p] = PreparedOp{};
 
-        if (reset_qubit.has_value() && !mode_referenced_outside_qubit(p, *reset_qubit)) {
+        if (reset_qubit.has_value() && qubit_isolated_on_mode(*reset_qubit, p)) {
             sigma_[p] = {PauliString(n_prefix_), {{}, s_m}, 0};
             return {std::move(b_raw), true};
         }
@@ -2189,35 +2198,80 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
 
     // 1. Synthesize commuting hidden measurements from the nullspace of
     // operation commutation columns to shrink the initial active subspace.
+    // Insert Z columns first and rotation-touched X columns before
+    // measurement-only X columns so single-X dressings stay minimal and
+    // rotation-stabilizing candidates outrank measurement-only coordinates.
+    std::vector<bool> rot_touches_x(n, false);
+    for (const auto& op : quantum_ops) {
+        if (op.half_turns != 0) {
+            each_bit(op.axis.x().words, [&](uint32_t q) { rot_touches_x[q] = true; });
+        }
+    }
     std::vector<Bits> column_patterns(2 * n);
     for (uint32_t j = 0; j < quantum_ops.size(); ++j) {
         record_commutation_columns(column_patterns, n, quantum_ops[j].axis.view(), j);
     }
-    Basis columns;
-    std::vector<Bits> nullspace;
-    for (uint32_t i = 0; i < 2 * n; ++i) {
-        if (auto dependency = columns.insert(std::move(column_patterns[i]), unit(i)))
-            nullspace.push_back(std::move(*dependency));
+    std::vector<uint32_t> column_order;
+    column_order.reserve(2 * n);
+    for (uint32_t q = 0; q < n; ++q) {
+        column_order.push_back(n + q);
     }
-    auto weight = [](const Bits& value) {
-        size_t count = 0;
-        for (auto w : value)
-            count += std::popcount(w);
-        return count;
+    for (uint32_t q = 0; q < n; ++q) {
+        if (rot_touches_x[q]) {
+            column_order.push_back(q);
+        }
+    }
+    for (uint32_t q = 0; q < n; ++q) {
+        if (!rot_touches_x[q]) {
+            column_order.push_back(q);
+        }
+    }
+    Basis columns;
+    struct NullspaceCandidate {
+        PauliString axis;
+        size_t non_rot_x_weight = 0;
+        size_t x_weight = 0;
+        size_t total_weight = 0;
     };
-    std::stable_sort(nullspace.begin(), nullspace.end(),
-                     [&](const Bits& a, const Bits& b) { return weight(a) < weight(b); });
+    std::vector<NullspaceCandidate> candidates;
+    for (uint32_t i : column_order) {
+        auto dependency = columns.insert(std::move(column_patterns[i]), unit(i));
+        if (!dependency) {
+            continue;
+        }
+        PauliString p = pauli_from_symplectic_bits(*dependency, n);
+        if (p.x().is_zero()) {
+            continue;
+        }
+        size_t non_rot_x = 0;
+        size_t x_w = 0;
+        each_bit(p.x().words, [&](uint32_t q) {
+            ++x_w;
+            if (!rot_touches_x[q]) {
+                ++non_rot_x;
+            }
+        });
+        size_t z_w = 0;
+        for (uint64_t w : p.z().words) {
+            z_w += static_cast<size_t>(std::popcount(w));
+        }
+        candidates.push_back({std::move(p), non_rot_x, x_w, x_w + z_w});
+    }
+    std::ranges::stable_sort(candidates,
+                             [](const NullspaceCandidate& a, const NullspaceCandidate& b) {
+                                 return std::tie(a.non_rot_x_weight, a.x_weight, a.total_weight) <
+                                        std::tie(b.non_rot_x_weight, b.x_weight, b.total_weight);
+                             });
     Basis xparts;
     std::vector<ReconstructionOperation> hidden;
-    for (const auto& value : nullspace) {
-        PauliString p = pauli_from_symplectic_bits(value, n);
-        if (xparts.solve(copy(p.x())))
+    for (auto& cand : candidates) {
+        if (xparts.solve(copy(cand.axis.x())))
             continue;
-        if (std::any_of(hidden.begin(), hidden.end(),
-                        [&](const auto& h) { return !p.view().commutes(h.axis.view()); }))
+        if (std::ranges::any_of(
+                hidden, [&](const auto& h) { return !cand.axis.view().commutes(h.axis.view()); }))
             continue;
-        xparts.insert(copy(p.x()), {});
-        hidden.push_back({std::move(p), {}, 0, std::nullopt});
+        xparts.insert(copy(cand.axis.x()), {});
+        hidden.push_back({std::move(cand.axis), {}, 0, std::nullopt});
     }
     const size_t num_hidden = hidden.size();
     quantum_ops.insert(quantum_ops.begin(), std::make_move_iterator(hidden.begin()),
