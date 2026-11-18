@@ -125,16 +125,16 @@ active-width limit, a candidate proceeds to lowering and the default HIR passes
 only when its scheduled peak active width is strictly smaller than the original
 plan's, and the optimized candidate must remain strictly smaller to be selected.
 When the sequential original HIR reaches the dense active-width limit,
-candidates within the resource bounds proceed through lowering and optimization
-(and `normalize_syndromes=True` falls back to a reconstructed noiseless detector
-plan when sequential reference planning overflows), retaining any variant whose
-optimized peak active width fits below that limit and failing compilation only
-if no usable sampling plan fits. Dilation and scheduling precede the width guard, so
-unsuccessful attempts can remain expensive. Explicit resource bounds cap circuit
-size, prefix dilation qubits, noise channels, scheduling work, and lowered frame
-memory; unsupported features (such as leakage and loss channels, `EXP_VAL`
-probes, asymmetric readout noise, or distribution-altering HIR passes) fall back
-to the original plan when available.
+candidates within the resource bounds proceed through lowering and optimization.
+Compilation retains each variant whose optimized peak active width fits below
+the limit. With `normalize_syndromes=True`, a noiseless reference shot also
+uses reconstruction when the sequential reference exceeds 21 active coordinates
+and an optimized detector plan has a smaller peak width. Dilation and scheduling
+precede the width guard, so unsuccessful attempts can remain expensive. Explicit
+resource bounds cap circuit size, prefix dilation qubits, noise channels, scheduling
+work, and lowered frame memory. Unsupported features (such as leakage and loss
+channels, `EXP_VAL` probes, asymmetric readout noise, or distribution-altering HIR
+passes) fall back to the original plan when available.
 
 ## Stabilizer-Based Simplification
 

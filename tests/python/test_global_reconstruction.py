@@ -616,16 +616,16 @@ def test_wide_output_bailout():
         assert plan.peak_active_width == fallback.original_plan.peak_active_width
 
 
-def _wide_reconstructible_source(include_syndromes: bool = True) -> str:
-    ancillas = " ".join(str(q) for q in range(2, 64))
-    parity_cx = " ".join(f"{q} 64" for q in range(2, 64))
+def _wide_reconstructible_source(include_syndromes: bool = True, parity_qubit: int = 64) -> str:
+    ancillas = " ".join(str(q) for q in range(2, parity_qubit))
+    parity_cx = " ".join(f"{q} {parity_qubit}" for q in range(2, parity_qubit))
     lines = [
         f"H 0 1 {ancillas}",
         f"T 0 1 {ancillas}",
         "DEPOLARIZE2(0.2) 0 1",
         "H 0 1",
         f"CX {parity_cx}",
-        "M 0 1 64",
+        f"M 0 1 {parity_qubit}",
     ]
     if include_syndromes:
         lines.append("DETECTOR rec[-3] rec[-2]")
@@ -812,3 +812,22 @@ def test_wide_original_post_lowering_reduction_and_syndrome_normalization():
     assert surv.logical_errors == 0
     assert not surv.detectors.any()
     assert not surv.observables.any()
+
+
+def test_normalization_reconstructs_wide_reference_below_planner_limit():
+    source = _wide_reconstructible_source(include_syndromes=False, parity_qubit=60) + (
+        "X 61\nM 61\nDETECTOR rec[-1]\nREADOUT_NOISE(1) rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+    )
+    # The noiseless sequential plan fits the planner but its dense state exceeds an EiB.
+    clean = source.replace("DEPOLARIZE2(0.2) 0 1\n", "").replace("READOUT_NOISE(1) rec[-1]\n", "")
+    assert 56 <= clifft.compile(clean).peak_active_width < 60
+
+    program = clifft.compile(
+        source, postselection_mask=[1], normalize_syndromes=True, reconstruction=True
+    )
+    assert program.sampling_plan(keep_records=False).peak_active_width == 0
+    result = clifft.sample_survivors(program, 32, seed=13, keep_records="syndromes")
+    # Both noiseless parities are one. Only the observable sees the actual readout flip.
+    assert result.passed_shots == 32
+    assert not result.detectors.any()
+    assert result.observables.all()

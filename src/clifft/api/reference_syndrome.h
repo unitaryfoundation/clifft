@@ -17,8 +17,8 @@ struct ReferenceSyndrome {
 
 /// Compute the noiseless reference syndrome for an HirModule.
 /// Strips stochastic and readout noise from a copy of the HIR and samples one
-/// shot at seed 0, falling back to a reconstructed noiseless detector plan when
-/// sequential planning overflows and `reconstruction_source` is supplied.
+/// shot at seed 0. With a reconstruction source, wide references use a narrower
+/// detector plan when available, including when sequential planning overflows.
 /// This does not check determinism; coherent rotations remain. For coherent
 /// errors, pass the intended ideal circuit's HIR instead.
 [[nodiscard]] ReferenceSyndrome compute_reference_syndrome(
