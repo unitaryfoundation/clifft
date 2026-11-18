@@ -614,3 +614,151 @@ def test_wide_output_bailout():
         assert not plan.reconstruction_selected
         assert "output limit exceeded" in plan.fallback_reason
         assert plan.peak_active_width == fallback.original_plan.peak_active_width
+
+
+def _wide_reconstructible_source(include_syndromes: bool = True) -> str:
+    ancillas = " ".join(str(q) for q in range(2, 64))
+    parity_cx = " ".join(f"{q} 64" for q in range(2, 64))
+    lines = [
+        f"H 0 1 {ancillas}",
+        f"T 0 1 {ancillas}",
+        "DEPOLARIZE2(0.2) 0 1",
+        "H 0 1",
+        f"CX {parity_cx}",
+        "M 0 1 64",
+    ]
+    if include_syndromes:
+        lines.append("DETECTOR rec[-3] rec[-2]")
+        lines.append("OBSERVABLE_INCLUDE(0) rec[-3]")
+    return "\n".join(lines) + "\n"
+
+
+def _wide_detector_only_source() -> str:
+    qs = list(range(2, 162))
+    qstr = " ".join(map(str, qs))
+    czs = " ".join(
+        f"{qs[i]} {qs[(i + s) % len(qs)]}" for s in (1, 17, 43, 71) for i in range(len(qs))
+    )
+    return (
+        f"H 0 1 {qstr}\n"
+        f"T 0 1 {qstr}\n"
+        "DEPOLARIZE2(0.2) 0 1\n"
+        "H 0 1\n"
+        f"CZ {czs}\n"
+        f"MX {qstr}\n"
+        "M 0 1\n"
+        "DETECTOR rec[-2] rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-2]\n"
+    )
+
+
+def test_wide_original_compiles_with_reconstruction_and_guards_unavailable_original():
+    source = _wide_reconstructible_source(include_syndromes=True)
+    with pytest.raises(OverflowError, match="dense-state limit"):
+        clifft.compile(source, reconstruction=False)
+
+    program = clifft.compile(source, reconstruction=True)
+    assert program.num_qubits == 65
+    assert program.num_measurements == 3
+    assert program.num_detectors == 1
+    assert program.num_observables == 1
+    assert program.peak_active_width == 1
+    for keep_records in (False, True, "all", "syndromes", "measurements"):
+        plan = program.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected
+        assert not plan.fallback_reason
+        assert plan.peak_active_width == 1
+    assert "original_plan=unavailable" in repr(program)
+
+    # Sampling succeeds across output modes and matches the 2-qubit core plus a fair Z64 coin.
+    reference = clifft.compile(
+        UNITARY
+        + "DEPOLARIZE2(0.2) 0 1\nH 2\nM 0 1 2\n"
+        + "DETECTOR rec[-3] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]\n"
+    )
+    shots = 4096
+    ref = clifft.sample(reference, shots, seed=31)
+    got = clifft.sample(program, shots, seed=53)
+    projections = np.random.default_rng(42).integers(0, 2, size=(5, 16), dtype=np.uint8)
+    p = joint_frequencies(ref, shots, projections)
+    q = joint_frequencies(got, shots, projections)
+    pooled = (p + q) / 2
+    tolerance = 6 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
+    assert np.all(np.abs(p - q) <= tolerance)
+
+    det, obs = clifft.sample_detectors(program, 257, seed=11, separate_observables=True)
+    assert det.shape == (257, 1) and obs.shape == (257, 1)
+    surv = clifft.sample_survivors(program, 257, seed=11, keep_records=False)
+    assert surv.total_shots == surv.passed_shots == 257
+
+    # Exact-query, replay, and fixed-fault APIs require original_plan and raise OverflowError.
+    expected_orig_err = "original plan is unavailable"
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        _ = program.original_plan
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        _ = program.noise_site_probabilities
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.get_statevector(program)
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.basis_probabilities(program, ["0" * 65])
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.record_probabilities(program, ["000"])
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        _clifft_core._replay_record(program, [0, 0, 0])
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.sample_k(program, 16, 1, seed=7)
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.sample_k_survivors(program, 16, 1, seed=7)
+
+
+def test_wide_original_asymmetric_variants_and_total_failure():
+    # Unreferenced expander graph-state measurements keep retained-record width >= 60
+    # while detector-only reconstruction elides the unmeasured T rotations to width 1.
+    detector_only_source = _wide_detector_only_source()
+    with pytest.raises(OverflowError, match="dense-state limit"):
+        clifft.compile(detector_only_source, reconstruction=False)
+    detector_only = clifft.compile(detector_only_source, reconstruction=True)
+    assert detector_only.sampling_plan(keep_records=False).reconstruction_selected
+    assert detector_only.sampling_plan(keep_records="syndromes").reconstruction_selected
+    assert "records_plan=unavailable, original_plan=unavailable" in repr(detector_only)
+
+    det, obs = clifft.sample_detectors(detector_only, 129, seed=19, separate_observables=True)
+    assert det.shape == (129, 1) and obs.shape == (129, 1)
+    syn = clifft.sample(detector_only, 129, seed=19, keep_records="syndromes")
+    assert syn.measurements.shape == (0, detector_only.num_measurements)
+    assert syn.detectors.shape == (129, 1)
+    surv_counts = clifft.sample_survivors(detector_only, 129, seed=19, keep_records=False)
+    assert surv_counts.passed_shots == 129
+
+    expected_err = "dense active-width limit"
+    for bad_records in (True, "all", "measurements"):
+        with pytest.raises(OverflowError, match=expected_err):
+            detector_only.sampling_plan(keep_records=bad_records)
+        with pytest.raises(OverflowError, match=expected_err):
+            clifft.sample(detector_only, 16, seed=3, keep_records=bad_records)
+    with pytest.raises(OverflowError, match=expected_err):
+        clifft.sample_survivors(detector_only, 16, seed=3, keep_records=True)
+    for attr in ("peak_active_width", "num_actions"):
+        with pytest.raises(OverflowError, match=expected_err):
+            getattr(detector_only, attr)
+    with pytest.raises(OverflowError, match=expected_err):
+        detector_only.inspect()
+    with pytest.raises(OverflowError, match=expected_err):
+        detector_only.inspect_action(0)
+
+    # Zero detectors and observables make only retained-record sampling available.
+    record_only_source = _wide_reconstructible_source(include_syndromes=False)
+    record_only = clifft.compile(record_only_source, reconstruction=True)
+    assert record_only.sampling_plan(keep_records=True).reconstruction_selected
+    assert "original_plan=unavailable, survivor_plan=unavailable" in repr(record_only)
+    rec_sample = clifft.sample(record_only, 65, seed=23)
+    assert rec_sample.measurements.shape == (65, 3)
+    with pytest.raises(OverflowError, match="no requested sampling outputs"):
+        record_only.sampling_plan(keep_records=False)
+    with pytest.raises(OverflowError, match="no requested sampling outputs"):
+        clifft.sample_survivors(record_only, 16, seed=23, keep_records=False)
+
+    # When neither variant reconstructs below width 60, compile raises OverflowError.
+    unsupported = _wide_reconstructible_source(include_syndromes=True) + "EXP_VAL Z0\n"
+    with pytest.raises(OverflowError, match="EXP_VAL"):
+        clifft.compile(unsupported, reconstruction=True)

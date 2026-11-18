@@ -107,9 +107,11 @@ from each. Reusing a `Program` amortizes preparation across later calls.
 Without reconstruction, all views describe the original executable and the
 existing properties and inspection methods behave the same way. With
 reconstruction, `repr(program)` reports the full-output sampling metrics and
-shows original or survivor-count widths when they differ. Circuit counts,
-hidden measurement counts used by replay, and noise-site probabilities retain
-their original meanings.
+shows original or survivor-count widths when they differ (or marks unavailable
+plans when the original HIR exceeded the 60-coordinate dense active-width
+limit). Circuit counts and hidden measurement counts retain their original
+meanings; `original_plan` and `noise_site_probabilities` require an available
+original executable.
 
 ## Active-width scheduling
 
@@ -174,7 +176,11 @@ to inspect the selected executable, as described in
 [Inspect sampling cost](#inspect-sampling-cost). Unsupported
 features (such as leakage and loss channels, `EXP_VAL` probes, asymmetric
 readout noise, or distribution-altering HIR passes), resource limits, or
-insufficient width reduction retain the original plan.
+insufficient width reduction retain the original plan. When the sequential
+original HIR reaches the 60-coordinate dense active-width limit, compilation
+with `reconstruction=True` still succeeds if at least one reconstructed variant
+fits below the limit; calling `original_plan`, exact queries, replay,
+fixed-fault sampling, or an unbuilt output mode then raises `OverflowError`.
 
 Custom `hir_passes` configure the original pipeline; reconstructed candidates
 use the default passes.

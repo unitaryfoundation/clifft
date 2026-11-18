@@ -52,7 +52,7 @@ Rewrite synthesize_region(const Polynomial& terms, Polynomial polynomial,
                           Budget& budget) {
     auto basis = reduce_core(polynomial, axes.size(), budget);
     const auto synthesis = synthesize(terms, polynomial, basis, budget);
-    Rewrite result{end, basis.core_width, 0, {}};
+    Rewrite result{end, basis.core_width, 0, {}, {}, {}, false};
     std::vector<PauliString> transformed;
     for (auto parity : basis.parities) {
         budget.charge((parity.popcount() + 1) * ((width + 63) / 64));
@@ -70,67 +70,178 @@ Rewrite synthesize_region(const Polynomial& terms, Polynomial polynomial,
 
 std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const KnownStabilizers& fixed,
                                   const optimizer_detail::CliffordAbsorption& frame,
-                                  uint32_t variable_limit, Budget& budget) {
+                                  uint32_t variable_limit, Budget& budget,
+                                  const KnownStabilizers* postselected,
+                                  std::optional<size_t> final_observer_end) {
     std::optional<Rewrite> best;
     try {
+        KnownStabilizers available = fixed;
         std::map<uint32_t, Row> rows;
         std::vector<PauliString> axes;
+        std::vector<size_t> rotations;
+        std::vector<Observer> observers;
         KnownStabilizers required;
         Polynomial terms, polynomial;
+        bool polynomial_ready = false;
+        auto ensure_polynomial = [&] {
+            if (polynomial_ready) {
+                return;
+            }
+            for (const auto& [mask, coefficient] : terms) {
+                add_parity(polynomial, mask, coefficient, budget);
+            }
+            polynomial_ready = true;
+        };
+
         size_t end = start;
+        size_t last_t_end = start;
+        size_t observers_at_last_t = 0;
+        KnownStabilizers available_at_last_t = fixed;
         const size_t words = (hir.num_qubits + 63) / 64;
-        for (; end < hir.ops.size() && hir.ops[end].op_type() == OpType::T_GATE; ++end) {
-            budget.charge((hir.num_qubits + 3 * axes.size() + 1) * words);
-            auto axis = frame.read(hir.mask_view(hir.ops[end]), hir.num_qubits);
-            if (!required.commutes(axis.view()) || std::ranges::any_of(axes, [&](const auto& g) {
-                    return !axis.view().commutes(g.view());
-                })) {
-                break;
-            }
-            auto reduced = fixed.reduce_body(axis);
-            auto mask = coordinates(reduced, rows);
-            if (!reduced.x().is_zero() || !reduced.z().is_zero()) {
-                if (axes.size() == variable_limit) {
-                    return std::nullopt;
+        for (size_t i = start; i < hir.ops.size(); ++i) {
+            const auto& op = hir.ops[i];
+            const OpType type = op.op_type();
+            if (type == OpType::T_GATE) {
+                budget.charge((hir.num_qubits + 3 * axes.size() + 1) * words);
+                auto axis = frame.read(hir.mask_view(op), hir.num_qubits);
+                auto reduced = fixed.reduce_body(axis);
+                const bool entry_stabilizer = reduced.x().is_zero() && reduced.z().is_zero();
+                if ((postselected && !postselected->commutes(axis.view())) ||
+                    std::ranges::any_of(
+                        axes, [&](const auto& g) { return !axis.view().commutes(g.view()); }) ||
+                    (!entry_stabilizer && !required.commutes(axis.view()))) {
+                    break;
                 }
-                const auto next = bit(axes.size());
-                const auto pivot = pivot_of(reduced);
-                rows.emplace(pivot, Row{std::move(reduced), mask ^ next});
-                mask = next;
-                auto generator = axis;
-                generator.set_sign(false);
-                axes.push_back(std::move(generator));
-            }
-            auto residual = product(axes, mask, hir.num_qubits);
-            auto unsigned_axis = axis;
-            unsigned_axis.set_sign(false);
-            residual.right_multiply(unsigned_axis.view());
-            const auto negative = fixed.eigenvalue(residual);
-            if (!negative) {
+                auto mask = coordinates(reduced, rows);
+                if (!reduced.x().is_zero() || !reduced.z().is_zero()) {
+                    if (axes.size() == variable_limit) {
+                        return std::nullopt;
+                    }
+                    const auto next = bit(axes.size());
+                    const auto pivot = pivot_of(reduced);
+                    rows.emplace(pivot, Row{std::move(reduced), mask ^ next});
+                    mask = next;
+                    auto generator = axis;
+                    generator.set_sign(false);
+                    axes.push_back(std::move(generator));
+                }
+                auto residual = product(axes, mask, hir.num_qubits);
+                auto unsigned_axis = axis;
+                unsigned_axis.set_sign(false);
+                residual.right_multiply(unsigned_axis.view());
+                const auto negative = available.eigenvalue(residual);
+                if (!negative) {
+                    break;
+                }
+                if (!residual.x().is_zero() || !residual.z().is_zero()) {
+                    residual.set_sign(residual.sign() ^ *negative);
+                    required.insert(std::move(residual));
+                }
+                int coefficient = op.is_dagger() != axis.sign() ? -1 : 1;
+                if (*negative) {
+                    coefficient = -coefficient;
+                }
+                budget.add(terms, mask, coefficient);
+                if (polynomial_ready) {
+                    add_parity(polynomial, mask, coefficient, budget);
+                }
+                rotations.push_back(i);
+                last_t_end = i + 1;
+                observers_at_last_t = observers.size();
+                available_at_last_t = available;
+            } else if (type == OpType::NOISE) {
+                const auto& channels =
+                    hir.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
+                bool blocked = false;
+                for (const auto& channel : channels) {
+                    budget.charge((hir.num_qubits + axes.size() + 1) * words);
+                    auto axis =
+                        frame.read(hir.noise_channel_masks.at(channel.mask), hir.num_qubits);
+                    if (channel.prob > 0 && (!required.commutes(axis.view()) ||
+                                             std::ranges::any_of(axes, [&](const PauliString& g) {
+                                                 return !axis.view().commutes(g.view());
+                                             }))) {
+                        blocked = true;
+                        break;
+                    }
+                    if (channel.prob > 0) {
+                        available.intersect(axis.view());
+                    }
+                }
+                if (blocked) {
+                    break;
+                }
+            } else if (type == OpType::MEASURE || type == OpType::CONDITIONAL_PAULI ||
+                       type == OpType::EXP_VAL) {
+                budget.charge((hir.num_qubits + 2 * axes.size() + 1) * words);
+                const auto axis = frame.read(hir.mask_view(op), hir.num_qubits);
+                if (!required.commutes(axis.view())) {
+                    break;
+                }
+                Mask flip;
+                for (size_t j = 0; j < axes.size(); ++j) {
+                    if (!axis.view().commutes(axes[j].view())) {
+                        flip.bit_set(static_cast<uint32_t>(j), true);
+                    }
+                }
+                ensure_polynomial();
+                const auto difference = pauli_derivative(polynomial, flip, budget);
+                if (!difference) {
+                    break;
+                }
+                auto pulled = axis;
+                budget.charge((difference->parity.popcount() + 1) * words);
+                const auto correction = product(axes, difference->parity, hir.num_qubits);
+                pulled.right_multiply(correction.view());
+                pulled.add_phase(static_cast<uint8_t>((-int(difference->constant) / 2) & 3));
+                assert(pulled.is_hermitian());
+                observers.push_back({i, std::move(pulled)});
+                available.intersect(axis.view());
+            } else if (type != OpType::DETECTOR && type != OpType::OBSERVABLE &&
+                       type != OpType::READOUT_NOISE) {
                 break;
             }
-            residual.set_sign(residual.sign() ^ *negative);
-            required.insert(std::move(residual));
-            int coefficient = hir.ops[end].is_dagger() != axis.sign() ? -1 : 1;
-            if (*negative)
-                coefficient = -coefficient;
-            budget.add(terms, mask, coefficient);
+            end = i + 1;
         }
-        // A narrow prefix must retain the ordinary collector's ability to
-        // pull observers back from later in the region.
-        if (axes.size() <= 64)
+        if (axes.size() <= 64) {
             return std::nullopt;
-        if (!core_fits(terms, axes.size(), budget))
-            return std::nullopt;
-        for (const auto& [mask, coefficient] : terms) {
-            add_parity(polynomial, mask, coefficient, budget);
         }
+        const bool reaches_final_observer =
+            final_observer_end && end >= *final_observer_end && !observers.empty();
+        if (reaches_final_observer) {
+            const size_t odd_terms = static_cast<size_t>(std::ranges::count_if(
+                terms, [](const auto& term) { return (term.second & 1) != 0; }));
+            ensure_polynomial();
+            if (odd_terms < rotations.size() ||
+                !clifford_kernel(polynomial, static_cast<uint32_t>(axes.size()), budget).empty()) {
+                return Rewrite{end, 0, 0, {}, std::move(rotations), std::move(observers), true};
+            }
+        } else if (end > last_t_end) {
+            end = last_t_end;
+            observers.resize(observers_at_last_t);
+            available = std::move(available_at_last_t);
+        }
+        if (!core_fits(terms, axes.size(), budget)) {
+            return std::nullopt;
+        }
+        ensure_polynomial();
         best = synthesize_region(terms, polynomial, axes, end, hir.num_qubits, budget);
-        if (!is_beneficial(*best, end - start, axes.size())) {
+        if (!is_beneficial(*best, rotations.size(), axes.size())) {
             best.reset();
         }
-        if (!hir.final_tableau)
+        if (reaches_final_observer) {
+            if (best) {
+                return Rewrite{end, 0, 0, {}, std::move(rotations), std::move(observers), true};
+            }
+            return std::nullopt;
+        }
+        if (!hir.final_tableau) {
+            if (best) {
+                best->rotations = std::move(rotations);
+                best->observers = std::move(observers);
+            }
             return best;
+        }
 
         // Preserve the collected basis as a valid candidate. The alternative
         // uses output coordinates only when they span the same fixed subspace.
@@ -169,34 +280,43 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                 preferred.push_back(std::move(axis));
             }
         }
-        if (preferred.size() != axes.size())
-            return best;
-        Polynomial aligned_terms, aligned_polynomial;
-        for (const auto& [mask, coefficient] : terms) {
-            budget.charge((hir.num_qubits + 3 * axes.size() + 1) * words);
-            auto remaining = mask;
-            Mask converted;
-            for (const auto& [pivot, row] : conversion) {
-                if (remaining.bit_get(pivot)) {
-                    remaining ^= row.old_coordinates;
-                    converted ^= row.new_coordinates;
+        if (preferred.size() == axes.size()) {
+            Polynomial aligned_terms, aligned_polynomial;
+            bool ok = true;
+            for (const auto& [mask, coefficient] : terms) {
+                budget.charge((hir.num_qubits + 3 * axes.size() + 1) * words);
+                auto remaining = mask;
+                Mask converted;
+                for (const auto& [pivot, row] : conversion) {
+                    if (remaining.bit_get(pivot)) {
+                        remaining ^= row.old_coordinates;
+                        converted ^= row.new_coordinates;
+                    }
+                }
+                assert(remaining.is_zero());
+                auto residual = product(axes, mask, hir.num_qubits);
+                residual.right_multiply(product(preferred, converted, hir.num_qubits).view());
+                const auto negative = available.eigenvalue(residual);
+                if (!negative) {
+                    ok = false;
+                    break;
+                }
+                const int signed_coefficient = *negative ? -coefficient : coefficient;
+                budget.add(aligned_terms, converted, signed_coefficient);
+                add_parity(aligned_polynomial, converted, signed_coefficient, budget);
+            }
+            if (ok) {
+                auto aligned = synthesize_region(aligned_terms, std::move(aligned_polynomial),
+                                                 preferred, end, hir.num_qubits, budget);
+                if (is_beneficial(aligned, rotations.size(), axes.size()) &&
+                    (!best || is_better(aligned, *best))) {
+                    best = std::move(aligned);
                 }
             }
-            assert(remaining.is_zero());
-            auto residual = product(axes, mask, hir.num_qubits);
-            residual.right_multiply(product(preferred, converted, hir.num_qubits).view());
-            const auto negative = fixed.eigenvalue(residual);
-            if (!negative)
-                return best;
-            const int signed_coefficient = *negative ? -coefficient : coefficient;
-            budget.add(aligned_terms, converted, signed_coefficient);
-            add_parity(aligned_polynomial, converted, signed_coefficient, budget);
         }
-        auto aligned = synthesize_region(aligned_terms, std::move(aligned_polynomial), preferred,
-                                         end, hir.num_qubits, budget);
-        if (is_beneficial(aligned, end - start, axes.size()) &&
-            (!best || is_better(aligned, *best))) {
-            best = std::move(aligned);
+        if (best) {
+            best->rotations = std::move(rotations);
+            best->observers = std::move(observers);
         }
     } catch (const SearchLimit&) {
         // The caller can still use a completed candidate or the ordinary path.

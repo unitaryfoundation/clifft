@@ -346,6 +346,7 @@ def basis_probabilities(
     Pass ``return_log=True`` to get natural-log probabilities. Zero
     probabilities map to ``-inf`` in log output.
     """
+    _ = program.original_plan
     probs = cast(
         npt.NDArray[np.float64],
         _basis_probabilities_from_bitmasks(
@@ -439,6 +440,7 @@ def record_probabilities(
     underflow float64, pass ``return_log=True`` so the log-domain values
     survive.
     """
+    _ = program.original_plan
     # Reject zero-measurement programs up front so a user who passes a real
     # record string against a unitary program gets the right hint rather
     # than the wrapper's record-length mismatch error.
@@ -509,12 +511,12 @@ def compile(
         reconstruction: Opt in to bounded global reconstruction for ordinary
             CPU sampling. Compilation prepares reconstructed plans for
             sampling with and without measurement records, including syndrome rows
-            and survivor counts. To limit cost,
-            candidates must reduce peak active width before lowering and after
-            optimization. Inspect
+            and survivor counts, even when the original HIR reaches the dense
+            active-width limit. Inspect
             ``program.sampling_plan(keep_records=...)`` for details.
-            State queries, exact probabilities, and fixed-fault sampling always
-            use the original plan.
+            State queries, exact probabilities, replay, and fixed-fault sampling
+            require the original plan and raise ``OverflowError`` when it
+            exceeded the dense active-width limit.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()

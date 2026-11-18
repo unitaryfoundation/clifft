@@ -13,6 +13,7 @@
 #include <cassert>
 #include <map>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -119,11 +120,7 @@ bool commutes_with_prefix(const HirModule& hir, size_t start, size_t end, PauliM
 }
 
 using optimizer_detail::CliffordAbsorption;
-
-struct Observer {
-    size_t index;
-    PauliString pulled_axis;
-};
+using phase_detail::wide::Observer;
 
 struct Block {
     size_t end;
@@ -172,7 +169,8 @@ class Rewriter {
                             wide_budget_.max_updates && wide_budget_.max_terms) {
                             ++wide_attempts;
                             auto wide = phase_detail::wide::try_region(
-                                hir(), i, entry, cliffords_, max_variables_, wide_budget_);
+                                hir(), i, entry, cliffords_, max_variables_, wide_budget_,
+                                postselected, final_observer_end_);
                             if (wide) {
                                 emit_wide(i, *wide);
                                 ++blocks_examined;
@@ -439,7 +437,76 @@ class Rewriter {
         return block;
     }
 
+    void emit_pulled_prefix(size_t start, size_t end, std::span<const Observer> observers) {
+        start_candidate(start);
+        for (const auto& observer : observers) {
+            candidate_->set_mask(candidate_->ops[observer.index], observer.pulled_axis);
+        }
+        for (size_t i = start; i < end; ++i) {
+            if (hir().ops[i].op_type() != OpType::T_GATE) {
+                if (hir().ops[i].op_type() == OpType::NOISE) {
+                    transform(hir().ops[i]);
+                }
+                emit(i);
+            }
+        }
+    }
+
+    void elide_after_observers(size_t start, size_t end, std::span<const Observer> observers) {
+        emit_pulled_prefix(start, end, observers);
+        candidate_->final_tableau.reset();
+        ++blocks_reduced;
+        pauli_pullbacks += observers.size();
+    }
+
+    std::vector<uint32_t> collect_sources(std::span<const size_t> rotations) const {
+        std::vector<uint32_t> sources;
+        if (!hir().source_map.empty()) {
+            for (size_t index : rotations) {
+                sources.insert(sources.end(), hir().source_map[index].begin(),
+                               hir().source_map[index].end());
+            }
+            std::ranges::sort(sources);
+            sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+        }
+        return sources;
+    }
+
+    void emit_synthesized_phase(const PauliString& axis, int coefficient,
+                                std::span<const size_t> rotations, size_t& written,
+                                const std::vector<uint32_t>& sources) {
+        int correction = coefficient;
+        if (coefficient & 1) {
+            const bool dagger = coefficient >= 5;
+            auto& op = candidate_->ops[rotations[written++]];
+            candidate_->demote_to_tgate(op, dagger);
+            candidate_->set_mask(op, axis);
+            output_.push_back(op);
+            known_.advance(hir(), op);
+            if (!hir().source_map.empty()) {
+                sources_.push_back(sources);
+            }
+            correction = (coefficient - (dagger ? -1 : 1)) & 7;
+        }
+        if (correction) {
+            cliffords_.absorb(axis, static_cast<uint8_t>(correction));
+        }
+    }
+
     bool rewrite(size_t start, Block& block) {
+        const bool reaches_final_observer =
+            final_observer_end_ && block.end >= *final_observer_end_ && !block.observers.empty();
+        if (reaches_final_observer) {
+            const size_t odd_terms = static_cast<size_t>(std::ranges::count_if(
+                block.original_terms, [](const auto& term) { return (term.second & 1) != 0; }));
+            if (elide_unreduced_post_observer_ || odd_terms < block.rotations.size() ||
+                !phase_detail::clifford_kernel(block.polynomial,
+                                               static_cast<uint32_t>(block.generators.size()))
+                     .empty()) {
+                elide_after_observers(start, block.end, block.observers);
+                return true;
+            }
+        }
         const auto basis = phase_detail::reduce_core(
             block.polynomial, static_cast<uint32_t>(block.generators.size()));
         const auto synthesis =
@@ -449,60 +516,27 @@ class Rewriter {
         const bool reduced_polynomial = synthesized_count < block.rotations.size() ||
                                         (synthesized_count == block.rotations.size() &&
                                          basis.core_width < block.generators.size());
-        const bool elide_post_observer = (reduced_polynomial || elide_unreduced_post_observer_) &&
-                                         final_observer_end_ && block.end >= *final_observer_end_ &&
-                                         !block.observers.empty();
+        const bool elide_post_observer =
+            (reduced_polynomial || elide_unreduced_post_observer_) && reaches_final_observer;
         if (!reduced_polynomial && !elide_post_observer) {
             return false;
         }
-        start_candidate(start);
+        if (elide_post_observer) {
+            elide_after_observers(start, block.end, block.observers);
+            return true;
+        }
+        emit_pulled_prefix(start, block.end, block.observers);
         std::vector<PauliString> generators;
         for (uint64_t parity : basis.parities) {
             generators.push_back(product_axis(block.generators, parity, hir().num_qubits));
         }
-        for (const auto& observer : block.observers) {
-            candidate_->set_mask(candidate_->ops[observer.index], observer.pulled_axis);
-        }
-        for (size_t i = start; i < block.end; ++i) {
-            if (hir().ops[i].op_type() != OpType::T_GATE) {
-                if (hir().ops[i].op_type() == OpType::NOISE) {
-                    transform(hir().ops[i]);
-                }
-                emit(i);
-            }
-        }
-        std::vector<uint32_t> sources;
-        if (!hir().source_map.empty() && !elide_post_observer) {
-            for (size_t index : block.rotations) {
-                const auto& original = hir().source_map[index];
-                sources.insert(sources.end(), original.begin(), original.end());
-            }
-            std::ranges::sort(sources);
-            sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
-        }
+        const auto sources = collect_sources(block.rotations);
         size_t written = 0;
         for (const auto& [parity, coefficient] : synthesis) {
-            const auto axis = product_axis(generators, parity, hir().num_qubits);
-            int clifford = coefficient;
-            if (coefficient & 1) {
-                const bool dagger = coefficient >= 5;
-                if (!elide_post_observer) {
-                    auto& op = candidate_->ops[block.rotations[written++]];
-                    candidate_->demote_to_tgate(op, dagger);
-                    candidate_->set_mask(op, axis);
-                    output_.push_back(op);
-                    known_.advance(hir(), op);
-                    if (!hir().source_map.empty()) {
-                        sources_.push_back(sources);
-                    }
-                }
-                clifford = (coefficient - (dagger ? -1 : 1)) & 7;
-            }
-            if (clifford) {
-                cliffords_.absorb(axis, static_cast<uint8_t>(clifford));
-            }
+            emit_synthesized_phase(product_axis(generators, parity, hir().num_qubits), coefficient,
+                                   block.rotations, written, sources);
         }
-        assert(written == (elide_post_observer ? 0 : synthesized_count));
+        assert(written == synthesized_count);
         static_cast<void>(written);
         ++blocks_reduced;
         pauli_pullbacks += block.observers.size();
@@ -510,36 +544,22 @@ class Rewriter {
     }
 
     void emit_wide(size_t start, const phase_detail::wide::Rewrite& rewrite) {
-        start_candidate(start);
-        std::vector<uint32_t> sources;
-        if (!hir().source_map.empty()) {
-            for (size_t i = start; i < rewrite.end; ++i) {
-                sources.insert(sources.end(), hir().source_map[i].begin(),
-                               hir().source_map[i].end());
-            }
-            std::ranges::sort(sources);
-            sources.erase(std::unique(sources.begin(), sources.end()), sources.end());
+        if (rewrite.elide_post_observer) {
+            elide_after_observers(start, rewrite.end, rewrite.observers);
+            ++wide_rewrites;
+            return;
         }
+        emit_pulled_prefix(start, rewrite.end, rewrite.observers);
+        const auto sources = collect_sources(rewrite.rotations);
         size_t written = 0;
         for (const auto& [axis, coefficient] : rewrite.phases) {
-            int correction = coefficient;
-            if (coefficient & 1) {
-                const bool dagger = coefficient >= 5;
-                auto& op = candidate_->ops[start + written++];
-                candidate_->demote_to_tgate(op, dagger);
-                candidate_->set_mask(op, axis);
-                output_.push_back(op);
-                known_.advance(hir(), op);
-                if (!hir().source_map.empty())
-                    sources_.push_back(sources);
-                correction = (coefficient - (dagger ? -1 : 1)) & 7;
-            }
-            if (correction)
-                cliffords_.absorb(axis, static_cast<uint8_t>(correction));
+            emit_synthesized_phase(axis, coefficient, rewrite.rotations, written, sources);
         }
         assert(written == rewrite.t_count);
+        static_cast<void>(written);
         ++blocks_reduced;
         ++wide_rewrites;
+        pauli_pullbacks += rewrite.observers.size();
     }
 
     void transform(const HeisenbergOp& op) {

@@ -1447,4 +1447,53 @@ TEST_CASE("Global reconstruction prefers rotation-stabilizing hidden nullspace c
     }
 }
 
+TEST_CASE("Global reconstruction elides stabilized rotations and groups duplicate rotation axes",
+          "[reconstruction]") {
+    // Unmeasured magic outputs stabilized by synthesized nullspace measurements
+    // must be dropped from the scheduled operation list rather than inflating
+    // downstream phase-polynomial variable counts.
+    {
+        const auto circuit = parse("H 0\nCX 0 1\nT 0\nMPP Z1*X2\nMX 0\nDETECTOR rec[-1]\n");
+        const auto res = reconstruct_global_sampling(circuit, ReconstructionOutputs::Detectors);
+        REQUIRE(res.reconstruction.has_value());
+        REQUIRE(res.reconstruction->peak_active_width == 0);
+        REQUIRE(std::ranges::none_of(
+            res.reconstruction->operations,
+            [](const ReconstructionOperation& op) { return op.half_turns != 0.0; }));
+    }
+
+    // Commuting rotations on identical axes share one scheduler DAG node while
+    // retaining all rotation steps in the emitted operation sequence and law.
+    {
+        std::string text = "H 0 1\n";
+        for (int i = 0; i < 6; ++i) {
+            text += "X_ERROR(0.05) 0\nT 0\nT_DAG 0\n";
+        }
+        text += "T 1\nH 0 1\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n";
+        const auto circuit = parse(text);
+        const auto expected = compute_dense_circuit_distribution(circuit);
+
+        // 13 rotations collapse to 2 distinct rotation axes + 2 output axes + 2 nullspace
+        // candidates (<= 8 unique DAG nodes), whereas ungrouped scheduling would need >= 15.
+        ReconstructionLimits limits;
+        limits.max_schedule_operations = 20;
+        const auto res =
+            reconstruct_global_sampling(circuit, ReconstructionOutputs::Records, limits);
+        INFO(res.fallback_reason);
+        REQUIRE(res.reconstruction.has_value());
+        REQUIRE(res.reconstruction->peak_active_width == 1);
+        const auto rotation_count = std::ranges::count_if(
+            res.reconstruction->operations,
+            [](const ReconstructionOperation& op) { return op.half_turns != 0.0; });
+        REQUIRE(rotation_count == 13);
+
+        auto lowered = lower_global_reconstruction(*res.reconstruction);
+        REQUIRE(lowered.hir.has_value());
+        default_hir_pass_manager().run(*lowered.hir);
+        const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+        require_same_law(output_law(actual, res.reconstruction->outputs),
+                         output_law(expected, res.reconstruction->outputs));
+    }
+}
+
 }  // namespace clifft::test

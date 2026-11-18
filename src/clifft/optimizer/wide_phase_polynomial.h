@@ -3,10 +3,12 @@
 #include "clifft/optimizer/tohpe.h"
 #include "clifft/util/bitmask.h"
 
+#include <array>
 #include <bit>
 #include <cassert>
 #include <cstdint>
 #include <map>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -299,5 +301,81 @@ inline Polynomial synthesize(const Polynomial& terms, const Polynomial& reduced,
         }
     }
     return out;
+}
+
+struct PauliDerivative {
+    Mask parity;
+    uint8_t constant = 0;
+};
+
+// Returns p(x xor flip) - p(x) = constant + 4 * parity(x), or no value when
+// conjugation of a Pauli with this flip is no longer a Pauli.
+inline std::optional<PauliDerivative> pauli_derivative(const Polynomial& p, Mask flip,
+                                                       Budget& budget) {
+    if (flip.is_zero()) {
+        return PauliDerivative{{}, 0};
+    }
+    budget.charge(p.size());
+    int constant = 0;
+    std::array<uint8_t, 128> linear{};
+    std::array<Mask, 128> quadratic{};
+    const auto add_term = [&](Mask term, int coeff) {
+        coeff &= 7;
+        if (!coeff) {
+            return;
+        }
+        const uint32_t deg = term.popcount();
+        if (deg == 0) {
+            constant = (constant + coeff) & 7;
+        } else if (deg == 1) {
+            const uint32_t i = term.lowest_bit() & 127U;
+            linear[i] = static_cast<uint8_t>((linear[i] + coeff) & 7);
+        } else {
+            assert(deg == 2 && coeff == 4);
+            const uint32_t a = term.lowest_bit() & 127U;
+            term.clear_lowest_bit();
+            quadratic[a] ^= term;
+        }
+    };
+    for (const auto& [mask, raw_c] : p) {
+        const Mask v = mask & flip;
+        if (v.is_zero()) {
+            continue;
+        }
+        assert(mask.popcount() <= 3);
+        const Mask u = mask ^ v;
+        const int c = raw_c;
+        const uint32_t d = v.popcount();
+        add_term(u, c);
+        const int c1 = d == 1 ? -2 * c : -c;
+        for (Mask bits = v; !bits.is_zero(); bits.clear_lowest_bit()) {
+            const Mask first = bit(bits.lowest_bit());
+            add_term(u | first, c1);
+            if (d == 3) {
+                Mask pairs = bits;
+                pairs.clear_lowest_bit();
+                for (; !pairs.is_zero(); pairs.clear_lowest_bit()) {
+                    add_term(first | bit(pairs.lowest_bit()), 4);
+                }
+            }
+        }
+    }
+    if ((constant & 1) != 0) {
+        return std::nullopt;
+    }
+    for (const Mask& row : quadratic) {
+        if (!row.is_zero()) {
+            return std::nullopt;
+        }
+    }
+    Mask z;
+    for (uint32_t i = 0; i < 128; ++i) {
+        if (linear[i] == 4) {
+            z.bit_set(i, true);
+        } else if (linear[i] != 0) {
+            return std::nullopt;
+        }
+    }
+    return PauliDerivative{z, static_cast<uint8_t>(constant)};
 }
 }  // namespace clifft::phase_detail::wide

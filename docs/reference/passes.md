@@ -129,13 +129,14 @@ can have more physical qubits than this limit. Collection starts at
 `max_variables=64` restricts collection to one-word regions.
 
 When `max_variables > 64` and the 64-variable attempt is capped, the pass can
-try a complete contiguous commuting T region up to `max_variables` using
-two-word coordinates. This path keeps an
-ordinary-basis candidate and tries one basis derived from the final Clifford
-tableau. It crosses no measurement, feedback, noise, or instrument boundaries.
+try a complete commuting T region up to `max_variables` using two-word
+coordinates, applying the same observer-pullback and commuting-noise rules
+while stopping at instrument boundaries. This path keeps an ordinary-basis
+candidate and tries one basis derived from the final Clifford tableau.
 Synthesis still supports at most 64 core variables and searches at most 128 odd
-parity terms. A signature-rank precheck rejects unsupported cores before cubic
-polynomial expansion.
+parity terms (with a signature-rank precheck before cubic expansion), while
+regions reaching the final observer can elide reduced post-observer rotations
+directly across the full two-word variable range.
 
 `max_wide_work` (default `50000000`) bounds deterministic work units shared by
 all wide attempts and both basis candidates in one pass. The units include

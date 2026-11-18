@@ -352,8 +352,8 @@ const char* width_effect_to_str(clifft::WidthEffect effect) {
 // All retained arrays own their native vectors; omitted arrays retain the
 // circuit's declared column width and zero-column outputs retain the row count.
 template <typename Result>
-nb::object sampling_result_to_python(Result result, const clifft::sampling::ExecutablePlan& program,
-                                     size_t rows, clifft::sampling::SamplingOutputs outputs) {
+nb::object sampling_result_to_python(Result result, const clifft::Program& program, size_t rows,
+                                     clifft::sampling::SamplingOutputs outputs) {
     warn_if_batch_tuning_inconclusive(result.batch_tuning);
     const auto bits = [&](std::vector<uint8_t> values, size_t columns, bool retained) {
         return vec_to_numpy(std::move(values),
@@ -1592,22 +1592,19 @@ NB_MODULE(_clifft_core, m) {
                 return p.sampling_plan(true).peak_active_width();
             },
             "Deprecated alias for peak_active_width.")
-        .def_prop_ro("num_qubits",
-                     [](const clifft::Program& p) { return p.original().num_qubits(); })
+        .def_prop_ro("num_qubits", [](const clifft::Program& p) { return p.num_qubits(); })
         .def_prop_ro("num_measurements",
-                     [](const clifft::Program& p) { return p.original().num_visible_records(); })
+                     [](const clifft::Program& p) { return p.num_visible_records(); })
         .def_prop_ro(
             "num_hidden_measurements",
-            [](const clifft::Program& p) { return p.original().num_hidden_records(); },
+            [](const clifft::Program& p) { return p.num_hidden_records(); },
             "Hidden measurement count in the original executable used by replay.")
-        .def_prop_ro("num_detectors",
-                     [](const clifft::Program& p) { return p.original().num_detectors(); })
+        .def_prop_ro("num_detectors", [](const clifft::Program& p) { return p.num_detectors(); })
         .def_prop_ro("num_observables",
-                     [](const clifft::Program& p) { return p.original().num_observables(); })
-        .def_prop_ro("num_exp_vals",
-                     [](const clifft::Program& p) { return p.original().num_exp_vals(); })
+                     [](const clifft::Program& p) { return p.num_observables(); })
+        .def_prop_ro("num_exp_vals", [](const clifft::Program& p) { return p.num_exp_vals(); })
         .def_prop_ro("has_postselection",
-                     [](const clifft::Program& p) { return p.original().has_postselection(); })
+                     [](const clifft::Program& p) { return p.has_postselection(); })
         .def_prop_ro(
             "num_actions",
             [](const clifft::Program& p) { return p.sampling_plan(true).num_actions(); },
@@ -1640,7 +1637,8 @@ NB_MODULE(_clifft_core, m) {
             [](const clifft::Program& p) { return PyPlanView{&p.original(), false, {}}; },
             nb::keep_alive<0, 1>(),
             "Read-only view of the original executable used by exact queries, replay, "
-            "and fixed-fault sampling.")
+            "and fixed-fault sampling. Raises OverflowError when the original HIR exceeded "
+            "the dense active-width limit.")
         .def(
             "sampling_plan",
             [](const clifft::Program& p, const RecordOption& option) {
@@ -1654,24 +1652,38 @@ NB_MODULE(_clifft_core, m) {
                     "typing.Literal['all', 'syndromes', 'measurements']) -> clifft.PlanView"),
             "Return a read-only view of the compiled plan selected for ordinary CPU sampling.\n\n"
             "Selection is prepared during compilation. When reconstruction is disabled or "
-            "falls back, the view describes the original executable. Output preparation can "
-            "remove actions before execution; the view retains the compiled action count.\n\n"
+            "falls back, the view describes the original executable (or raises OverflowError "
+            "when the original HIR also exceeded the dense active-width limit). Output "
+            "preparation can remove actions before execution; the view retains the compiled "
+            "action count.\n\n"
             "Args:\n"
             "    keep_records: Required output choice. Match the sampling call's keep_records "
             "argument (True by default for sample(), False for sample_survivors()).\n\n"
             "Returns:\n"
             "    A PlanView with metrics, inspection methods, and reconstruction diagnostics.")
         .def("__repr__", [](const clifft::Program& p) {
+            if (!p.has_sampling_plan(true)) {
+                const auto& syndromes = p.sampling_plan(false);
+                return "Program(" + std::to_string(syndromes.num_actions()) +
+                       " survivor actions, survivor_peak_active_width=" +
+                       std::to_string(syndromes.peak_active_width()) + ", " +
+                       std::to_string(p.num_visible_records()) +
+                       " measurements, records_plan=unavailable, original_plan=unavailable)";
+            }
             const auto& records = p.sampling_plan(true);
             std::string text =
                 "Program(" + std::to_string(records.num_actions()) +
                 " actions, peak_active_width=" + std::to_string(records.peak_active_width()) +
-                ", " + std::to_string(p.original().num_visible_records()) + " measurements";
-            if (p.original().peak_active_width() != records.peak_active_width()) {
+                ", " + std::to_string(p.num_visible_records()) + " measurements";
+            if (!p.has_original()) {
+                text += ", original_plan=unavailable";
+            } else if (p.original().peak_active_width() != records.peak_active_width()) {
                 text += ", original_peak_active_width=" +
                         std::to_string(p.original().peak_active_width());
             }
-            if (p.sampling_plan(false).peak_active_width() != records.peak_active_width()) {
+            if (!p.has_sampling_plan(false)) {
+                text += ", survivor_plan=unavailable";
+            } else if (p.sampling_plan(false).peak_active_width() != records.peak_active_width()) {
                 text += ", survivor_peak_active_width=" +
                         std::to_string(p.sampling_plan(false).peak_active_width());
             }
@@ -1807,8 +1819,7 @@ NB_MODULE(_clifft_core, m) {
             if (!outputs.rows()) {
                 throw std::invalid_argument("keep_records=False requires a survivor sampling API");
             }
-            const auto& program = owner.original();
-            if (program.has_postselection()) {
+            if (owner.has_postselection()) {
                 const auto choice = nb::repr(nb::cast(keep_records));
                 throw nb::value_error(
                     (std::string("sample() cannot be used with post-selected programs because it "
@@ -1826,7 +1837,7 @@ NB_MODULE(_clifft_core, m) {
                 nb::gil_scoped_release release;
                 result = clifft::sample(owner, shots, seed, outputs, options);
             }
-            return sampling_result_to_python(std::move(result), program, shots, outputs);
+            return sampling_result_to_python(std::move(result), owner, shots, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
@@ -1906,8 +1917,8 @@ NB_MODULE(_clifft_core, m) {
             if (!outputs.rows()) {
                 throw std::invalid_argument("keep_records=False requires a survivor sampling API");
             }
-            const auto& program = owner.original();
-            if (program.has_postselection()) {
+            (void)owner.original();
+            if (owner.has_postselection()) {
                 const auto choice = nb::repr(nb::cast(keep_records));
                 throw nb::value_error(
                     (std::string("sample_k() cannot be used with post-selected programs because it "
@@ -1931,7 +1942,7 @@ NB_MODULE(_clifft_core, m) {
                         .plan(),
                     shots, k, seed, threads, thread_layout, batch_size, tuning_budget, outputs);
             }
-            return sampling_result_to_python(std::move(result), program, shots, outputs);
+            return sampling_result_to_python(std::move(result), owner, shots, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
@@ -1988,7 +1999,7 @@ NB_MODULE(_clifft_core, m) {
            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
            std::optional<double> tuning_budget_seconds, bool bit_packed) {
             const auto outputs = parse_record_option(keep_records, bit_packed);
-            const auto& program = owner.original();
+            (void)owner.original();
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
                 parse_thread_layout(thread_layout_option, intra_shot_min_active_width);
@@ -2009,7 +2020,7 @@ NB_MODULE(_clifft_core, m) {
                                                               batch_size, tuning_budget, noise);
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
-            return sampling_result_to_python(std::move(result), program, rows, outputs);
+            return sampling_result_to_python(std::move(result), owner, rows, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = RecordOption{false}, nb::arg("threads") = int64_t{1},
@@ -2066,7 +2077,6 @@ NB_MODULE(_clifft_core, m) {
            const BoolOrAutoOption& sharing_option, const BoolOrAutoOption& group_by_noise_option,
            const NoisePreparationOption& noise_preparation_option, int64_t max_worker_state_bytes) {
             const auto outputs = parse_record_option(keep_records, bit_packed);
-            const auto& program = owner.original();
             const auto options = parse_sampling_options(
                 thread_option, thread_layout_option, intra_shot_min_active_width, batch_option,
                 tuning_budget_seconds, sharing_option, group_by_noise_option,
@@ -2077,7 +2087,7 @@ NB_MODULE(_clifft_core, m) {
                 result = clifft::sample_survivors(owner, shots, seed, outputs, options);
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
-            return sampling_result_to_python(std::move(result), program, rows, outputs);
+            return sampling_result_to_python(std::move(result), owner, rows, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = RecordOption{false}, nb::arg("threads") = int64_t{1},

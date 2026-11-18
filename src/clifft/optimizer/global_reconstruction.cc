@@ -2160,18 +2160,36 @@ class SuffixTracker {
 void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionLimits& limits) {
     const uint32_t n = result.num_qubits;
 
-    // Separate trivial identity-axis outputs and duplicate-axis output
-    // measurements from the distinct quantum operations that govern active
-    // width. Duplicate-axis outputs run immediately after their representative
-    // once that Pauli is already stabilized.
+    // Separate trivial identity-axis outputs and duplicate-axis commuting
+    // operations from the distinct quantum operations that govern active width.
+    // Commuting same-axis rotations and duplicate-axis output measurements run
+    // immediately after their representative without inflating the scheduler DAG.
     std::vector<ReconstructionOperation> trivial_outputs;
     std::vector<ReconstructionOperation> quantum_ops;
     std::vector<std::vector<ReconstructionOperation>> duplicate_followers;
     using AxisKey = std::pair<Bits, Bits>;
+    std::map<AxisKey, size_t> rotation_representatives;
     std::map<AxisKey, size_t> measurement_representatives;
 
     for (auto& op : result.operations) {
         if (op.half_turns != 0) {
+            AxisKey key{canonical(copy(op.axis.x())), canonical(copy(op.axis.z()))};
+            if (const auto it = rotation_representatives.find(key);
+                it != rotation_representatives.end()) {
+                const size_t rep = it->second;
+                bool commutes_between = true;
+                for (size_t k = rep + 1; k < quantum_ops.size(); ++k) {
+                    if (!op.axis.view().commutes(quantum_ops[k].axis.view())) {
+                        commutes_between = false;
+                        break;
+                    }
+                }
+                if (commutes_between) {
+                    duplicate_followers[rep].push_back(std::move(op));
+                    continue;
+                }
+            }
+            rotation_representatives[std::move(key)] = quantum_ops.size();
             quantum_ops.push_back(std::move(op));
             duplicate_followers.emplace_back();
             continue;
@@ -2306,6 +2324,7 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
     DormantSubspace group(n);
     std::vector<uint32_t> order;
     order.reserve(count);
+    std::vector<uint8_t> stabilized_rotation(count, 0);
     auto apply = [&](DormantSubspace& state, uint32_t j) {
         budget();
         if (quantum_ops[j].half_turns != 0)
@@ -2314,6 +2333,9 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
             state.apply_measurement(quantum_ops[j].axis);
     };
     auto run = [&](uint32_t j) {
+        if (quantum_ops[j].half_turns != 0 && group.contains(quantum_ops[j].axis)) {
+            stabilized_rotation[j] = 1;
+        }
         apply(group, j);
         toggle(pending, j);
         order.push_back(j);
@@ -2375,6 +2397,9 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
     std::vector<ReconstructionOperation> scheduled;
     scheduled.reserve(total_scheduled);
     for (uint32_t j : order) {
+        if (stabilized_rotation[j]) {
+            continue;
+        }
         scheduled.push_back(std::move(quantum_ops[j]));
         if (j >= num_hidden) {
             auto& followers = duplicate_followers[j - num_hidden];

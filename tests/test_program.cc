@@ -13,6 +13,7 @@
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -315,6 +316,111 @@ TEST_CASE("Count only sampling reuses dense noise with bounded packed storage") 
         REQUIRE(actual.logical_errors == expected.logical_errors);
         REQUIRE(actual.observable_ones == expected.observable_ones);
     }
+}
+
+TEST_CASE(
+    "Program compiles reconstructed plans when the original HIR exceeds the dense width limit",
+    "[reconstruction]") {
+    using sampling::RecordOutputs;
+    const auto make_wide = [](bool include_syndromes) {
+        std::string ancillas;
+        std::string parity_cx;
+        for (uint32_t q = 2; q < 64; ++q) {
+            ancillas += " " + std::to_string(q);
+            parity_cx += " " + std::to_string(q) + " 64";
+        }
+        std::string text =
+            "H 0 1" + ancillas + "\nT 0 1" + ancillas + "\nH 0 1\nCX" + parity_cx + "\nM 0 1 64\n";
+        if (include_syndromes) {
+            text += "DETECTOR rec[-3] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]\n";
+        }
+        return parse(text);
+    };
+
+    const auto source = make_wide(true);
+    auto hir = trace(source);
+    default_hir_pass_manager().run(hir);
+    REQUIRE_THROWS_AS(Program::compile(source, hir, false), std::overflow_error);
+
+    // Both output variants reconstruct below kDenseActiveWidthLimit without an original plan.
+    const auto both = Program::compile(source, hir, true);
+    REQUIRE_FALSE(both.has_original());
+    REQUIRE_THROWS_AS(both.original(), std::overflow_error);
+    REQUIRE(both.num_qubits() == 65);
+    REQUIRE(both.num_visible_records() == 3);
+    REQUIRE(both.num_detectors() == 1);
+    REQUIRE(both.num_observables() == 1);
+    REQUIRE(both.num_exp_vals() == 0);
+    REQUIRE_FALSE(both.has_postselection());
+    for (bool keep_records : {false, true}) {
+        REQUIRE(both.has_sampling_plan(keep_records));
+        REQUIRE(both.uses_reconstruction(keep_records));
+        REQUIRE(both.reconstruction_fallback_reason(keep_records).empty());
+        REQUIRE(both.sampling_plan(keep_records).peak_active_width() == 1);
+        REQUIRE(both.sampling_preparation(keep_records).plan().peak_active_width() == 1);
+        REQUIRE_THROWS_AS(both.sampling_preparation(keep_records, {.fixed_faults = true}),
+                          std::overflow_error);
+    }
+
+    // Asymmetric detector-only success: unreferenced graph-state measurements keep
+    // retained-record active width >= kDenseActiveWidthLimit while syndromes fit.
+    {
+        std::string graph_qubits;
+        std::string cz_edges;
+        constexpr uint32_t kGraphCount = 160;
+        for (uint32_t i = 0; i < kGraphCount; ++i) {
+            graph_qubits += " " + std::to_string(2 + i);
+        }
+        for (uint32_t shift : {1U, 17U, 43U, 71U}) {
+            for (uint32_t i = 0; i < kGraphCount; ++i) {
+                cz_edges += " " + std::to_string(2 + i) + " " +
+                            std::to_string(2 + ((i + shift) % kGraphCount));
+            }
+        }
+        const auto detector_only_source = parse(
+            "H 0 1" + graph_qubits + "\nT 0 1" + graph_qubits + "\nH 0 1\nCZ" + cz_edges + "\nMX" +
+            graph_qubits + "\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]\n");
+        auto detector_only_hir = trace(detector_only_source);
+        default_hir_pass_manager().run(detector_only_hir);
+        const auto detector_only = Program::compile(detector_only_source, detector_only_hir, true);
+        REQUIRE_FALSE(detector_only.has_original());
+        REQUIRE(detector_only.has_sampling_plan(false));
+        REQUIRE_FALSE(detector_only.has_sampling_plan(true));
+        REQUIRE(detector_only.uses_reconstruction(false));
+        REQUIRE_FALSE(detector_only.uses_reconstruction(true));
+        REQUIRE(detector_only.reconstruction_fallback_reason(true) ==
+                "reconstruction schedule reaches the dense active-width limit");
+        REQUIRE(detector_only.sampling_plan(false).peak_active_width() == 1);
+        REQUIRE(detector_only.sampling_preparation(RecordOutputs::Syndromes)
+                    .plan()
+                    .peak_active_width() == 1);
+        REQUIRE_THROWS_AS(detector_only.sampling_plan(true), std::overflow_error);
+        REQUIRE_THROWS_AS(detector_only.sampling_preparation(true), std::overflow_error);
+        REQUIRE_THROWS_AS(detector_only.sampling_preparation(RecordOutputs::Measurements),
+                          std::overflow_error);
+    }
+
+    // Asymmetric record-only success: zero detectors and observables skip detector reconstruction.
+    const auto record_source = make_wide(false);
+    auto record_hir = trace(record_source);
+    default_hir_pass_manager().run(record_hir);
+    const auto record_only = Program::compile(record_source, record_hir, true);
+    REQUIRE_FALSE(record_only.has_original());
+    REQUIRE_FALSE(record_only.has_sampling_plan(false));
+    REQUIRE(record_only.has_sampling_plan(true));
+    REQUIRE_FALSE(record_only.uses_reconstruction(false));
+    REQUIRE(record_only.uses_reconstruction(true));
+    REQUIRE(record_only.sampling_plan(true).peak_active_width() == 1);
+    REQUIRE(record_only.sampling_preparation(true).plan().peak_active_width() == 1);
+    REQUIRE_THROWS_AS(record_only.sampling_plan(false), std::overflow_error);
+    REQUIRE_THROWS_AS(record_only.sampling_preparation(false), std::overflow_error);
+
+    // Compilation fails when neither variant can reconstruct below kDenseActiveWidthLimit.
+    REQUIRE_THROWS_AS(Program::compile(source, hir, true, false), std::overflow_error);
+    ReconstructionLimits tight_dilation;
+    tight_dilation.max_dilation_qubits = 1;
+    REQUIRE_THROWS_AS(Program::compile(source, hir, true, true, tight_dilation),
+                      std::overflow_error);
 }
 
 }  // namespace clifft::test

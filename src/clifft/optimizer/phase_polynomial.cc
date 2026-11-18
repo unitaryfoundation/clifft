@@ -3,6 +3,7 @@
 #include "clifft/optimizer/tohpe.h"
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <cassert>
 #include <stdexcept>
@@ -48,28 +49,6 @@ void substitute_cx(Polynomial& p, uint64_t control, uint64_t target) {
     p = std::move(out);
 }
 
-Polynomial derivative(Polynomial p, uint64_t flip) {
-    const auto original = p;
-    while (flip) {
-        const uint64_t bit = flip & -flip;
-        Polynomial out;
-        for (const auto& [mask, c] : p) {
-            if (mask & bit) {
-                add(out, mask ^ bit, c);
-                add(out, mask, -c);
-            } else {
-                add(out, mask, c);
-            }
-        }
-        p = std::move(out);
-        flip &= flip - 1;
-    }
-    for (const auto& [mask, c] : original) {
-        add(p, mask, -c);
-    }
-    return p;
-}
-
 }  // namespace
 
 void add_parity(Polynomial& p, uint64_t parity, int coefficient) {
@@ -92,23 +71,17 @@ std::vector<uint64_t> clifford_kernel(const Polynomial& p, uint32_t width) {
     // then reduce modulo two. Weighted degree makes these obstructions linear
     // in the translation, so their nullspace gives exactly the Pauli derivatives.
     std::map<uint64_t, uint64_t> constraints;
-    for (uint32_t j = 0; j < width; ++j) {
-        const uint64_t bit = uint64_t{1} << j;
-        Polynomial derivative;
-        for (const auto& [mask, c] : p) {
-            if (mask & bit) {
-                add(derivative, mask ^ bit, c);
-                add(derivative, mask, -2 * c);
-            }
+    for (const auto& [mask, c] : p) {
+        const auto degree = std::popcount(mask);
+        assert(degree <= 3);
+        if (!degree || !(c & (1U << (degree - 1)))) {
+            continue;
         }
-        for (const auto& [mask, c] : derivative) {
-            const auto degree = std::popcount(mask);
-            const bool non_pauli = degree == 0   ? (c & 1) != 0
-                                   : degree == 1 ? ((c / 2) & 1) != 0
-                                                 : ((c / 4) & 1) != 0;
-            assert(degree <= 2);
-            if (non_pauli) {
-                constraints[mask] |= bit;
+        for (uint64_t bits = mask; bits; bits &= bits - 1) {
+            const uint64_t variable = bits & -bits;
+            constraints[mask ^ variable] |= variable;
+            if (degree < 3) {
+                constraints[mask] |= variable;
             }
         }
     }
@@ -241,20 +214,65 @@ Polynomial synthesize_parities(const Polynomial& terms, const Polynomial& reduce
 }
 
 std::optional<PauliDerivative> pauli_derivative(const Polynomial& p, uint64_t flip) {
-    const auto difference = derivative(p, flip);
+    if (flip == 0) {
+        return PauliDerivative{0, 0};
+    }
     int constant = 0;
-    uint64_t z = 0;
-    for (const auto& [mask, c] : difference) {
-        if (!mask) {
-            constant = c;
-        } else if (std::popcount(mask) == 1 && c == 4) {
-            z |= mask;
+    std::array<uint8_t, 64> linear{};
+    std::array<uint64_t, 64> quadratic{};
+    const auto add_term = [&](uint64_t term, int coeff) {
+        coeff &= 7;
+        if (!coeff) {
+            return;
+        }
+        const int deg = std::popcount(term);
+        if (deg == 0) {
+            constant = (constant + coeff) & 7;
+        } else if (deg == 1) {
+            const uint32_t i = std::countr_zero(term) & 63U;
+            linear[i] = static_cast<uint8_t>((linear[i] + coeff) & 7);
         } else {
+            assert(deg == 2 && coeff == 4);
+            const uint32_t a = std::countr_zero(term) & 63U;
+            quadratic[a] ^= term & (term - 1);
+        }
+    };
+    for (const auto& [mask, raw_c] : p) {
+        const uint64_t v = mask & flip;
+        if (!v) {
+            continue;
+        }
+        assert(std::popcount(mask) <= 3);
+        const uint64_t u = mask ^ v;
+        const int c = raw_c;
+        const int d = std::popcount(v);
+        add_term(u, c);
+        const int c1 = d == 1 ? -2 * c : -c;
+        for (uint64_t bits = v; bits; bits &= bits - 1) {
+            const uint64_t first = bits & -bits;
+            add_term(u | first, c1);
+            if (d == 3) {
+                for (uint64_t pairs = bits & (bits - 1); pairs; pairs &= pairs - 1) {
+                    add_term(first | (pairs & -pairs), 4);
+                }
+            }
+        }
+    }
+    if ((constant & 1) != 0) {
+        return std::nullopt;
+    }
+    for (uint64_t row : quadratic) {
+        if (row != 0) {
             return std::nullopt;
         }
     }
-    if (constant & 1) {
-        return std::nullopt;
+    uint64_t z = 0;
+    for (uint32_t i = 0; i < 64; ++i) {
+        if (linear[i] == 4) {
+            z |= uint64_t{1} << i;
+        } else if (linear[i] != 0) {
+            return std::nullopt;
+        }
     }
     return PauliDerivative{z, static_cast<uint8_t>(constant)};
 }
