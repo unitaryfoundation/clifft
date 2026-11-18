@@ -143,8 +143,9 @@ omitted when the phase polynomial reduces.
 all wide attempts and both basis candidates in one pass. The units include
 polynomial updates, charged row operations, and an allowance for synthesis.
 Work units are not a wall-clock limit; their cost depends on the polynomial.
-`max_wide_terms` (default `200000`) bounds each polynomial's size. Setting either
-budget to zero (or setting `max_variables <= 64`) disables the two-word path.
+`max_wide_terms` (default `200000`) bounds the number of distinct parities in
+each wide phase table. Setting either budget to zero (or setting
+`max_variables <= 64`) disables the two-word path.
 If an extension reaches a variable or search limit, the pass keeps the best
 rewrite it has completed and processes the remaining operations normally. If
 it has yet to find a beneficial wide rewrite, it falls back to smaller regions.

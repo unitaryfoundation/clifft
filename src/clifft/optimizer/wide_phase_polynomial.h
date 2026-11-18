@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-// Optional multiword algebra. The ordinary path retains single-word operations.
+// Phase synthesis on XOR parity tables with up to 128 independent variables.
 namespace clifft::phase_detail::wide {
 using Mask = BitMask<128>;
 struct Less {
@@ -21,12 +21,7 @@ struct Less {
         return a.w[1] != b.w[1] ? a.w[1] < b.w[1] : a.w[0] < b.w[0];
     }
 };
-// Sparse coefficients modulo eight, indexed by masks of Boolean variables.
-// In an expanded polynomial, {0b0101, 4} means 4*x0*x2. Linear coefficients
-// are arbitrary, quadratic coefficients are even, and cubic ones are multiples
-// of four. The same storage holds XOR parity terms during collection and in
-// synthesis results: there, {0b0101, 4} means 4*(x0 XOR x2).
-// Zero coefficients are omitted in both representations.
+// Each mask selects an XOR of eigenbits, with its phase coefficient modulo eight.
 using Polynomial = std::map<Mask, uint8_t, Less>;
 
 // Only expected search limits may discard an optional candidate.
@@ -46,16 +41,16 @@ struct Budget {
         updates += amount;
     }
 
-    void add(Polynomial& p, Mask monomial, int coefficient) {
+    void add(Polynomial& p, Mask parity, int coefficient) {
         charge();
-        const auto found = p.find(monomial);
+        const auto found = p.find(parity);
         const auto value = uint8_t((coefficient + (found == p.end() ? 0 : found->second)) & 7);
         if (value) {
             if (found == p.end() && p.size() >= max_terms) {
                 exhausted = true;
                 throw SearchLimit{};
             }
-            p[monomial] = value;
+            p[parity] = value;
         } else if (found != p.end()) {
             p.erase(found);
         }
@@ -66,24 +61,6 @@ inline Mask bit(uint32_t index) {
     Mask result;
     result.bit_set(index, true);
     return result;
-}
-
-inline void add_parity(Polynomial& p, Mask parity, int coefficient, Budget& budget) {
-    for (auto a = parity; !a.is_zero(); a.clear_lowest_bit()) {
-        const auto first = bit(a.lowest_bit());
-        budget.add(p, first, coefficient);
-        auto b = a;
-        b.clear_lowest_bit();
-        for (; !b.is_zero(); b.clear_lowest_bit()) {
-            const auto second = bit(b.lowest_bit());
-            budget.add(p, first | second, -2 * coefficient);
-            auto c = b;
-            c.clear_lowest_bit();
-            for (; !c.is_zero(); c.clear_lowest_bit()) {
-                budget.add(p, first | second | bit(c.lowest_bit()), 4 * coefficient);
-            }
-        }
-    }
 }
 
 inline void insert_row(std::map<uint32_t, Mask>& basis, Mask row) {
@@ -99,95 +76,105 @@ inline void insert_row(std::map<uint32_t, Mask>& basis, Mask row) {
     }
 }
 
-// The weighted phase signature is the symmetric cubic tensor sum y*y*y
-// over odd parity columns y. Its pair-versus-single flattening has the same
-// kernel as the finite-difference constraints. Reject an unsupported core
-// before materializing a potentially dense cubic polynomial.
-inline bool core_fits(const Polynomial& terms, uint32_t width, Budget& budget) {
-    std::vector<Mask> rows(width * (width + 1) / 2);
-    Mask linear;
-    for (const auto& [parity, coefficient] : terms) {
-        budget.charge();
-        if (!(coefficient & 1))
-            continue;
-        linear ^= parity;
-        for (auto a = parity; !a.is_zero(); a.clear_lowest_bit()) {
-            const auto i = a.lowest_bit();
-            for (auto b = a; !b.is_zero(); b.clear_lowest_bit()) {
-                budget.charge();
-                const auto j = b.lowest_bit();
-                rows[j * (j + 1) / 2 + i] ^= parity;
-            }
-        }
-    }
-    std::map<uint32_t, Mask> pivots;
-    insert_row(pivots, linear);
-    for (auto row : rows) {
-        budget.charge(width + 1);
-        insert_row(pivots, row);
-        if (pivots.size() > 64)
-            return false;
-    }
-    return true;
-}
+// A parity with weight c contributes c to each selected bit and -2c to each
+// selected pair in the Boolean polynomial modulo eight.
+// For each pair (i,j), odd_columns records the XOR of the odd parity masks
+// containing both bits. Bit k of this row is the cubic signature entry ijk.
+// This packs all third indices into one two-word row per pair.
+struct PhaseSignature {
+    struct Pair {
+        uint8_t weight = 0;  // Sum of parity coefficients modulo four.
+        Mask odd_columns;
+    };
+    std::array<uint8_t, Mask::kBits> linear{};
+    std::map<std::pair<uint32_t, uint32_t>, Pair> pairs;
 
-inline std::vector<Mask> clifford_kernel(const Polynomial& polynomial, uint32_t width,
-                                         Budget& budget) {
-    std::map<Mask, Mask, Less> constraints;
-    // For a degree-d monomial containing j, the finite difference has
-    // c*m_without_j - 2*c*m. Its weighted non-Pauli signature is c/2^(d-1)
-    // modulo two in both rows; the degree-three second term vanishes mod eight.
-    // Building those rows directly avoids one polynomial scan per variable.
-    for (const auto& [mask, coefficient] : polynomial) {
-        const auto degree = mask.popcount();
-        assert(degree <= 3);
-        budget.charge();
-        if (!degree || !(coefficient & (1U << (degree - 1))))
-            continue;
-        for (auto bits = mask; !bits.is_zero(); bits.clear_lowest_bit()) {
-            const auto variable = bit(bits.lowest_bit());
-            budget.charge(2);
-            constraints[mask ^ variable] |= variable;
-            if (degree < 3)
-                constraints[mask] |= variable;
-        }
-    }
-    std::map<uint32_t, Mask> pivots;
-    for (const auto& [mask, row] : constraints) {
-        (void)mask;
-        insert_row(pivots, row);
-    }
-    std::vector<Mask> kernel;
-    for (uint32_t free = 0; free < width; ++free) {
-        if (pivots.contains(free)) {
-            continue;
-        }
-        auto vector = bit(free);
-        for (const auto& [pivot, row] : pivots) {
-            if ((row & vector).popcount() & 1) {
-                vector |= bit(pivot);
+    void add(Mask parity, int coefficient, Budget& budget) {
+        for (auto bits = parity; !bits.is_zero();) {
+            const uint32_t i = bits.lowest_bit();
+            bits.clear_lowest_bit();
+            budget.charge();
+            auto& weight = linear.at(i);
+            weight = (weight + coefficient) & 7;
+            if (!(coefficient & 3))
+                continue;
+            budget.charge(bits.popcount());
+            for (auto rest = bits; !rest.is_zero(); rest.clear_lowest_bit()) {
+                const auto key = std::pair{i, rest.lowest_bit()};
+                const auto row = pairs.try_emplace(key).first;
+                auto& pair = row->second;
+                pair.weight = (pair.weight + coefficient) & 3;
+                if (coefficient & 1) {
+                    pair.odd_columns ^= parity;
+                }
+                if (!pair.weight && pair.odd_columns.is_zero()) {
+                    pairs.erase(row);
+                }
             }
         }
-        kernel.push_back(vector);
     }
-    return kernel;
-}
+
+    // A translation is a Clifford direction when its finite difference is a
+    // Pauli phase. These constraints use the pair-versus-single flattening
+    // of the symmetric signature, including the repeated-index rows (i,i).
+    std::vector<Mask> clifford_kernel(uint32_t width, Budget& budget) const {
+        assert(width <= Mask::kBits);
+        std::map<uint32_t, Mask> pivots;
+        std::vector<Mask> diagonal(width);
+        Mask constant;
+        for (uint32_t i = 0; i < width; ++i) {
+            if (linear[i] & 1) {
+                constant |= bit(i);
+                diagonal[i] = bit(i);
+            }
+        }
+        insert_row(pivots, constant);
+        for (const auto& [indices, pair] : pairs) {
+            const auto [i, j] = indices;
+            if (pair.weight & 1) {
+                diagonal[i] |= bit(j);
+                diagonal[j] |= bit(i);
+            }
+            budget.charge(width + 1);
+            insert_row(pivots, pair.odd_columns);
+        }
+        for (auto row : diagonal) {
+            budget.charge(width + 1);
+            insert_row(pivots, row);
+        }
+        std::vector<Mask> kernel;
+        for (uint32_t free = 0; free < width; ++free) {
+            if (pivots.contains(free))
+                continue;
+            auto vector = bit(free);
+            for (const auto& [pivot, row] : pivots) {
+                if ((row & vector).popcount() & 1)
+                    vector |= bit(pivot);
+            }
+            kernel.push_back(vector);
+        }
+        return kernel;
+    }
+};
 
 struct Basis {
     uint32_t core_width;
     std::vector<Mask> parities;
-    std::vector<Mask> core_columns;
+    // Columns map assignments in the new coordinates back to the collected basis.
+    std::vector<Mask> columns;
 };
 
-inline Basis reduce_core(Polynomial& polynomial, uint32_t width, Budget& budget) {
-    if (width > 128) {
-        throw SearchLimit{};
-    }
+inline std::optional<Basis> reduce_core(const PhaseSignature& signature, uint32_t width,
+                                        Budget& budget) {
+    const auto kernel = signature.clifford_kernel(width, budget);
+    const auto core_width = width - static_cast<uint32_t>(kernel.size());
+    if (core_width > 64)
+        return std::nullopt;
+    budget.charge(width * width);
     std::vector<Mask> generators;
     for (uint32_t j = 0; j < width; ++j) {
         generators.push_back(bit(j));
     }
-    const auto kernel = clifford_kernel(polynomial, width, budget);
     std::map<uint32_t, Mask> span;
     for (auto vector : kernel) {
         insert_row(span, vector);
@@ -199,11 +186,6 @@ inline Basis reduce_core(Polynomial& polynomial, uint32_t width, Budget& budget)
         if (span.size() != before) {
             columns.push_back(bit(j));
         }
-    }
-    const auto core_width = static_cast<uint32_t>(columns.size());
-    // Existing TOHPE synthesis retains its representation and work guards.
-    if (core_width > 64) {
-        throw SearchLimit{};
     }
     columns.insert(columns.end(), kernel.begin(), kernel.end());
     std::vector<Mask> matrix(width);
@@ -221,46 +203,31 @@ inline Basis reduce_core(Polynomial& polynomial, uint32_t width, Budget& budget)
         if (pivot != j) {
             std::swap(matrix[j], matrix[pivot]);
             std::swap(generators[j], generators[pivot]);
-            Polynomial swapped;
-            for (const auto& [mask, coefficient] : polynomial) {
-                auto exchanged = mask;
-                exchanged.bit_swap(j, pivot);
-                budget.add(swapped, exchanged, coefficient);
-            }
-            polynomial = std::move(swapped);
         }
         for (uint32_t i = 0; i < width; ++i) {
             if (i == j || !matrix[i].bit_get(j)) {
                 continue;
             }
             matrix[i] ^= matrix[j];
-            Polynomial substituted;
-            for (const auto& [mask, coefficient] : polynomial) {
-                budget.add(substituted, mask, coefficient);
-                if (mask.bit_get(i)) {
-                    const auto rest = mask ^ bit(i);
-                    budget.add(substituted, rest | bit(j), coefficient);
-                    budget.add(substituted, rest | bit(j) | bit(i), -2 * coefficient);
-                }
-            }
-            polynomial = std::move(substituted);
             generators[i] ^= generators[j];
         }
     }
-    columns.resize(core_width);
-    return {core_width, std::move(generators), std::move(columns)};
+    return Basis{core_width, std::move(generators), std::move(columns)};
 }
 
-inline Polynomial synthesize(const Polynomial& terms, const Polynomial& reduced, const Basis& basis,
-                             Budget& budget) {
+inline Polynomial synthesize(const Polynomial& terms, const Basis& basis, Budget& budget) {
+    PhaseSignature remainder;
+    const uint64_t core_mask =
+        basis.core_width == 64 ? ~uint64_t{0} : (uint64_t{1} << basis.core_width) - 1;
     std::map<uint64_t, uint8_t> projected;
     for (const auto& [parity, coefficient] : terms) {
-        uint64_t mask = 0;
-        for (uint32_t j = 0; j < basis.core_width; ++j) {
-            if ((parity & basis.core_columns[j]).popcount() & 1) {
-                mask |= uint64_t{1} << j;
-            }
+        Mask converted;
+        budget.charge(basis.columns.size());
+        for (uint32_t j = 0; j < basis.columns.size(); ++j) {
+            converted.bit_set(j, (parity & basis.columns[j]).popcount() & 1);
         }
+        remainder.add(converted, coefficient, budget);
+        const uint64_t mask = converted.w[0] & core_mask;
         if (mask) {
             projected[mask] = uint8_t((projected[mask] + coefficient) & 7);
         }
@@ -279,26 +246,27 @@ inline Polynomial synthesize(const Polynomial& terms, const Polynomial& reduced,
         budget.charge(n * n * n * (words + 1));
     }
     Polynomial out;
-    auto remainder = reduced;
     for (auto parity : phase_detail::tohpe(std::move(columns), basis.core_width)) {
         budget.add(out, Mask{parity}, 1);
-        add_parity(remainder, Mask{parity}, -1, budget);
+        remainder.add(Mask{parity}, -1, budget);
     }
-    for (const auto& [mask, coefficient] : remainder) {
-        const auto degree = mask.popcount();
-        if (degree == 0) {
-            continue;
-        }
-        if (degree == 1 && coefficient % 2 == 0) {
-            budget.add(out, mask, coefficient);
-        } else if (degree == 2 && coefficient == 4) {
-            const auto first = bit(mask.lowest_bit());
-            budget.add(out, first, 2);
-            budget.add(out, mask ^ first, 2);
-            budget.add(out, mask, -2);
-        } else {
+    // Subtracting the synthesized columns leaves only S, Z and CZ phases,
+    // including couplings to the discarded Clifford directions.
+    for (uint32_t i = 0; i < basis.columns.size(); ++i) {
+        const auto coefficient = remainder.linear[i];
+        if (coefficient & 1)
+            throw std::logic_error("wide synthesis left a non-Clifford rotation");
+        if (coefficient)
+            budget.add(out, bit(i), coefficient);
+    }
+    for (const auto& [indices, pair] : remainder.pairs) {
+        if (pair.weight != 2 || !pair.odd_columns.is_zero()) {
             throw std::logic_error("wide synthesis changed the non-Clifford signature");
         }
+        const auto [i, j] = indices;
+        budget.add(out, bit(i), 2);
+        budget.add(out, bit(j), 2);
+        budget.add(out, bit(i) | bit(j), -2);
     }
     return out;
 }
@@ -317,47 +285,22 @@ inline std::optional<PauliDerivative> pauli_derivative(const Polynomial& p, Mask
     }
     budget.charge(p.size());
     int constant = 0;
-    std::array<uint8_t, 128> linear{};
-    std::array<Mask, 128> quadratic{};
-    const auto add_term = [&](Mask term, int coeff) {
-        coeff &= 7;
-        if (!coeff) {
-            return;
-        }
-        const uint32_t deg = term.popcount();
-        if (deg == 0) {
-            constant = (constant + coeff) & 7;
-        } else if (deg == 1) {
-            const uint32_t i = term.lowest_bit() & 127U;
-            linear[i] = static_cast<uint8_t>((linear[i] + coeff) & 7);
-        } else {
-            assert(deg == 2 && coeff == 4);
-            const uint32_t a = term.lowest_bit() & 127U;
-            term.clear_lowest_bit();
-            quadratic[a] ^= term;
-        }
-    };
-    for (const auto& [mask, raw_c] : p) {
-        const Mask v = mask & flip;
-        if (v.is_zero()) {
+    std::array<uint8_t, Mask::kBits> linear{};
+    std::array<Mask, Mask::kBits> quadratic{};
+    // Flipping an odd number of bits in a parity changes p to 1-p.
+    // Multiplication by -2 leaves only linear and quadratic terms modulo eight.
+    for (const auto& [parity, coefficient] : p) {
+        if (!((parity & flip).popcount() & 1))
             continue;
-        }
-        assert(mask.popcount() <= 3);
-        const Mask u = mask ^ v;
-        const int c = raw_c;
-        const uint32_t d = v.popcount();
-        add_term(u, c);
-        const int c1 = d == 1 ? -2 * c : -c;
-        for (Mask bits = v; !bits.is_zero(); bits.clear_lowest_bit()) {
-            const Mask first = bit(bits.lowest_bit());
-            add_term(u | first, c1);
-            if (d == 3) {
-                Mask pairs = bits;
-                pairs.clear_lowest_bit();
-                for (; !pairs.is_zero(); pairs.clear_lowest_bit()) {
-                    add_term(first | bit(pairs.lowest_bit()), 4);
-                }
-            }
+        constant = (constant + coefficient) & 7;
+        budget.charge(parity.popcount());
+        for (auto bits = parity; !bits.is_zero();) {
+            const uint32_t i = bits.lowest_bit();
+            bits.clear_lowest_bit();
+            auto& weight = linear.at(i);
+            weight = (weight - 2 * coefficient) & 7;
+            if (coefficient & 1)
+                quadratic.at(i) ^= bits;
         }
     }
     if ((constant & 1) != 0) {
@@ -369,7 +312,7 @@ inline std::optional<PauliDerivative> pauli_derivative(const Polynomial& p, Mask
         }
     }
     Mask z;
-    for (uint32_t i = 0; i < 128; ++i) {
+    for (uint32_t i = 0; i < linear.size(); ++i) {
         if (linear[i] == 4) {
             z.bit_set(i, true);
         } else if (linear[i] != 0) {

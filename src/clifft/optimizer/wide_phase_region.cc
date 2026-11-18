@@ -37,14 +37,16 @@ Mask coordinates(PauliString& body, const std::map<uint32_t, Row>& rows) {
     return result;
 }
 
-Rewrite synthesize_region(const Polynomial& terms, Polynomial polynomial,
-                          const std::vector<PauliString>& axes, size_t end, uint32_t width,
-                          Budget& budget) {
-    auto basis = reduce_core(polynomial, axes.size(), budget);
-    const auto synthesis = synthesize(terms, polynomial, basis, budget);
-    Rewrite result{end, basis.core_width, 0, {}, {}, {}, false};
+std::optional<Rewrite> synthesize_region(const Polynomial& terms, const PhaseSignature& signature,
+                                         const std::vector<PauliString>& axes, size_t end,
+                                         uint32_t width, Budget& budget) {
+    const auto basis = reduce_core(signature, axes.size(), budget);
+    if (!basis)
+        return std::nullopt;
+    const auto synthesis = synthesize(terms, *basis, budget);
+    Rewrite result{end, basis->core_width, 0, {}, {}, {}, false};
     std::vector<PauliString> transformed;
-    for (auto parity : basis.parities) {
+    for (auto parity : basis->parities) {
         budget.charge((parity.popcount() + 1) * ((width + 63) / 64));
         transformed.push_back(product(axes, parity, width));
     }
@@ -57,21 +59,18 @@ Rewrite synthesize_region(const Polynomial& terms, Polynomial polynomial,
 }
 
 // A linear phase polynomial already gives the rotations in the collected basis.
-std::optional<Rewrite> linear_rewrite(const Polynomial& polynomial,
+std::optional<Rewrite> linear_rewrite(const PhaseSignature& signature,
                                       const std::vector<PauliString>& axes, size_t end,
                                       size_t words, Budget& budget) {
-    if (polynomial.size() > axes.size()) {
+    if (!signature.pairs.empty())
         return std::nullopt;
-    }
-    budget.charge(polynomial.size());
-    if (std::ranges::any_of(polynomial,
-                            [](const auto& term) { return term.first.popcount() != 1; })) {
-        return std::nullopt;
-    }
-    budget.charge(polynomial.size() * words);
+    budget.charge(axes.size() * words);
     Rewrite result{end, 0, 0, {}, {}, {}, false};
-    for (const auto& [mask, coefficient] : polynomial) {
-        result.phases.emplace_back(axes[mask.lowest_bit()], coefficient);
+    for (size_t i = 0; i < axes.size(); ++i) {
+        const auto coefficient = signature.linear[i];
+        if (!coefficient)
+            continue;
+        result.phases.emplace_back(axes[i], coefficient);
         result.t_count += coefficient & 1;
     }
     result.core_width = static_cast<uint32_t>(result.t_count);
@@ -84,17 +83,16 @@ struct Region {
     std::vector<PauliString> axes;
     KnownStabilizers required;
     Polynomial terms;
-    std::optional<Polynomial> expanded;
-    std::optional<Tableau> final_inverse;
+    std::optional<PhaseSignature> signature;
 
-    const Polynomial& polynomial(Budget& budget) {
-        if (!expanded) {
-            expanded.emplace();
-            for (const auto& [mask, coefficient] : terms) {
-                add_parity(*expanded, mask, coefficient, budget);
+    const PhaseSignature& phase_signature(Budget& budget) {
+        if (!signature) {
+            signature.emplace();
+            for (const auto& [parity, coefficient] : terms) {
+                signature->add(parity, coefficient, budget);
             }
         }
-        return *expanded;
+        return *signature;
     }
 
     std::optional<Rewrite> synthesize_aligned(const HirModule& hir, size_t end,
@@ -113,10 +111,6 @@ std::optional<Rewrite> Region::synthesize_aligned(const HirModule& hir, size_t e
     if (!hir.final_tableau) {
         return std::nullopt;
     }
-    if (!final_inverse) {
-        budget.charge(2 * size_t(hir.num_qubits) * hir.num_qubits * words);
-        final_inverse = hir.final_tableau->inverse();
-    }
     std::vector<PauliString> preferred;
     struct Change {
         Mask old_coordinates, new_coordinates;
@@ -124,9 +118,8 @@ std::optional<Rewrite> Region::synthesize_aligned(const HirModule& hir, size_t e
     std::map<uint32_t, Change> conversion;
     for (uint32_t q = 0; q < hir.num_qubits && preferred.size() < axes.size(); ++q) {
         budget.charge((hir.num_qubits + 4 * axes.size() + 1) * words);
-        PauliString z(hir.num_qubits);
-        z.set_pauli(q, false, true);
-        auto axis = frame.read(final_inverse->apply(z.view()));
+        budget.charge(hir.num_qubits);
+        auto axis = frame.read(hir.final_tableau->unsigned_z_preimage(q));
         axis.set_sign(false);
         if (!required.commutes(axis.view()) ||
             std::ranges::any_of(axes,
@@ -153,7 +146,8 @@ std::optional<Rewrite> Region::synthesize_aligned(const HirModule& hir, size_t e
     if (preferred.size() != axes.size()) {
         return std::nullopt;
     }
-    Polynomial aligned_terms, aligned_polynomial;
+    Polynomial aligned_terms;
+    PhaseSignature aligned_signature;
     for (const auto& [mask, coefficient] : terms) {
         budget.charge((hir.num_qubits + 3 * axes.size() + 1) * words);
         auto remaining = mask;
@@ -173,10 +167,10 @@ std::optional<Rewrite> Region::synthesize_aligned(const HirModule& hir, size_t e
         }
         const int signed_coefficient = *negative ? -coefficient : coefficient;
         budget.add(aligned_terms, converted, signed_coefficient);
-        add_parity(aligned_polynomial, converted, signed_coefficient, budget);
+        aligned_signature.add(converted, signed_coefficient, budget);
     }
-    return synthesize_region(aligned_terms, std::move(aligned_polynomial), preferred, end,
-                             hir.num_qubits, budget);
+    return synthesize_region(aligned_terms, aligned_signature, preferred, end, hir.num_qubits,
+                             budget);
 }
 
 }  // namespace
@@ -208,12 +202,12 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             }
         };
         auto synthesize_prefix = [&] {
-            if (!core_fits(region.terms, region.axes.size(), budget)) {
-                return;
-            }
             const size_t end = rotations.back() + 1;
-            consider(synthesize_region(region.terms, region.polynomial(budget), region.axes, end,
-                                       hir.num_qubits, budget));
+            auto candidate = synthesize_region(region.terms, region.phase_signature(budget),
+                                               region.axes, end, hir.num_qubits, budget);
+            if (!candidate)
+                return;
+            consider(std::move(*candidate));
             if (auto aligned =
                     region.synthesize_aligned(hir, end, fixed, available, frame, budget)) {
                 consider(std::move(*aligned));
@@ -246,9 +240,6 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                 auto mask = coordinates(reduced, region.rows);
                 if (!reduced.x().is_zero() || !reduced.z().is_zero()) {
                     if (region.axes.size() == variable_limit) {
-                        if (first_search_rotations == 0) {
-                            return std::nullopt;
-                        }
                         break;
                     }
                     const auto next = bit(region.axes.size());
@@ -276,8 +267,8 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                     coefficient = -coefficient;
                 }
                 budget.add(region.terms, mask, coefficient);
-                if (region.expanded) {
-                    add_parity(*region.expanded, mask, coefficient, budget);
+                if (region.signature) {
+                    region.signature->add(mask, coefficient, budget);
                 }
                 rotations.push_back(i);
             } else if (type == OpType::NOISE) {
@@ -316,15 +307,14 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
                         flip.bit_set(static_cast<uint32_t>(j), true);
                     }
                 }
-                const auto& polynomial = region.polynomial(budget);
                 if (first_search_rotations != 0 && rotations.size() > first_search_rotations &&
                     (observers.empty() || observers.back().index < rotations.back())) {
-                    if (auto linear = linear_rewrite(polynomial, region.axes, rotations.back() + 1,
-                                                     words, budget)) {
+                    if (auto linear = linear_rewrite(region.phase_signature(budget), region.axes,
+                                                     rotations.back() + 1, words, budget)) {
                         consider(std::move(*linear));
                     }
                 }
-                const auto difference = pauli_derivative(polynomial, flip, budget);
+                const auto difference = pauli_derivative(region.terms, flip, budget);
                 if (!difference) {
                     break;
                 }
@@ -350,8 +340,8 @@ std::optional<Rewrite> try_region(const HirModule& hir, size_t start, const Know
             const size_t odd_terms = static_cast<size_t>(std::ranges::count_if(
                 region.terms, [](const auto& term) { return (term.second & 1) != 0; }));
             if ((best && best_rotation_count == rotations.size()) || odd_terms < rotations.size() ||
-                !clifford_kernel(region.polynomial(budget),
-                                 static_cast<uint32_t>(region.axes.size()), budget)
+                !region.phase_signature(budget)
+                     .clifford_kernel(region.axes.size(), budget)
                      .empty()) {
                 return Rewrite{end, 0, 0, {}, std::move(rotations), std::move(observers), true};
             }

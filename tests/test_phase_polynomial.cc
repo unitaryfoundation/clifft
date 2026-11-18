@@ -288,21 +288,35 @@ TEST_CASE("Multiword phase algebra agrees with single word finite differences", 
     for (uint32_t width : {1, 4, 17, 64}) {
         for (unsigned trial = 0; trial < 8; ++trial) {
             Polynomial narrow;
-            wide::Polynomial large;
+            wide::PhaseSignature signature;
+            wide::Polynomial parities;
             wide::Budget budget;
             const auto domain = width == 64 ? ~uint64_t{0} : (uint64_t{1} << width) - 1;
             for (unsigned term = 0; term < 20; ++term) {
                 const auto mask = rng() & domain;
                 const int coefficient = rng() % 8;
                 add_parity(narrow, mask, coefficient);
-                wide::add_parity(large, wide::Mask{mask}, coefficient, budget);
+                signature.add(wide::Mask{mask}, coefficient, budget);
+                budget.add(parities, wide::Mask{mask}, coefficient);
             }
             const auto expected = clifford_kernel(narrow, width);
-            const auto actual = wide::clifford_kernel(large, width, budget);
+            const auto actual = signature.clifford_kernel(width, budget);
             REQUIRE(actual.size() == expected.size());
             for (size_t j = 0; j < actual.size(); ++j) {
                 REQUIRE(actual[j].w[0] == expected[j]);
                 REQUIRE(actual[j].w[1] == 0);
+            }
+
+            auto flips = expected;
+            flips.push_back(rng() & domain);
+            for (auto flip : flips) {
+                const auto a = pauli_derivative(narrow, flip);
+                const auto b = wide::pauli_derivative(parities, wide::Mask{flip}, budget);
+                REQUIRE(a.has_value() == b.has_value());
+                if (a) {
+                    REQUIRE(b->constant == a->constant);
+                    REQUIRE(b->parity == wide::Mask{a->parity});
+                }
             }
         }
     }
@@ -313,7 +327,7 @@ TEST_CASE("Multiword phase synthesis preserves phases across word boundaries", "
     for (uint32_t width : {65, 87, 128}) {
         for (unsigned trial = 0; trial < 8; ++trial) {
             wide::Budget budget;
-            wide::Polynomial terms, original;
+            wide::Polynomial terms;
             const std::vector<uint32_t> active{0,  1,         2,         31,       32,
                                                63, width - 3, width - 2, width - 1};
             for (auto q : active)
@@ -329,25 +343,24 @@ TEST_CASE("Multiword phase synthesis preserves phases across word boundaries", "
                 budget.add(terms, wide::bit(q), 2 * (rng() % 4));
                 budget.add(terms, wide::bit(q) | wide::bit(rng() % width), 2 * (rng() % 4));
             }
-            REQUIRE(wide::core_fits(terms, width, budget));
-            for (const auto& [mask, coefficient] : terms) {
-                wide::add_parity(original, mask, coefficient, budget);
-            }
-            auto reduced = original;
-            const auto basis = wide::reduce_core(reduced, width, budget);
-            REQUIRE(basis.core_width <= active.size());
-            const auto output = wide::synthesize(terms, reduced, basis, budget);
+            wide::PhaseSignature signature;
+            for (const auto& [mask, coefficient] : terms)
+                signature.add(mask, coefficient, budget);
+            const auto basis = wide::reduce_core(signature, width, budget);
+            REQUIRE(basis);
+            REQUIRE(basis->core_width <= active.size());
+            const auto output = wide::synthesize(terms, *basis, budget);
             for (unsigned sample = 0; sample < 256; ++sample) {
                 wide::Mask x;
                 x.w[0] = rng();
                 x.w[1] = rng();
                 wide::Mask y;
                 for (uint32_t j = 0; j < width; ++j) {
-                    y.bit_set(j, (basis.parities[j] & x).popcount() & 1);
+                    y.bit_set(j, (basis->parities[j] & x).popcount() & 1);
                 }
                 unsigned expected = 0, actual = 0;
-                for (const auto& [mask, coefficient] : original) {
-                    if ((mask & x) == mask)
+                for (const auto& [mask, coefficient] : terms) {
+                    if ((mask & x).popcount() & 1)
                         expected += coefficient;
                 }
                 for (const auto& [mask, coefficient] : output) {
@@ -356,10 +369,10 @@ TEST_CASE("Multiword phase synthesis preserves phases across word boundaries", "
                 }
                 REQUIRE((actual & 7) == (expected & 7));
             }
-            wide::Polynomial irreducible;
+            wide::PhaseSignature irreducible;
             for (uint32_t j = 0; j < 65; ++j)
-                budget.add(irreducible, wide::bit(j), 1);
-            REQUIRE_FALSE(wide::core_fits(irreducible, width, budget));
+                irreducible.add(wide::bit(j), 1, budget);
+            REQUIRE_FALSE(wide::reduce_core(irreducible, width, budget));
         }
     }
 }

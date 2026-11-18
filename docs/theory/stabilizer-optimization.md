@@ -171,14 +171,15 @@ merge or cancel rotations, including rotations with arbitrary angles.
 
 The phase-polynomial pass collects commuting T rotations and expresses their
 combined phase using Boolean eigenvalue coordinates for independent Pauli axes.
-It expands the phase into a polynomial modulo eight, where cancellations can
-reveal a smaller non-Clifford core. The pass then synthesizes T rotations for
+Cancellations in the phase polynomial modulo eight can reveal a smaller
+non-Clifford core. The pass then synthesizes T rotations for
 that core and retains the exact Clifford correction. Subsequent squeezing can
 reduce active execution width further, using the final measurements as well
 as the preparation.
 
 Collecting a larger complete region can expose cancellations that smaller
-regions miss. The optional wide search also tries coordinates derived from the
+regions miss. The wide search keeps each XOR parity as one term, even when
+a rotation acts on many axes. It also tries coordinates derived from the
 final Clifford tableau, since coordinate choice affects synthesis. It retains
 a candidate only when the rewrite meets the T-count and active-width cost
 guards. The number of variables needed to analyze a region can therefore be

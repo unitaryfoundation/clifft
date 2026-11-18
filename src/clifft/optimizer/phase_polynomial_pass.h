@@ -8,7 +8,7 @@
 namespace clifft {
 
 struct PhasePolynomialOptions {
-    // Bounds the cubic phase algebra. Collection starts at min 32 and this cap,
+    // Bounds the number of independent phase variables. Collection starts at min 32 and this cap,
     // trying a complete region up to 64 before an optional multiword attempt.
     // Zero disables the pass. Synthesis retains a 64-variable core limit.
     uint32_t max_variables = 128;

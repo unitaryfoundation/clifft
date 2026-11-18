@@ -1058,9 +1058,8 @@ TEST_CASE("Wide phase regions elide post-observer rotations above the core synth
     REQUIRE(unreduced.num_t_gates() == 76);
 }
 
-TEST_CASE(
-    "Wide phase search exhaustion during aligned basis keeps incumbent observers and rotations",
-    "[optimizer]") {
+TEST_CASE("Wide phase output alignment respects its work allowance with distant spectators",
+          "[optimizer]") {
     // Qubit 66 stays in |0>, so T q + TPP Zq*Z66 collapses to S q on qubits 0..64,
     // while T 65 survives (t_count == 1) and EXP_VAL Y0 is pulled back across the
     // phase prefix. Exhausting the wide budget during the second (final_tableau)
@@ -1073,19 +1072,25 @@ TEST_CASE(
     }
     const std::string body =
         "H 0" + qs + " 65\nT 0\nTPP Z0*Z66\nEXP_VAL Y0\nT" + qs + "\nTPP" + terms + "\nT 65\n";
-    for (const char* prefix : {"", "H 1500\n"}) {
-        CAPTURE(prefix);
-        auto hir = trace(parse(std::string(prefix) + body));
-        PhasePolynomialPass pass({128});
+    const auto original = trace(parse("H 1500\n" + body));
+    auto collected = original;
+    collected.final_tableau.reset();
+    PhasePolynomialPass baseline;
+    baseline.run(collected);
+    REQUIRE(baseline.wide_rewrites() == 1);
+    REQUIRE_FALSE(baseline.wide_budget_exhausted());
+    for (const bool limited : {false, true}) {
+        CAPTURE(limited);
+        auto hir = original;
+        PhasePolynomialOptions options;
+        if (limited)
+            options.max_wide_work = baseline.wide_work();
+        PhasePolynomialPass pass(options);
         pass.run(hir);
         REQUIRE(pass.wide_rewrites() == 1);
         REQUIRE(pass.pauli_pullbacks() == 1);
         REQUIRE(pass.output_t_count() == 1);
-        if (std::string_view(prefix).empty()) {
-            REQUIRE_FALSE(pass.wide_budget_exhausted());
-        } else {
-            REQUIRE(pass.wide_budget_exhausted());
-        }
+        REQUIRE(pass.wide_budget_exhausted() == limited);
         const sampling::ExecutablePlan plan(sampling::plan_sampling(hir));
         const auto result = sampling::sample(plan, 1, uint64_t{7});
         REQUIRE(result.exp_vals.size() == 1);

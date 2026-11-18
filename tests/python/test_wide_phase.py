@@ -133,7 +133,7 @@ def test_wide_phase_preserves_exact_joint_records(width: int, seed: int) -> None
         manager.add(pass_)
     program = clifft.compile(source, hir_passes=manager)
     assert phase.wide_attempts > 0
-    assert bool(phase.wide_rewrites) == (width <= 128)
+    assert phase.wide_rewrites > 0
     assert program.peak_active_width <= 4
     records = ["".join(str(key >> j & 1) for j in range(4)) for key in range(16)]
     np.testing.assert_allclose(
@@ -330,8 +330,42 @@ def test_interleaved_measurements_leave_work_for_a_second_wide_region() -> None:
     assert hir.num_t_gates == 30
 
 
-@pytest.mark.parametrize("limit", ["terms", "variables"])
-def test_wide_phase_keeps_a_late_reduction_at_the_search_limit(limit: str) -> None:
+@pytest.mark.parametrize("observer", [False, True])
+def test_wide_phase_finishes_the_prefix_at_the_variable_limit(observer: bool) -> None:
+    targets = " ".join(map(str, range(128)))
+    lines = [f"H {targets} 128", f"T {targets}", f"T {targets}"]
+    if observer:
+        lines.append("EXP_VAL Z129")
+    lines.extend(["T 128", "EXP_VAL X128"])
+    hir = clifft.trace(clifft.parse("\n".join(lines)))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert phase.input_t_count == 257
+    assert phase.wide_rewrites == 1
+    assert hir.num_t_gates == 1
+
+
+def test_wide_phase_keeps_a_better_prefix_when_the_full_core_fits() -> None:
+    # The prefix is identity. After 48 more T gates the complete core fits,
+    # but its 132 odd columns exceed the TOHPE search limit.
+    lines = ["H " + " ".join(map(str, range(68)))]
+    lines.extend(_cube_rotation(q, mask) for mask in range(1, 16) for q in range(0, 68, 4))
+    lines.extend(["EXP_VAL Z68", "T " + " ".join(map(str, range(48))), "R_X(0.137) 0"])
+    hir = clifft.trace(clifft.parse("\n".join(lines)))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert phase.input_t_count == 303
+    assert phase.wide_rewrites == 1
+    assert not phase.wide_budget_exhausted
+    assert hir.num_t_gates == 48
+
+
+@pytest.mark.parametrize("limit", ["terms", "variables", None])
+def test_wide_phase_extends_a_reduced_prefix_within_its_limits(limit: str | None) -> None:
     targets = " ".join(map(str, range(128)))
     lines = [f"H {targets} 128", f"T {targets}", "EXP_VAL Z129"]
     # The first probe sees 128 independent T gates. Completing the parity
@@ -342,23 +376,30 @@ def test_wide_phase_keeps_a_late_reduction_at_the_search_limit(limit: str) -> No
         if mask.bit_count() > 1
         for q in range(0, 128, 4)
     )
+    dense_parity = "*".join(f"Z{q}" for q in range(2, 128))
+    options = {}
     if limit == "terms":
-        # The linear prefix is already usable when the dense parity exhausts the budget.
-        dense_parity = "*".join(f"Z{q}" for q in range(2, 128))
-        lines.extend(["T_DAG 1", "EXP_VAL X0", f"TPP {dense_parity}", "EXP_VAL Y1", "EXP_VAL X2"])
-    else:
-        # The two-variable parity needs synthesis when the next rotation exceeds the limit.
+        # The table fits all 15 parities of each cube. The dense suffix adds one more.
+        options["max_wide_terms"] = 32 * 15
+        lines.extend(["T 1", "EXP_VAL X0", f"TPP {dense_parity}", "EXP_VAL Y1", "EXP_VAL X2"])
+        expected = [1, 1, np.sqrt(0.5), np.sqrt(0.5)]
+    elif limit == "variables":
         lines.extend(["TPP_DAG Z1*Z2", "EXP_VAL X0", "T 128", "EXP_VAL Y1*Z2", "EXP_VAL X128"])
-    phase = clifft.PhasePolynomialPass()
+        expected = [1, 1, -np.sqrt(0.5), np.sqrt(0.5)]
+    else:
+        # A 126-bit parity extends the nonlinear prefix as one more rotation.
+        lines.extend(
+            ["TPP_DAG Z1*Z2", "EXP_VAL X0", f"TPP {dense_parity}", "EXP_VAL Y1*Z2", "EXP_VAL X2"]
+        )
+        expected = [1, 1, -np.sqrt(0.5), 0.5]
+    phase = clifft.PhasePolynomialPass(**options)
     manager = clifft.HirPassManager()
     manager.add(phase)
     program = clifft.compile("\n".join(lines), hir_passes=manager)
     assert phase.wide_budget_exhausted == (limit == "terms")
     assert phase.wide_rewrites == 1
     assert phase.output_t_count == 2
+    assert program.peak_active_width <= 2
     np.testing.assert_allclose(
-        clifft.sample(program, 1, seed=7).exp_vals[0],
-        [1, 1, -np.sqrt(0.5), np.sqrt(0.5)],
-        rtol=0,
-        atol=2e-12,
+        clifft.sample(program, 1, seed=7).exp_vals[0], expected, rtol=0, atol=2e-12
     )
