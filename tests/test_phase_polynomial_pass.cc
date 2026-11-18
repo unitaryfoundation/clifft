@@ -461,8 +461,7 @@ TEST_CASE("Wide phase collection stops at noncommuting rotations", "[optimizer]"
     }
 }
 
-TEST_CASE("Linear phase regions pull back observers on either side of the core limit",
-          "[optimizer]") {
+TEST_CASE("Linear phase regions pull back observers across the word boundary", "[optimizer]") {
     for (uint32_t end_qubit : {67U, 68U}) {
         CAPTURE(end_qubit);
         const uint32_t expected_t_gates = end_qubit - 3;
@@ -1018,7 +1017,7 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
     }
 }
 
-TEST_CASE("Wide phase regions elide post-observer rotations above the core synthesis limit",
+TEST_CASE("Wide phase regions elide post-observer rotations across both coordinate words",
           "[optimizer]") {
     // 72 independent T rotations on qubits 4..75 plus a 4-qubit vanishing parity
     // cube on qubits 0..3 span 76 variables with core width 72 (> 64) and a

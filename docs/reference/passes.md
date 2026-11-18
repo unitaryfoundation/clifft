@@ -129,9 +129,9 @@ enabled. If expansion fails, the pass can still rewrite a prefix of up to
 32 variables.
 
 Both widths keep each XOR parity as one term. A linear phase directly gives
-the replacement rotations, even above 64 variables. For nonlinear phases,
-the synthesis search supports a core of up to 64 variables and at most 128
-odd parity columns for TOHPE reduction. The wide search tries the collected
+the replacement rotations. For a nonlinear phase, TOHPE searches up to 128
+odd parity columns. Larger tables, and wide searches that cannot afford
+TOHPE, retain their projected columns. The wide search tries the collected
 basis first. If its T count exceeds the core rank, a basis derived from the
 final Clifford tableau can improve it. It considers the first wide boundary,
 linear prefixes at intervening observers, and the complete region.

@@ -203,9 +203,7 @@ std::optional<WideRewrite> synthesize_aligned(const PhaseRegion<128>& region, co
         aligned.add(converted, signed_coefficient, budget);
     }
     auto reduction = aligned.synthesize(preferred.size(), budget);
-    if (!reduction)
-        return std::nullopt;
-    return materialize(*reduction, preferred, end, hir.num_qubits, budget);
+    return materialize(reduction, preferred, end, hir.num_qubits, budget);
 }
 
 }  // namespace
@@ -239,11 +237,9 @@ std::optional<WideRewrite> try_wide_region(const HirModule& hir, size_t start,
         auto synthesize_prefix = [&] {
             const size_t end = rotations.back() + 1;
             auto reduction = region.polynomial.synthesize(region.axes.size(), budget);
-            if (!reduction)
-                return;
-            consider(materialize(*reduction, region.axes, end, hir.num_qubits, budget));
+            consider(materialize(reduction, region.axes, end, hir.num_qubits, budget));
             // Core rank is a lower bound on T count in every equivalent basis.
-            if (reduction->t_count == reduction->core_width)
+            if (reduction.t_count == reduction.core_width)
                 return;
             if (auto aligned = synthesize_aligned(region, hir, end, fixed, frame, budget)) {
                 consider(std::move(*aligned));

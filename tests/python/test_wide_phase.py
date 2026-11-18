@@ -347,6 +347,33 @@ def test_wide_phase_finishes_the_prefix_at_the_variable_limit(observer: bool) ->
     assert hir.num_t_gates == 1
 
 
+@pytest.mark.parametrize("width", [68, 116])
+def test_two_word_core_search_leaves_work_for_a_second_region(width: int) -> None:
+    axes = (0, 1, width - 2, width - 1)
+    cube = [
+        "TPP " + "*".join(f"Z{axis}" for bit, axis in enumerate(axes) if subset & (1 << bit))
+        for subset in range(1, 16)
+    ]
+    targets = " ".join(map(str, range(width)))
+    ends = f"TPP Z0*Z{width - 1}"
+    # The T layer separates the two halves of the identity cube. At width 68
+    # TOHPE can recover the whole layer. At 116 its cost exceeds the default
+    # allowance, and projection leaves seven additional odd columns.
+    lines = [f"H {targets}", *cube[:7], f"T {targets}", *cube[7:], ends, ends]
+    # A second region of paired T gates reduces to Cliffords in both cases.
+    layer = "T " + " ".join(map(str, range(68)))
+    source = "\n".join([*lines, "R_X(0.137) 0", layer, layer, "R_X(0.137) 0"])
+    hir = clifft.trace(clifft.parse(source))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert phase.input_t_count == width + 17 + 2 * 68
+    assert phase.wide_rewrites == 2
+    assert not phase.wide_budget_exhausted
+    assert hir.num_t_gates == (68 if width == 68 else 123)
+
+
 def test_wide_phase_keeps_a_better_prefix_when_the_full_core_fits() -> None:
     # The prefix is identity. After 48 more T gates the complete core fits,
     # but its 132 odd columns exceed the TOHPE search limit.

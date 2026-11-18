@@ -3,7 +3,6 @@
 #include "clifft/optimizer/tohpe.h"
 
 #include <algorithm>
-#include <bit>
 #include <set>
 #include <stdexcept>
 
@@ -35,12 +34,18 @@ void add_term(Table& table, Mask mask, int coefficient, Work& work) {
 
 }  // namespace
 
+bool WideBudget::try_charge(size_t amount) {
+    if (exhausted || amount > max_updates - updates)
+        return false;
+    updates += amount;
+    return true;
+}
+
 void WideBudget::charge(size_t amount) {
-    if (exhausted || amount > max_updates - updates) {
+    if (!try_charge(amount)) {
         exhausted = true;
         throw SearchLimit{};
     }
-    updates += amount;
 }
 
 void WideBudget::check_terms(size_t size) {
@@ -221,13 +226,11 @@ std::optional<PhaseReduction<N>> PhasePolynomial<N>::linear_reduction(uint32_t w
 }
 
 template <size_t N>
-std::optional<PhaseReduction<N>> PhasePolynomial<N>::synthesize(uint32_t width, Work& work) {
+PhaseReduction<N> PhasePolynomial<N>::synthesize(uint32_t width, Work& work) {
     if (auto linear = linear_reduction(width, work))
-        return linear;
+        return std::move(*linear);
     const auto axes = core_axes(width, work);
     const auto core_width = static_cast<uint32_t>(axes.size());
-    if (core_width > 64)
-        return std::nullopt;
 
     // Replace each pivot coordinate x_j with the parity of its reduced row.
     // The other bits stay fixed. This change of coordinates is its own inverse:
@@ -243,36 +246,39 @@ std::optional<PhaseReduction<N>> PhasePolynomial<N>::synthesize(uint32_t width, 
         return converted;
     };
     Signature remainder;
-    std::set<uint64_t> projected;
+    std::set<Mask> projected;
     for (const auto& [parity, coefficient] : terms_) {
         remainder.add(change_basis(parity), coefficient, work);
         if (!(coefficient & 1))
             continue;
         work.charge(core_width);
-        uint64_t core = 0;
+        Mask core;
         for (uint32_t j = 0; j < core_width; ++j) {
             if (parity.bit_get(axes[j].lowest_bit()))
-                core |= uint64_t{1} << j;
+                core.bit_set(j, true);
         }
         // Each distinct odd column participates modulo two.
-        if (core) {
+        if (!core.is_zero()) {
             const auto [it, inserted] = projected.insert(core);
             if (!inserted)
                 projected.erase(it);
         }
     }
-    std::vector<uint64_t> odd(projected.begin(), projected.end());
+    std::vector<Mask> odd(projected.begin(), projected.end());
     if (odd.size() > core_width && odd.size() <= kMaxTohpeColumns) {
         const auto n = odd.size();
         const auto words = (core_width * (core_width + 1) / 2 + 63) / 64;
-        work.charge(n * n * n * (words + 1));
+        // The projected columns already give an exact synthesis. If optimizing
+        // them costs more than the remaining allowance, leave it for later regions.
+        if (work.try_charge(n * n * n * (words + 1)))
+            odd = tohpe(std::move(odd), core_width);
     }
     Terms out;
-    for (auto column : tohpe(std::move(odd), core_width)) {
+    for (auto column : odd) {
         Mask parity;
-        work.charge(std::popcount(column) + 1);
-        for (; column; column &= column - 1)
-            parity.bit_set(axes[std::countr_zero(column)].lowest_bit(), true);
+        work.charge(column.popcount() + 1);
+        for (; !column.is_zero(); column.clear_lowest_bit())
+            parity.bit_set(axes[column.lowest_bit()].lowest_bit(), true);
         add_term(out, parity, 1, work);
         remainder.add(parity, -1, work);
     }

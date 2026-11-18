@@ -368,11 +368,10 @@ class Rewriter {
             }
         }
         const auto synthesis = block.polynomial.synthesize(block.axes.size(), ordinary_work_);
-        assert(synthesis);
-        const size_t synthesized_count = synthesis->t_count;
+        const size_t synthesized_count = synthesis.t_count;
         const bool reduced_polynomial = synthesized_count < block.rotations.size() ||
                                         (synthesized_count == block.rotations.size() &&
-                                         synthesis->core_width < block.axes.size());
+                                         synthesis.core_width < block.axes.size());
         const bool elide_post_observer =
             (reduced_polynomial || elide_unreduced_post_observer_) && reaches_final_observer;
         if (!reduced_polynomial && !elide_post_observer) {
@@ -385,7 +384,7 @@ class Rewriter {
         emit_pulled_prefix(start, block.end, block.observers);
         const auto sources = collect_sources(block.rotations);
         size_t written = 0;
-        for (const auto& [parity, coefficient] : synthesis->phases) {
+        for (const auto& [parity, coefficient] : synthesis.phases) {
             emit_synthesized_phase(phase_detail::axis_product(block.axes, parity, hir().num_qubits),
                                    coefficient, block.rotations, written, sources);
         }

@@ -65,13 +65,12 @@ void check_synthesis(uint32_t width, unsigned trials) {
             append(highest, trial % 2 ? 7 : 1);
         }
         const auto reduced = phase.synthesize(width, work);
-        REQUIRE(reduced);
-        REQUIRE(reduced->t_count <= phase.odd_terms());
-        REQUIRE(reduced->core_width <= reduced->t_count);
+        REQUIRE(reduced.t_count <= phase.odd_terms());
+        REQUIRE(reduced.core_width <= reduced.t_count);
         const unsigned samples = width <= 6 ? 1U << width : 256;
         for (unsigned i = 0; i < samples; ++i) {
             auto x = width <= 6 ? Mask<N>{i} : random_mask();
-            REQUIRE(evaluate<N>(original, x) == evaluate<N>(reduced->phases, x));
+            REQUIRE(evaluate<N>(original, x) == evaluate<N>(reduced.phases, x));
         }
     }
 }
@@ -162,31 +161,48 @@ TEST_CASE("A dense dagger rotation stays compact after canceling parity cubes", 
     const auto dense = ~Mask<128>{};
     phase.add(dense, -1, work);
     const auto result = phase.synthesize(128, work);
-    REQUIRE(result);
-    REQUIRE(result->core_width == 1);
-    REQUIRE(result->phases.size() == 1);
-    REQUIRE(result->phases.front().first == dense);
-    REQUIRE(result->phases.front().second == 7);
+    REQUIRE(result.core_width == 1);
+    REQUIRE(result.phases.size() == 1);
+    REQUIRE(result.phases.front().first == dense);
+    REQUIRE(result.phases.front().second == 7);
 }
 
-TEST_CASE("Linear synthesis extends beyond the nonlinear core limit", "[optimizer]") {
-    PhasePolynomial<128> phase;
-    WideBudget work;
-    Mask<128> ends;
-    for (uint32_t i = 0; i < 65; ++i) {
-        Mask<128> axis;
-        axis.bit_set(i, true);
-        phase.add(axis, 1, work);
-        if (i == 0 || i == 64)
-            ends |= axis;
+TEST_CASE("Two-word nonlinear cores preserve eigenphases on each side of the column limit",
+          "[optimizer]") {
+    for (uint32_t width : {68U, 128U}) {
+        CAPTURE(width);
+        PhasePolynomial<128> phase;
+        WideBudget work;
+        for (uint32_t i = 0; i < width; ++i) {
+            Mask<128> axis;
+            axis.bit_set(i, true);
+            phase.add(axis, 1, work);
+        }
+        // Cancel a parity cube spanning both words. The extra S rotation keeps
+        // the phase nonlinear even after the cube cancels.
+        const std::array<uint32_t, 4> axes{0, 1, width - 2, width - 1};
+        for (unsigned subset = 1; subset < 16; ++subset) {
+            Mask<128> parity;
+            for (size_t j = 0; j < axes.size(); ++j)
+                parity.bit_set(axes[j], subset & (1U << j));
+            phase.add(parity, 1, work);
+        }
+        Mask<128> ends;
+        ends.bit_set(0, true);
+        ends.bit_set(width - 1, true);
+        phase.add(ends, 2, work);
+        REQUIRE(phase.odd_terms() > width);
+        const auto reduced = phase.synthesize(width, work);
+        REQUIRE(reduced.core_width == width);
+        REQUIRE(reduced.t_count == (width == 68 ? width : phase.odd_terms()));
+        std::mt19937_64 rng(218012);
+        for (unsigned sample = 0; sample < 1024; ++sample) {
+            Mask<128> x{rng()};
+            x.w[1] = width == 128 ? rng() : rng() & 15;
+            const unsigned expected = (x.popcount() + 2 * ((x & ends).popcount() & 1)) & 7;
+            REQUIRE(evaluate<128>(reduced.phases, x) == expected);
+        }
     }
-    const auto linear = phase.synthesize(65, work);
-    REQUIRE(linear);
-    REQUIRE(linear->t_count == 65);
-    phase.add(ends, 2, work);
-    REQUIRE(phase.core_axes(65, work).size() == 65);
-    REQUIRE_FALSE(phase.synthesize(65, work));
-    REQUIRE_FALSE(work.exhausted);
 }
 
 TEST_CASE("TOHPE preserves cubic signatures and handles high coordinate bits", "[optimizer]") {
@@ -220,7 +236,7 @@ TEST_CASE("TOHPE preserves cubic signatures and handles high coordinate bits", "
                     }
                 }
             }
-            const std::vector<uint64_t> before(distinct.begin(), distinct.end());
+            const std::vector<Mask<64>> before(distinct.begin(), distinct.end());
             const auto after = tohpe(before, width);
             REQUIRE(after.size() <= before.size());
             if (!trial) {
@@ -228,7 +244,7 @@ TEST_CASE("TOHPE preserves cubic signatures and handles high coordinate bits", "
             }
             const auto moment = [](const auto& columns, uint64_t mask) {
                 unsigned parity = 0;
-                for (uint64_t column : columns) {
+                for (auto column : columns) {
                     parity ^= (column & mask) == mask;
                 }
                 return parity;
@@ -249,12 +265,12 @@ TEST_CASE("TOHPE preserves cubic signatures and handles high coordinate bits", "
 TEST_CASE("TOHPE bounds large searches and keeps irreducible cubic phases", "[optimizer]") {
     // The seven-term CCZ signature admits only the unhelpful odd full-table
     // dependency. It must terminate without changing the phase.
-    const std::vector<uint64_t> ccz{1, 2, 3, 4, 5, 6, 7};
+    const std::vector<Mask<64>> ccz{1, 2, 3, 4, 5, 6, 7};
     REQUIRE(tohpe(ccz, 3) == ccz);
-    std::vector<uint64_t> large;
+    std::vector<Mask<64>> large;
     for (uint64_t mask = 1; mask <= 129; ++mask) {
         large.push_back(mask);
     }
     REQUIRE(tohpe(large, 8) == large);
-    REQUIRE(tohpe({}, 0).empty());
+    REQUIRE(tohpe<64>({}, 0).empty());
 }

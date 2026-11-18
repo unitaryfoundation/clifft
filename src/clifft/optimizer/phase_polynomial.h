@@ -22,11 +22,13 @@ struct WideBudget {
     size_t updates = 0;
     bool exhausted = false;
 
+    bool try_charge(size_t amount);
     void charge(size_t amount = 1);
     void check_terms(size_t size);
 };
 
 struct OrdinaryWork {
+    bool try_charge(size_t) const { return true; }
     void charge(size_t = 1) const {}
     void check_terms(size_t) const {}
 };
@@ -50,16 +52,7 @@ class PhasePolynomial {
   public:
     using Mask = BitMask<N>;
     using Work = std::conditional_t<N == 64, OrdinaryWork, WideBudget>;
-    struct Less {
-        bool operator()(const Mask& a, const Mask& b) const {
-            for (size_t i = Mask::kWords; i-- > 0;) {
-                if (a.w[i] != b.w[i])
-                    return a.w[i] < b.w[i];
-            }
-            return false;
-        }
-    };
-    using Terms = std::map<Mask, uint8_t, Less>;
+    using Terms = std::map<Mask, uint8_t>;
 
     const Terms& terms() const { return terms_; }
     size_t odd_terms() const;
@@ -70,7 +63,7 @@ class PhasePolynomial {
     // Clifford direction exactly when it is orthogonal to every returned mask.
     std::vector<Mask> core_axes(uint32_t width, Work& work);
     std::optional<PhaseReduction<N>> linear_reduction(uint32_t width, Work& work);
-    std::optional<PhaseReduction<N>> synthesize(uint32_t width, Work& work);
+    PhaseReduction<N> synthesize(uint32_t width, Work& work);
 
   private:
     // For each selected pair (i,j), bit k of odd_columns is the cubic
