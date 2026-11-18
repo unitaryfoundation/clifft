@@ -258,3 +258,51 @@ def test_wide_phase_reduces_direct_readout_preparation() -> None:
     preparation = clifft.compile("\n".join(lines[:first_readout]), hir_passes=manager)
     assert preparation.num_measurements == 162
     assert preparation.peak_active_width == 9
+
+
+@pytest.mark.parametrize("limit", ["variables", "work", None])
+def test_wide_observer_extension_keeps_reducible_prefix(limit: str | None) -> None:
+    # The 32 four-qubit parity cubes are identity. The remaining prefix
+    # prepares S|+> on qubit 0 and T|+> on qubit 1.
+    cubes = [
+        "TPP " + "*".join(f"Z{q + bit}" for bit in range(4) if mask & (1 << bit))
+        for mask in range(1, 16)
+        for q in range(0, 128, 4)
+    ]
+    preparation = "H " + " ".join(map(str, range(129)))
+    prefix = "\n".join([preparation, "T 0", "TPP Z0*Z129", "EXP_VAL Y0", *cubes, "T 1"])
+    boundary = prefix + "\nEXP_VAL Y0"
+    options = {}
+    if limit == "work":
+        # Give the complete prefix its measured allowance. The suffix here
+        # stays within 128 variables, so only the work limit can stop it.
+        baseline = clifft.PhasePolynomialPass()
+        clifft.compile(boundary, hir_passes=clifft.default_hir_pass_manager(overrides=[baseline]))
+        assert baseline.wide_rewrites == 1
+        assert not baseline.wide_budget_exhausted
+        options["max_wide_work"] = baseline.wide_work
+        parity = "*".join(f"Z{q}" for q in range(2, 82))
+        suffix = f"TPP {parity}\nEXP_VAL X2"
+    elif limit == "variables":
+        suffix = "T 128\nEXP_VAL X128"
+    else:
+        # With room to extend, the T gates on either side of the observer cancel.
+        suffix = "T_DAG 1\nEXP_VAL X2"
+
+    phase = clifft.PhasePolynomialPass(**options)
+    program = clifft.compile(
+        boundary + "\n" + suffix + "\nEXP_VAL X1",
+        hir_passes=clifft.default_hir_pass_manager(overrides=[phase]),
+    )
+    assert phase.wide_rewrites == 1
+    assert phase.wide_budget_exhausted == (limit == "work")
+    expected_t_count = 0 if limit is None else 2
+    assert phase.output_t_count == expected_t_count
+    assert program.peak_active_width <= expected_t_count
+    expected_x = 1 if limit is None else np.sqrt(0.5)
+    np.testing.assert_allclose(
+        clifft.sample(program, 1, seed=7).exp_vals[0],
+        [1, 1, expected_x, expected_x],
+        rtol=0,
+        atol=2e-12,
+    )

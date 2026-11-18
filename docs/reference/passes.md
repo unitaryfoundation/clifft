@@ -129,10 +129,11 @@ can have more physical qubits than this limit. Collection starts at
 `max_variables=64` restricts collection to one-word regions.
 
 When `max_variables > 64` and the 64-variable attempt is capped, the pass can
-try a complete commuting T region up to `max_variables` using two-word
-coordinates, applying the same observer-pullback and commuting-noise rules
-while stopping at instrument boundaries. This path keeps an ordinary-basis
-candidate and tries one basis derived from the final Clifford tableau.
+extend a commuting T region up to `max_variables` using two-word coordinates.
+It uses the same observer-pullback and commuting-noise rules and stops at
+instrument boundaries. Before crossing an observer, it can save a beneficial
+rewrite of the preceding rotations. It tries the collected basis and one basis
+derived from the final Clifford tableau.
 Synthesis still supports at most 64 core variables and searches at most 128 odd
 parity terms (with a signature-rank precheck before cubic expansion), while
 regions reaching the final observer can elide reduced post-observer rotations
@@ -143,9 +144,10 @@ all wide attempts and both basis candidates in one pass. The units include
 polynomial updates, charged row operations, and an allowance for synthesis.
 Work units are not a wall-clock limit; their cost depends on the polynomial.
 `max_wide_terms` (default `200000`) bounds each polynomial's size. Setting either
-to zero (or setting `max_variables <= 64`) disables the two-word path. Exhaustion retains a completed valid
-candidate or falls back to the ordinary smaller-region policy. These limits
-control compiler effort and do not change the execution representation.
+budget to zero (or setting `max_variables <= 64`) disables the two-word path.
+If an extension reaches a variable or search limit, the pass keeps the best
+rewrite it has completed and processes the remaining operations normally. If
+it has yet to find a beneficial wide rewrite, it falls back to smaller regions.
 
 Larger complete regions can uncover additional reductions, at extra compilation
 cost. The pass rejects rewrites that increase T count
