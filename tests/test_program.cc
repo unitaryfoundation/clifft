@@ -1,4 +1,5 @@
 #include "clifft/api/program.h"
+#include "clifft/api/reference_syndrome.h"
 #include "clifft/api/sampling_preparation.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
@@ -389,7 +390,7 @@ TEST_CASE(
         REQUIRE(detector_only.uses_reconstruction(false));
         REQUIRE_FALSE(detector_only.uses_reconstruction(true));
         REQUIRE(detector_only.reconstruction_fallback_reason(true) ==
-                "reconstruction schedule reaches the dense active-width limit");
+                "reconstruction reaches the dense active-width limit");
         REQUIRE(detector_only.sampling_plan(false).peak_active_width() == 1);
         REQUIRE(detector_only.sampling_preparation(RecordOutputs::Syndromes)
                     .plan()
@@ -398,6 +399,24 @@ TEST_CASE(
         REQUIRE_THROWS_AS(detector_only.sampling_preparation(true), std::overflow_error);
         REQUIRE_THROWS_AS(detector_only.sampling_preparation(RecordOutputs::Measurements),
                           std::overflow_error);
+    }
+
+    // Reconstructed noiseless reference shot succeeds when sequential reference planning overflows.
+    {
+        std::string ancillas;
+        std::string parity_cx;
+        for (uint32_t q = 2; q < 64; ++q) {
+            ancillas += " " + std::to_string(q);
+            parity_cx += " " + std::to_string(q) + " 64";
+        }
+        const auto noisy_det_source = parse(
+            "H 0 1" + ancillas + "\nT 0 1" + ancillas + "\nCX" + parity_cx +
+            "\nX 65\nX_ERROR(0.1) 65\nM 64 65\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+        const auto noisy_det_hir = trace(noisy_det_source);
+        REQUIRE_THROWS_AS(compute_reference_syndrome(noisy_det_hir), std::overflow_error);
+        const auto ref = compute_reference_syndrome(noisy_det_hir, &noisy_det_source);
+        REQUIRE(ref.detectors == std::vector<uint8_t>{1});
+        REQUIRE(ref.observables == std::vector<uint8_t>{1});
     }
 
     // Asymmetric record-only success: zero detectors and observables skip detector reconstruction.

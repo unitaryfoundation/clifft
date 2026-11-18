@@ -762,3 +762,53 @@ def test_wide_original_asymmetric_variants_and_total_failure():
     unsupported = _wide_reconstructible_source(include_syndromes=True) + "EXP_VAL Z0\n"
     with pytest.raises(OverflowError, match="EXP_VAL"):
         clifft.compile(unsupported, reconstruction=True)
+
+
+def test_wide_original_post_lowering_reduction_and_syndrome_normalization():
+    # Scheduled reconstruction width exceeds 60 (116) while post-lowering optimization
+    # fuses T q and TPP Zq*Z256 on |0> into Clifford S gates, collapsing width to 0.
+    data_qs = list(range(256))
+    qstr = " ".join(map(str, data_qs))
+    tpps = " ".join(f"Z{q}*Z256" for q in data_qs)
+    czs = " ".join(f"{q} {(q + s) % 256}" for s in (1, 17, 43, 71) for q in data_qs)
+    post_lowering_source = f"H {qstr}\nT {qstr}\nTPP {tpps}\nCZ {czs}\nMX {qstr}\n"
+    with pytest.raises(OverflowError, match="dense-state limit"):
+        clifft.compile(post_lowering_source, reconstruction=False)
+    post_lowered = clifft.compile(post_lowering_source, reconstruction=True)
+    assert post_lowered.sampling_plan(keep_records=True).reconstruction_selected
+    assert post_lowered.peak_active_width == 0
+    assert clifft.sample(post_lowered, 16, seed=5).measurements.shape == (16, 256)
+
+    # normalize_syndromes=True falls back to a reconstructed noiseless detector plan
+    # when sequential reference planning exceeds width 60, with or without postselection.
+    norm_both = clifft.compile(
+        _wide_reconstructible_source(include_syndromes=True),
+        normalize_syndromes=True,
+        reconstruction=True,
+    )
+    assert norm_both.peak_active_width == 1
+
+    norm_record_only = clifft.compile(
+        _wide_reconstructible_source(include_syndromes=False),
+        normalize_syndromes=True,
+        reconstruction=True,
+    )
+    assert norm_record_only.peak_active_width == 1
+
+    det_ones_source = (
+        _wide_reconstructible_source(include_syndromes=False)
+        + "X 65\nM 65\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+    )
+    with pytest.raises(OverflowError, match="dense-state limit"):
+        clifft.compile(
+            det_ones_source, postselection_mask=[1], normalize_syndromes=True, reconstruction=False
+        )
+    norm_ps = clifft.compile(
+        det_ones_source, postselection_mask=[1], normalize_syndromes=True, reconstruction=True
+    )
+    assert norm_ps.sampling_plan(keep_records=False).peak_active_width == 0
+    surv = clifft.sample_survivors(norm_ps, 32, seed=13, keep_records=True)
+    assert surv.total_shots == surv.passed_shots == 32
+    assert surv.logical_errors == 0
+    assert not surv.detectors.any()
+    assert not surv.observables.any()

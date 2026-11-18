@@ -126,11 +126,12 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
             continue;
         }
         // Avoid expensive lowering and HIR passes without a scheduled width
-        // reduction (or below the dense width limit when original overflowed).
-        if (result.reconstruction->peak_active_width >= width_limit) {
-            variant.fallback_reason =
-                data->original ? "reconstruction schedule does not reduce peak active width"
-                               : "reconstruction schedule reaches the dense active-width limit";
+        // reduction when the original plan is already available. When the
+        // original HIR overflowed, bounded candidates proceed so post-lowering
+        // optimization passes can still reduce peak width below the dense limit.
+        if (data->original &&
+            result.reconstruction->peak_active_width >= data->original->peak_active_width()) {
+            variant.fallback_reason = "reconstruction schedule does not reduce peak active width";
             continue;
         }
         auto lowered =
