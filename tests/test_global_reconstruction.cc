@@ -680,7 +680,7 @@ TEST_CASE("Global reconstruction absorbs Clifford angle multiples and signed axe
         const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
         const auto expected =
             compute_exact_plan_distribution(sampling::plan_sampling(trace(clifford_source)));
-        require_same_law(output_law(actual, r.outputs), output_law(expected, r.outputs));
+        require_distributions_equal(project_outputs(expected, mode), actual, 2e-12);
     }
 
     // Identity rotations on untouched qubits before a non-Clifford gate must also
@@ -712,8 +712,7 @@ TEST_CASE("Global reconstruction absorbs Clifford angle multiples and signed axe
     const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
     const auto expected =
         compute_exact_plan_distribution(sampling::plan_sampling(trace(outside_tolerance)));
-    require_same_law(output_law(actual, non_clifford.reconstruction->outputs),
-                     output_law(expected, non_clifford.reconstruction->outputs));
+    require_distributions_equal(expected, actual, 2e-12);
 }
 
 TEST_CASE("Reconstruction lowering reports bounded preparation failures", "[reconstruction]") {
@@ -872,8 +871,7 @@ TEST_CASE("Global reconstruction lowering omits identity hidden measurements", "
         auto hir = *lowered.hir;
         default_hir_pass_manager().run(hir);
         const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(hir));
-        require_same_law(output_law(actual, r.reconstruction->outputs),
-                         output_law(expected, r.reconstruction->outputs));
+        require_distributions_equal(project_outputs(expected, mode), actual, 2e-12);
     }
 
     // Without inverted constants, zero identity-axis measurements of either sign are emitted.
@@ -1009,8 +1007,7 @@ TEST_CASE("Global reconstruction dilation propagates fault signs for every named
                     compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
                 const auto expected =
                     compute_exact_plan_distribution(sampling::plan_sampling(trace(circuit)));
-                require_same_law(output_law(actual, res.reconstruction->outputs),
-                                 output_law(expected, res.reconstruction->outputs));
+                require_distributions_equal(expected, actual, 2e-12);
             }
         }
     }
@@ -1127,8 +1124,7 @@ TEST_CASE("Global reconstruction tracks pure-Clifford memory suffixes without di
             default_hir_pass_manager().run(*lowered.hir);
             const auto actual =
                 compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
-            require_same_law(output_law(actual, r.reconstruction->outputs),
-                             output_law(expected, r.reconstruction->outputs));
+            require_distributions_equal(project_outputs(expected, mode), actual, 2e-12);
         }
     }
 
@@ -1228,11 +1224,9 @@ TEST_CASE("Global reconstruction matches dense oracle on random pure-Clifford su
                     break;
                 }
             }
-            if (realizations <= 256 && plan.num_visible_records + plan.num_hidden_records <= 12 &&
-                res.reconstruction->outputs.num_outputs() < 64) {
+            if (realizations <= 256 && plan.num_visible_records + plan.num_hidden_records <= 12) {
                 const auto actual = compute_exact_plan_distribution(plan);
-                require_same_law(output_law(actual, res.reconstruction->outputs),
-                                 output_law(expected, res.reconstruction->outputs));
+                require_distributions_equal(project_outputs(expected, mode), actual, 2e-12);
                 ++plan_checks;
             }
         }
@@ -1401,8 +1395,7 @@ TEST_CASE(
             default_hir_pass_manager().run(*lowered.hir);
             const auto actual =
                 compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
-            require_same_law(output_law(actual, res.reconstruction->outputs),
-                             output_law(expected, res.reconstruction->outputs));
+            require_distributions_equal(project_outputs(expected, mode), actual, 2e-12);
         }
     }
 
@@ -1423,8 +1416,7 @@ TEST_CASE(
             default_hir_pass_manager().run(*lowered.hir);
             const auto actual =
                 compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
-            require_same_law(output_law(actual, res.reconstruction->outputs),
-                             output_law(expected, res.reconstruction->outputs));
+            require_distributions_equal(project_outputs(expected, mode), actual, 2e-12);
         }
     }
 
@@ -1469,8 +1461,7 @@ TEST_CASE("Global reconstruction prefers rotation-stabilizing hidden nullspace c
         REQUIRE(lowered.hir.has_value());
         default_hir_pass_manager().run(*lowered.hir);
         const auto actual = compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
-        require_same_law(output_law(actual, res.reconstruction->outputs),
-                         output_law(expected, res.reconstruction->outputs));
+        require_distributions_equal(expected, actual, 2e-12);
     }
 
     // Exercise the multi-word isolated-qubit check alongside an entangled suffix
