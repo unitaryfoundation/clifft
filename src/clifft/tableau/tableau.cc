@@ -444,6 +444,21 @@ Tableau Tableau::then(const Tableau& next) const {
     return result;
 }
 
+PauliString Tableau::unsigned_z_preimage(uint32_t qubit) const {
+    assert(qubit < num_qubits_);
+    PauliString result(num_qubits_);
+    const size_t z_offset = static_cast<size_t>(num_qubits_) * num_words_;
+    const uint64_t bit = uint64_t{1} << (qubit % 64);
+    size_t column = qubit / 64;
+    // Symplectic inversion exchanges the X blocks of the forward Z and X rows.
+    for (uint32_t k = 0; k < num_qubits_; ++k, column += num_words_) {
+        result.mut_x().bit_set(k, (x_rows_[z_offset + column] & bit) != 0);
+        result.mut_z().bit_set(k, (x_rows_[column] & bit) != 0);
+    }
+    result.set_sign(false);
+    return result;
+}
+
 Tableau Tableau::inverse() const {
     Tableau result(num_qubits_);
     if (num_qubits_ == 0) {

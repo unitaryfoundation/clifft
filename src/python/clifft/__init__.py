@@ -346,6 +346,8 @@ def basis_probabilities(
     Pass ``return_log=True`` to get natural-log probabilities. Zero
     probabilities map to ``-inf`` in log output.
     """
+    # Report an unavailable original plan before validating the bitstrings.
+    _ = program.original_plan
     probs = cast(
         npt.NDArray[np.float64],
         _basis_probabilities_from_bitmasks(
@@ -439,6 +441,8 @@ def record_probabilities(
     underflow float64, pass ``return_log=True`` so the log-domain values
     survive.
     """
+    # Report an unavailable original plan before validating the records.
+    _ = program.original_plan
     # Reject zero-measurement programs up front so a user who passes a real
     # record string against a unitary program gets the right hint rather
     # than the wrapper's record-length mismatch error.
@@ -506,15 +510,12 @@ def compile(
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
         input_format: ``"stim"`` for Clifft's Stim-compatible syntax or
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
-        reconstruction: Opt in to bounded global reconstruction for ordinary
-            CPU sampling. Compilation prepares reconstructed plans for
-            sampling with and without measurement records, including syndrome rows
-            and survivor counts. To limit cost,
-            candidates must reduce peak active width before lowering and after
-            optimization. Inspect
-            ``program.sampling_plan(keep_records=...)`` for details.
-            State queries, exact probabilities, and fixed-fault sampling always
-            use the original plan.
+        reconstruction: Try narrower CPU sampling plans with and without
+            measurement records. Inspect the plan for your outputs with
+            ``program.sampling_plan(keep_records=...)``. If the original plan
+            is too wide, sampling can still use a reconstructed plan. State
+            queries, exact probabilities, replay, and fixed-fault sampling
+            then raise ``OverflowError``.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()

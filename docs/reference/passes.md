@@ -123,28 +123,32 @@ it to skip the circuit.
 
 `max_variables` is a hard ceiling on independent phase variables analyzed
 together (default `128`, range `0` to `128`; zero disables the pass). Circuits
-can have more physical qubits than this limit. Collection starts at
-`min(32, max_variables)`, then tries a complete region up to
-`min(64, max_variables)`. `max_variables=32` disables expansion, and
-`max_variables=64` restricts collection to one-word regions.
+can have more physical qubits than this limit. Regions of up to 64 variables
+use one machine word. Larger regions can use two words when wide search is
+enabled. If expansion fails, the pass can still rewrite a prefix of up to
+32 variables.
 
-When `max_variables > 64` and the 64-variable attempt is capped, the pass can
-try a complete contiguous commuting T region up to `max_variables` using
-two-word coordinates. This path keeps an
-ordinary-basis candidate and tries one basis derived from the final Clifford
-tableau. It crosses no measurement, feedback, noise, or instrument boundaries.
-Synthesis still supports at most 64 core variables and searches at most 128 odd
-parity terms. A signature-rank precheck rejects unsupported cores before cubic
-polynomial expansion.
+Both widths keep each XOR parity as one term. A linear phase directly gives
+the replacement rotations. For a nonlinear phase, TOHPE searches up to 128
+odd parity columns. Larger tables, and wide searches that cannot afford
+TOHPE, retain their projected columns. The wide search tries the collected
+basis first. If its T count exceeds the core rank, a basis derived from the
+final Clifford tableau can improve it. It considers the first wide boundary,
+linear prefixes at intervening observers, and the complete region.
+When a reduced region reaches the final observer, the pass can omit the
+rotations left after that observer.
 
 `max_wide_work` (default `50000000`) bounds deterministic work units shared by
 all wide attempts and both basis candidates in one pass. The units include
 polynomial updates, charged row operations, and an allowance for synthesis.
 Work units are not a wall-clock limit; their cost depends on the polynomial.
-`max_wide_terms` (default `200000`) bounds each polynomial's size. Setting either
-to zero (or setting `max_variables <= 64`) disables the two-word path. Exhaustion retains a completed valid
-candidate or falls back to the ordinary smaller-region policy. These limits
-control compiler effort and do not change the execution representation.
+`max_wide_terms` (default `200000`) bounds the number of distinct parities in
+each wide phase table. Setting either budget to zero (or setting
+`max_variables <= 64`) disables the two-word path.
+At the variable or parity limit, the pass finishes the collected prefix with
+the work still available. Later regions can use the remaining work budget.
+If work runs out, the pass keeps its best completed rewrite or falls back
+to smaller regions.
 
 Larger complete regions can uncover additional reductions, at extra compilation
 cost. The pass rejects rewrites that increase T count

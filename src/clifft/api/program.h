@@ -1,14 +1,16 @@
 #pragma once
 
-// Owns a circuit's compiled ExecutablePlan together with optional reconstructed
-// sampling plans with or without measurement records, plus the sampling
-// preparation derived from them on first use. Copies share both. Mutable
-// workers belong to each sampling call. State queries, exact probabilities,
-// replay, fixed-fault sampling, and plan inspection use the compiled plans.
+// Owns a circuit's compiled ExecutablePlan (when below the dense active-width
+// limit) together with optional reconstructed sampling plans with or without
+// measurement records, plus the sampling preparation derived from them on
+// first use. Copies share both. Mutable workers belong to each sampling call.
+// State queries, exact probabilities, replay, and fixed-fault sampling require
+// the original plan.
 
 #include "clifft/optimizer/global_reconstruction.h"
 #include "clifft/sampling/executable_plan.h"
 
+#include <cstdint>
 #include <memory>
 #include <string>
 
@@ -33,10 +35,20 @@ class Program {
                                          bool passes_preserve_sampling = true,
                                          const ReconstructionLimits& limits = {});
 
-    [[nodiscard]] const sampling::ExecutablePlan& original() const noexcept;
-    [[nodiscard]] const sampling::ExecutablePlan& sampling_plan(bool keep_records) const noexcept;
+    [[nodiscard]] bool has_original() const noexcept;
+    [[nodiscard]] bool has_sampling_plan(bool keep_records) const noexcept;
+    [[nodiscard]] const sampling::ExecutablePlan& original() const;
+    [[nodiscard]] const sampling::ExecutablePlan& sampling_plan(bool keep_records) const;
     [[nodiscard]] bool uses_reconstruction(bool keep_records) const noexcept;
     [[nodiscard]] const std::string& reconstruction_fallback_reason(bool keep_records) const;
+
+    [[nodiscard]] uint32_t num_qubits() const noexcept;
+    [[nodiscard]] uint32_t num_visible_records() const noexcept;
+    [[nodiscard]] uint32_t num_hidden_records() const noexcept;
+    [[nodiscard]] uint32_t num_detectors() const noexcept;
+    [[nodiscard]] uint32_t num_observables() const noexcept;
+    [[nodiscard]] uint32_t num_exp_vals() const noexcept;
+    [[nodiscard]] bool has_postselection() const noexcept;
 
     // Output-specific preparation, shared by later calls and Program copies.
     // Fixed-fault sampling uses the original plan to preserve fault identities.

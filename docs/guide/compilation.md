@@ -104,12 +104,9 @@ choice prepares and caches that work. Include this first-call cost when
 benchmarking workloads that compile many programs and sample only a few shots
 from each. Reusing a `Program` amortizes preparation across later calls.
 
-Without reconstruction, all views describe the original executable and the
-existing properties and inspection methods behave the same way. With
-reconstruction, `repr(program)` reports the full-output sampling metrics and
-shows original or survivor-count widths when they differ. Circuit counts,
-hidden measurement counts used by replay, and noise-site probabilities retain
-their original meanings.
+With reconstruction, `repr(program)` shows the original and survivor-count
+widths when they differ from the full-output width, and marks unavailable
+plans. Circuit and measurement counts still describe the original circuit.
 
 ## Active-width scheduling
 
@@ -168,13 +165,17 @@ print(program)
 result = clifft.sample(program, shots=100, seed=42)
 ```
 
-Ordinary and survivor sampling select a plan according to `keep_records`.
-Use `sampling_plan(keep_records=...)`
-to inspect the selected executable, as described in
-[Inspect sampling cost](#inspect-sampling-cost). Unsupported
-features (such as leakage and loss channels, `EXP_VAL` probes, asymmetric
-readout noise, or distribution-altering HIR passes), resource limits, or
-insufficient width reduction retain the original plan.
+Ordinary and survivor sampling use the plan for the requested `keep_records`.
+If the circuit is ineligible or reconstruction cannot reduce the width, the
+sampler uses the original plan when available. See
+[Inspect sampling cost](#inspect-sampling-cost) to check which plan was selected.
+
+The CPU planner reaches its dense-state limit when 60 coordinates are active
+at once. A circuit can have many more physical qubits. If the original
+plan reaches this limit, compilation can still succeed for the output modes
+that reconstruction brings below it. Requesting an unavailable mode or the
+original plan raises `OverflowError`. Exact queries, replay, fixed-fault
+sampling, and `noise_site_probabilities` all need the original plan.
 
 Custom `hir_passes` configure the original pipeline; reconstructed candidates
 use the default passes.

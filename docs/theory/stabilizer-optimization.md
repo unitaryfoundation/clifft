@@ -118,18 +118,21 @@ Compilation builds up to two reconstructed candidates: one retaining all
 measurement records, detectors, and observables, and one retaining only
 detectors and observables. Calls retaining measurements select the first;
 syndrome and count-only calls select the second. Output preparation removes
-unrequested rows and evaluations from the selected candidate. See
-[sampling-plan inspection](../guide/compilation.md#inspect-sampling-cost) for
-the API mapping. To limit compilation cost, a candidate proceeds to
-lowering and the default HIR passes only when its scheduled peak active width
-is strictly smaller than the original plan's. This heuristic can miss reductions
-that later optimization would find. The optimized candidate must still have a
-strictly smaller peak active width to be selected. Dilation and scheduling
-precede the guard, so unsuccessful attempts can remain expensive. Explicit
-resource bounds cap circuit size, prefix dilation qubits, noise channels,
-scheduling work, and lowered frame memory; unsupported features (such as leakage and loss channels,
-`EXP_VAL` probes, asymmetric readout noise, or distribution-altering HIR
-passes) fall back to the original plan.
+unrequested rows and evaluations from the selected candidate.
+
+When the original plan fits, a candidate must have a smaller peak active width
+both after scheduling and after optimization. If the original plan is too wide,
+the compiler optimizes each candidate within its resource bounds and keeps each
+one that fits. With `normalize_syndromes=True`, the compiler also tries a
+narrower detector plan when a noiseless reference shot would need a large
+dense state. See [Global reconstruction for sampling](../guide/compilation.md#global-reconstruction-for-sampling).
+
+Dilation and scheduling precede the width check, so unsuccessful attempts can
+remain expensive. Resource bounds cap circuit size, prefix dilation qubits,
+noise channels, scheduling work, and lowered frame memory. Circuits with
+unsupported features, such as leakage, loss, `EXP_VAL` probes, asymmetric
+readout noise, or distribution-altering HIR passes, use the original plan
+when available.
 
 ## Stabilizer-Based Simplification
 
@@ -168,14 +171,15 @@ merge or cancel rotations, including rotations with arbitrary angles.
 
 The phase-polynomial pass collects commuting T rotations and expresses their
 combined phase using Boolean eigenvalue coordinates for independent Pauli axes.
-It expands the phase into a polynomial modulo eight, where cancellations can
-reveal a smaller non-Clifford core. The pass then synthesizes T rotations for
+Cancellations in the phase polynomial modulo eight can reveal a smaller
+non-Clifford core. The pass then synthesizes T rotations for
 that core and retains the exact Clifford correction. Subsequent squeezing can
 reduce active execution width further, using the final measurements as well
 as the preparation.
 
 Collecting a larger complete region can expose cancellations that smaller
-regions miss. The optional wide search also tries coordinates derived from the
+regions miss. The pass keeps each XOR parity as one term, even when a rotation
+acts on many axes. The wide search can also try coordinates derived from the
 final Clifford tableau, since coordinate choice affects synthesis. It retains
 a candidate only when the rewrite meets the T-count and active-width cost
 guards. The number of variables needed to analyze a region can therefore be

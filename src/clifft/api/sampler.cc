@@ -151,7 +151,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
     constexpr bool survivors = std::is_same_v<Result, SamplingSurvivorResult>;
     const auto& compiled = program.sampling_plan(outputs.measurements());
     if constexpr (!survivors) {
-        if (!outputs.rows() || program.original().has_postselection()) {
+        if (!outputs.rows() || program.has_postselection()) {
             throw std::invalid_argument("fixed-row sampling requires outputs and no postselection");
         }
     }

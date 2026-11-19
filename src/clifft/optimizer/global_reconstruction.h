@@ -40,7 +40,7 @@ struct ReconstructionLimits {
     uint32_t max_noise_bits = 262144;
     uint32_t max_outputs = 4096;
     size_t max_operations = 200000;
-    uint32_t max_schedule_operations = 2048;
+    uint32_t max_schedule_operations = 4096;
     size_t max_planning_steps = 10000000;
     size_t max_channel_products = 1000000;
     size_t max_channel_support = 4096;

@@ -2,6 +2,7 @@
 
 import re
 from functools import lru_cache
+from itertools import combinations
 
 import numpy as np
 import pytest
@@ -133,7 +134,7 @@ def test_wide_phase_preserves_exact_joint_records(width: int, seed: int) -> None
         manager.add(pass_)
     program = clifft.compile(source, hir_passes=manager)
     assert phase.wide_attempts > 0
-    assert bool(phase.wide_rewrites) == (width <= 128)
+    assert phase.wide_rewrites > 0
     assert program.peak_active_width <= 4
     records = ["".join(str(key >> j & 1) for j in range(4)) for key in range(16)]
     np.testing.assert_allclose(
@@ -258,3 +259,277 @@ def test_wide_phase_reduces_direct_readout_preparation() -> None:
     preparation = clifft.compile("\n".join(lines[:first_readout]), hir_passes=manager)
     assert preparation.num_measurements == 162
     assert preparation.peak_active_width == 9
+
+
+def _cube_rotation(start: int, mask: int) -> str:
+    return "TPP " + "*".join(f"Z{start + bit}" for bit in range(4) if mask & (1 << bit))
+
+
+def _run_phase(
+    source: str, *, postselection_mask: tuple[int, ...] = (), **limits: int
+) -> clifft.PhasePolynomialPass:
+    hir = clifft.trace(clifft.parse(source), postselection_mask=postselection_mask)
+    phase = clifft.PhasePolynomialPass(**limits)
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    return phase
+
+
+def test_canceling_rotations_meet_after_a_wide_identity_is_removed() -> None:
+    qs = " ".join(map(str, range(65)))
+    source = f"H {qs}\nTPP Y0\nT {qs}\nT_DAG {qs}\nTPP_DAG Y0\nR_X(0.137) 0"
+    phase = _run_phase(source)
+    assert phase.wide_rewrites == 1
+    assert phase.output_t_count == 0
+
+
+@pytest.mark.parametrize("selected", [False, True])
+def test_wide_region_stops_at_a_rotation_that_breaks_a_lookahead_constraint(selected: bool) -> None:
+    qs = " ".join(map(str, range(1, 66)))
+    source = (
+        f"H 0 {qs}\nDEPOLARIZE1(0.15) 0\nT {qs}\nT_DAG {qs}\n"
+        "M 0\nDETECTOR rec[-1]\nTPP X0\nTPP X0\nR_X(0.137) 1"
+    )
+    # Postselection supplies Z0 at entry. The wide rewrite must end before
+    # the X rotations, leaving M in place. Without that constraint M can move.
+    phase = _run_phase(source, postselection_mask=(int(selected),))
+    assert phase.wide_rewrites == 1
+    assert phase.pauli_pullbacks == int(not selected)
+    assert phase.output_t_count == 0
+
+
+@pytest.mark.parametrize("earlier_measurement", [False, True])
+def test_wide_final_measurement_can_elide_phases_below_the_synthesis_budget(
+    earlier_measurement: bool,
+) -> None:
+    qs = " ".join(map(str, range(68)))
+    earlier = "M 68\n" if earlier_measurement else ""
+    source = f"H {qs}\nT {qs}\n{earlier}T_DAG {qs}\nTPP Z1*Z2\nM 68"
+    # A subsequent rotation requires materializing the remaining parity.
+    materialized = _run_phase(source + "\nR_X(0.137) 0")
+    assert materialized.output_t_count == 1
+    phase = _run_phase(source, max_wide_work=materialized.wide_work - 1)
+    assert phase.wide_rewrites == 1
+    assert phase.pauli_pullbacks == 1 + int(earlier_measurement)
+    assert phase.output_t_count == 0
+    assert not phase.wide_budget_exhausted
+
+
+def test_wide_final_measurement_elides_a_linear_phase_with_distinct_parities() -> None:
+    qs = " ".join(map(str, range(80)))
+    lines = [f"H {qs}", f"T {qs}"]
+    # Each row and column contributes the inverse of its four single-qubit T gates.
+    # Each qubit belongs to both, leaving one T_DAG per qubit across 520 distinct parities.
+    for base in range(0, 80, 16):
+        rows = [range(q, q + 4) for q in range(base, base + 16, 4)]
+        for group in (*rows, *zip(*rows, strict=True)):
+            for size in (2, 3, 4):
+                for subset in combinations(group, size):
+                    lines.append("TPP " + "*".join(f"Z{q}" for q in subset))
+    lines.extend([f"H {qs}", "M 80"])
+    phase = clifft.PhasePolynomialPass()
+    program = clifft.compile(
+        "\n".join(lines), hir_passes=clifft.default_hir_pass_manager(overrides=[phase])
+    )
+    assert phase.input_t_count == 520
+    assert phase.wide_rewrites == 1
+    assert phase.output_t_count == 0
+    assert program.peak_active_width == 0
+
+
+def test_wide_final_measurement_elides_a_reduction_found_by_synthesis() -> None:
+    qs = " ".join(map(str, range(68)))
+    # All 84 parities are distinct and the core has full rank. The fifteen
+    # parities spanned by these four pairs form an identity that TOHPE removes.
+    cube = [
+        "TPP "
+        + "*".join(f"Z{q}" for bit in range(4) if subset & (1 << bit) for q in (2 + bit, 64 + bit))
+        for subset in range(1, 16)
+    ]
+    prefix = "\n".join([f"H {qs}", f"T {qs}", "TPP Z0*Z1*Z2", *cube])
+    assert _run_phase(prefix + "\nR_X(0.137) 0").output_t_count == 69
+    phase = _run_phase(prefix + "\nM 68")
+    assert phase.wide_rewrites == 1
+    assert phase.pauli_pullbacks == 1
+    assert phase.output_t_count == 0
+
+
+def test_a_full_parity_table_leaves_work_for_the_next_region() -> None:
+    qs = " ".join(map(str, range(66)))
+    layer = f"T {qs}\nT {qs}"
+    source = f"H {qs} 66\n{layer}\nT 66\nR_X(0.137) 0\n{layer}\nR_X(0.137) 0"
+    phase = _run_phase(source, max_wide_terms=66)
+    assert phase.wide_budget_exhausted
+    assert phase.wide_rewrites == 2
+    assert phase.output_t_count == 1
+
+
+@pytest.mark.parametrize("limit", ["variables", "work", None])
+def test_wide_observer_extension_keeps_reducible_prefix(limit: str | None) -> None:
+    # The 32 four-qubit parity cubes are identity. The remaining prefix
+    # prepares S|+> on qubit 0 and T|+> on qubit 1.
+    cubes = [_cube_rotation(q, mask) for mask in range(1, 16) for q in range(0, 128, 4)]
+    preparation = "H " + " ".join(map(str, range(129)))
+    prefix = "\n".join([preparation, "T 0", "TPP Z0*Z129", "EXP_VAL Y0", *cubes, "T 1"])
+    boundary = prefix + "\nEXP_VAL Y0"
+    options = {}
+    if limit == "work":
+        # Give the complete prefix its measured allowance. The suffix here
+        # stays within 128 variables, so only the work limit can stop it.
+        baseline = clifft.PhasePolynomialPass()
+        clifft.compile(boundary, hir_passes=clifft.default_hir_pass_manager(overrides=[baseline]))
+        assert baseline.wide_rewrites == 1
+        assert not baseline.wide_budget_exhausted
+        options["max_wide_work"] = baseline.wide_work
+        parity = "*".join(f"Z{q}" for q in range(2, 82))
+        suffix = f"TPP {parity}\nEXP_VAL X2"
+    elif limit == "variables":
+        suffix = "T 128\nEXP_VAL X128"
+    else:
+        # With room to extend, the T gates on either side of the observer cancel.
+        suffix = "T_DAG 1\nEXP_VAL X2"
+
+    phase = clifft.PhasePolynomialPass(**options)
+    program = clifft.compile(
+        boundary + "\n" + suffix + "\nEXP_VAL X1",
+        hir_passes=clifft.default_hir_pass_manager(overrides=[phase]),
+    )
+    assert phase.wide_rewrites == 1
+    assert phase.wide_budget_exhausted == (limit == "work")
+    expected_t_count = 0 if limit is None else 2
+    assert phase.output_t_count == expected_t_count
+    assert program.peak_active_width <= expected_t_count
+    expected_x = 1 if limit is None else np.sqrt(0.5)
+    np.testing.assert_allclose(
+        clifft.sample(program, 1, seed=7).exp_vals[0],
+        [1, 1, expected_x, expected_x],
+        rtol=0,
+        atol=2e-12,
+    )
+
+
+def test_interleaved_measurements_leave_work_for_a_second_wide_region() -> None:
+    # The first region reduces to 30 T gates. The two T layers in the
+    # second region reduce to Clifford rotations.
+    lines = ["H " + " ".join(map(str, range(118)))]
+    rotations = [_cube_rotation(q, mask) for q in range(0, 88, 4) for mask in range(1, 16)]
+    rotations.extend(f"T {q}" for q in range(88, 118))
+    for rotation in rotations:
+        lines.extend([rotation, "M 118"])
+    layer = "T " + " ".join(map(str, range(70)))
+    lines.extend(["R_X(0.137) 0", layer, layer])
+
+    hir = clifft.trace(clifft.parse("\n".join(lines)))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert phase.input_t_count == 500
+    assert phase.wide_rewrites == 2
+    assert not phase.wide_budget_exhausted
+    assert hir.num_t_gates == 30
+
+
+@pytest.mark.parametrize("observer", [False, True])
+def test_wide_phase_finishes_the_prefix_at_the_variable_limit(observer: bool) -> None:
+    targets = " ".join(map(str, range(128)))
+    lines = [f"H {targets} 128", f"T {targets}", f"T {targets}"]
+    if observer:
+        lines.append("EXP_VAL Z129")
+    lines.extend(["T 128", "EXP_VAL X128"])
+    hir = clifft.trace(clifft.parse("\n".join(lines)))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert phase.input_t_count == 257
+    assert phase.wide_rewrites == 1
+    assert hir.num_t_gates == 1
+
+
+@pytest.mark.parametrize("width", [68, 116])
+def test_two_word_core_search_leaves_work_for_a_second_region(width: int) -> None:
+    axes = (0, 1, width - 2, width - 1)
+    cube = [
+        "TPP " + "*".join(f"Z{axis}" for bit, axis in enumerate(axes) if subset & (1 << bit))
+        for subset in range(1, 16)
+    ]
+    targets = " ".join(map(str, range(width)))
+    ends = f"TPP Z0*Z{width - 1}"
+    # The T layer separates the two halves of the identity cube. At width 68
+    # TOHPE can recover the whole layer. At 116 its cost exceeds the default
+    # allowance, and projection leaves seven additional odd columns.
+    lines = [f"H {targets}", *cube[:7], f"T {targets}", *cube[7:], ends, ends]
+    # A second region of paired T gates reduces to Cliffords in both cases.
+    layer = "T " + " ".join(map(str, range(68)))
+    source = "\n".join([*lines, "R_X(0.137) 0", layer, layer, "R_X(0.137) 0"])
+    hir = clifft.trace(clifft.parse(source))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert phase.input_t_count == width + 17 + 2 * 68
+    assert phase.wide_rewrites == 2
+    assert not phase.wide_budget_exhausted
+    assert hir.num_t_gates == (68 if width == 68 else 123)
+
+
+def test_wide_phase_keeps_a_better_prefix_when_the_full_core_fits() -> None:
+    # The prefix is identity. After 48 more T gates the complete core fits,
+    # but its 132 odd columns exceed the TOHPE search limit.
+    lines = ["H " + " ".join(map(str, range(68)))]
+    lines.extend(_cube_rotation(q, mask) for mask in range(1, 16) for q in range(0, 68, 4))
+    lines.extend(["EXP_VAL Z68", "T " + " ".join(map(str, range(48))), "R_X(0.137) 0"])
+    hir = clifft.trace(clifft.parse("\n".join(lines)))
+    phase = clifft.PhasePolynomialPass()
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    manager.run(hir)
+    assert phase.input_t_count == 303
+    assert phase.wide_rewrites == 1
+    assert not phase.wide_budget_exhausted
+    assert hir.num_t_gates == 48
+
+
+@pytest.mark.parametrize("limit", ["terms", "variables", None])
+def test_wide_phase_extends_a_reduced_prefix_within_its_limits(limit: str | None) -> None:
+    targets = " ".join(map(str, range(128)))
+    lines = [f"H {targets} 128", f"T {targets}", "EXP_VAL Z129"]
+    # The first probe sees 128 independent T gates. Completing the parity
+    # cubes cancels them all before the second probe.
+    lines.extend(
+        _cube_rotation(q, mask)
+        for mask in range(1, 16)
+        if mask.bit_count() > 1
+        for q in range(0, 128, 4)
+    )
+    dense_parity = "*".join(f"Z{q}" for q in range(2, 128))
+    options = {}
+    if limit == "terms":
+        # The table fits all 15 parities of each cube. The dense suffix adds one more.
+        options["max_wide_terms"] = 32 * 15
+        lines.extend(
+            ["TPP Z1*Z2", "EXP_VAL X0", f"TPP {dense_parity}", "EXP_VAL Y1*Z2", "EXP_VAL X2"]
+        )
+        expected = [1, 1, np.sqrt(0.5), 0.5]
+    elif limit == "variables":
+        lines.extend(["TPP_DAG Z1*Z2", "EXP_VAL X0", "T 128", "EXP_VAL Y1*Z2", "EXP_VAL X128"])
+        expected = [1, 1, -np.sqrt(0.5), np.sqrt(0.5)]
+    else:
+        # A 126-bit parity extends the nonlinear prefix as one more rotation.
+        lines.extend(
+            ["TPP_DAG Z1*Z2", "EXP_VAL X0", f"TPP {dense_parity}", "EXP_VAL Y1*Z2", "EXP_VAL X2"]
+        )
+        expected = [1, 1, -np.sqrt(0.5), 0.5]
+    phase = clifft.PhasePolynomialPass(**options)
+    manager = clifft.HirPassManager()
+    manager.add(phase)
+    program = clifft.compile("\n".join(lines), hir_passes=manager)
+    assert phase.wide_budget_exhausted == (limit == "terms")
+    assert phase.wide_rewrites == 1
+    assert phase.output_t_count == 2
+    assert program.peak_active_width <= 2
+    np.testing.assert_allclose(
+        clifft.sample(program, 1, seed=7).exp_vals[0], expected, rtol=0, atol=2e-12
+    )

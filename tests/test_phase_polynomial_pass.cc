@@ -3,8 +3,8 @@
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/known_stabilizers.h"
 #include "clifft/optimizer/phase_polynomial_pass.h"
+#include "clifft/optimizer/phase_region.h"
 #include "clifft/optimizer/symbolic_stabilizers.h"
-#include "clifft/optimizer/wide_phase_region.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
@@ -38,6 +38,23 @@ HirModule parity_block(uint32_t width = 4, const std::vector<uint32_t>& position
         hir.source_map.push_back({term});
     }
     return hir;
+}
+
+std::string parity_cube_tpp(uint32_t bits) {
+    std::string lines;
+    for (uint32_t mask = 1; mask < (1U << bits); ++mask) {
+        std::string product;
+        for (uint32_t bit = 0; bit < bits; ++bit) {
+            if ((mask >> bit) & 1U) {
+                if (!product.empty()) {
+                    product += "*";
+                }
+                product += "Z" + std::to_string(bit);
+            }
+        }
+        lines += "TPP " + product + "\n";
+    }
+    return lines;
 }
 
 }  // namespace
@@ -444,33 +461,37 @@ TEST_CASE("Wide phase collection stops at noncommuting rotations", "[optimizer]"
     }
 }
 
-TEST_CASE("Wide phase fallback retains narrow observer pullbacks", "[optimizer]") {
-    for (const auto* observer : {"M 2", "CX rec[-1] 2", "EXP_VAL Z2", "X_ERROR(0.25) 2"}) {
-        CAPTURE(observer);
-        std::string source = "H 2\nM 2\nH 0 1\nT 0\nT 0\nT 1\n";
-        source += std::string(observer) + "\nT 1\n";
-        for (uint32_t q = 3; q < 67; ++q) {
-            const auto target = std::to_string(q) + "\n";
-            source += "H " + target + "T " + target;
-        }
-        auto hir = trace(parse(source));
-        auto expected = hir;
-        PhasePolynomialPass narrow({64});
-        narrow.run(expected);
-        REQUIRE(expected.num_t_gates() == 64);
-        PhasePolynomialPass wide({128});
-        wide.run(hir);
-        REQUIRE(wide.wide_attempts() > 0);
-        REQUIRE(wide.wide_rewrites() == 0);
-        REQUIRE(wide.pauli_pullbacks() == narrow.pauli_pullbacks());
-        REQUIRE(hir.num_t_gates() == 64);
-        REQUIRE(hir.num_measurements == expected.num_measurements);
-        REQUIRE(hir.ops.size() == expected.ops.size());
-        REQUIRE(hir.final_tableau == expected.final_tableau);
-        for (size_t i = 0; i < hir.ops.size(); ++i) {
-            REQUIRE(hir.ops[i].op_type() == expected.ops[i].op_type());
-            if (hir.ops[i].op_type() != OpType::NOISE) {
-                REQUIRE(hir.mask_view(hir.ops[i]) == expected.mask_view(expected.ops[i]));
+TEST_CASE("Linear phase regions pull back observers across the word boundary", "[optimizer]") {
+    for (uint32_t end_qubit : {67U, 68U}) {
+        CAPTURE(end_qubit);
+        const uint32_t expected_t_gates = end_qubit - 3;
+        for (const auto* observer : {"M 2", "CX rec[-1] 2", "EXP_VAL Z2", "X_ERROR(0.25) 2"}) {
+            CAPTURE(observer);
+            std::string source = "H 2\nM 2\nH 0 1\nT 0\nT 0\nT 1\n";
+            source += std::string(observer) + "\nT 1\n";
+            for (uint32_t q = 3; q < end_qubit; ++q) {
+                const auto target = std::to_string(q) + "\n";
+                source += "H " + target + "T " + target;
+            }
+            auto hir = trace(parse(source));
+            auto expected = hir;
+            PhasePolynomialPass narrow({64});
+            narrow.run(expected);
+            REQUIRE(expected.num_t_gates() == expected_t_gates);
+            PhasePolynomialPass wide({128});
+            wide.run(hir);
+            REQUIRE(wide.wide_attempts() > 0);
+            REQUIRE(wide.wide_rewrites() == 1);
+            REQUIRE(wide.pauli_pullbacks() == narrow.pauli_pullbacks());
+            REQUIRE(hir.num_t_gates() == expected_t_gates);
+            REQUIRE(hir.num_measurements == expected.num_measurements);
+            REQUIRE(hir.ops.size() == expected.ops.size());
+            REQUIRE(hir.final_tableau == expected.final_tableau);
+            for (size_t i = 0; i < hir.ops.size(); ++i) {
+                REQUIRE(hir.ops[i].op_type() == expected.ops[i].op_type());
+                if (hir.ops[i].op_type() != OpType::NOISE) {
+                    REQUIRE(hir.mask_view(hir.ops[i]) == expected.mask_view(expected.ops[i]));
+                }
             }
         }
     }
@@ -503,18 +524,20 @@ TEST_CASE("Wide phase budgets preserve the ordinary fallback and completed candi
     }
     auto without_output = original;
     without_output.final_tableau.reset();
-    phase_detail::wide::Budget budget;
+    phase_detail::WideBudget budget;
     const KnownStabilizers fixed(width);
     const optimizer_detail::CliffordAbsorption frame;
     const auto baseline =
-        phase_detail::wide::try_region(without_output, 0, fixed, frame, 128, budget);
+        phase_detail::try_wide_region(without_output, 0, fixed, frame, 128, budget);
     REQUIRE(baseline);
     REQUIRE(baseline->t_count == 0);
     const auto completed_work = budget.updates;
     auto kept = original;
     PhasePolynomialPass limited({128, completed_work, 200000});
     limited.run(kept);
-    REQUIRE(limited.wide_budget_exhausted());
+    // Zero T gates meets the lower bound; an alternate basis cannot improve it.
+    REQUIRE_FALSE(limited.wide_budget_exhausted());
+    REQUIRE(limited.wide_work() == completed_work);
     REQUIRE(limited.wide_rewrites() == 1);
     REQUIRE(kept.num_t_gates() == 0);
     auto unlimited = original;
@@ -542,10 +565,10 @@ TEST_CASE("Wide phase cost rejection retains ordinary rewrites", "[optimizer]") 
     while (hir.ops[start].op_type() != OpType::T_GATE) {
         known.advance(hir, hir.ops[start++]);
     }
-    phase_detail::wide::Budget budget;
+    phase_detail::WideBudget budget;
     const optimizer_detail::CliffordAbsorption frame;
     const auto candidate =
-        phase_detail::wide::try_region(hir, start, known.fixed_constraints(), frame, 128, budget);
+        phase_detail::try_wide_region(hir, start, known.fixed_constraints(), frame, 128, budget);
     REQUIRE(candidate);
     REQUIRE(candidate->t_count == 7);
     REQUIRE(std::ranges::count_if(candidate->phases, [](const auto& term) {
@@ -722,19 +745,7 @@ TEST_CASE("Wide phase rewrite chains into narrow observer pullback", "[optimizer
         all_qubits += " " + std::to_string(q);
         spectator_qubits += " " + std::to_string(q);
     }
-    std::string cube_lines;
-    for (uint32_t mask = 1; mask < 16; ++mask) {
-        std::string product;
-        for (uint32_t bit = 0; bit < 4; ++bit) {
-            if ((mask >> bit) & 1U) {
-                if (!product.empty()) {
-                    product += "*";
-                }
-                product += "Z" + std::to_string(bit);
-            }
-        }
-        cube_lines += "TPP " + product + "\n";
-    }
+    const std::string cube_lines = parity_cube_tpp(4);
     const std::string suffix =
         "M 0\n"
         "EXP_VAL Z1\n"
@@ -1003,5 +1014,87 @@ TEST_CASE("Postselected detector respects expected parity and rejects noisy read
         pass_allowed.run(allowed);
         REQUIRE(pass_allowed.applied());
         REQUIRE(pass_allowed.output_t_count() == 0);
+    }
+}
+
+TEST_CASE("Wide phase regions elide post-observer rotations across both coordinate words",
+          "[optimizer]") {
+    // 72 independent T rotations on qubits 4..75 plus a 4-qubit vanishing parity
+    // cube on qubits 0..3 span 76 variables with core width 72 (> 64) and a
+    // 4-dimensional Clifford kernel. Pulling back the final measurements must
+    // elide the entire post-observer phase polynomial to zero T gates.
+    std::string magic_qubits;
+    for (uint32_t q = 4; q < 76; ++q) {
+        magic_qubits += " " + std::to_string(q);
+    }
+    const std::string source = "H 0 1 2 3" + magic_qubits + "\nZ_ERROR(0.2) 0\n" +
+                               parity_cube_tpp(4) + "M 0\nT" + magic_qubits +
+                               "\nM 1 2 3\n"
+                               "DETECTOR rec[-4]\nDETECTOR rec[-3] rec[-2] rec[-1]\n";
+    auto hir = trace(parse(source));
+    PhasePolynomialPass pass({128});
+    pass.run(hir);
+    REQUIRE(pass.applied());
+    REQUIRE(pass.wide_rewrites() == 1);
+    REQUIRE(pass.pauli_pullbacks() == 4);
+    REQUIRE(pass.output_t_count() == 0);
+    REQUIRE(hir.num_t_gates() == 0);
+    REQUIRE(analyze_active_width(hir).peak_width == 0);
+
+    // Compare against the exact 4-qubit analytical equivalent (qubits 4..75 have no observers).
+    const std::string ref_source =
+        "H 0 1 2 3\nZ_ERROR(0.2) 0\n"
+        "M 0 1 2 3\nDETECTOR rec[-4]\nDETECTOR rec[-3] rec[-2] rec[-1]\n";
+    Xoshiro256PlusPlus rng(0x51A5E04);
+    test::check_exact_equivalent(trace(parse(ref_source)), hir, rng);
+
+    // Unreduced > 64-variable rotations with trivial Clifford kernel stay untouched.
+    const std::string unreduced_source =
+        "H 0 1 2 3" + magic_qubits + "\nT 0 1 2 3" + magic_qubits + "\nM 76\n";
+    auto unreduced = trace(parse(unreduced_source));
+    PhasePolynomialPass unreduced_pass({128});
+    unreduced_pass.run(unreduced);
+    REQUIRE_FALSE(unreduced_pass.applied());
+    REQUIRE(unreduced_pass.wide_rewrites() == 0);
+    REQUIRE(unreduced.num_t_gates() == 76);
+}
+
+TEST_CASE("An optimal wide rewrite avoids output alignment with distant spectators",
+          "[optimizer]") {
+    // Qubit 66 stays in |0>, so T q + TPP Zq*Z66 collapses to S q on qubits 0..64,
+    // while T 65 survives (t_count == 1) and EXP_VAL Y0 is pulled back across the
+    // phase prefix. This reaches the rank bound in the collection basis.
+    std::string qs;
+    std::string terms;
+    for (uint32_t q = 1; q < 65; ++q) {
+        qs += " " + std::to_string(q);
+        terms += " Z" + std::to_string(q) + "*Z66";
+    }
+    const std::string body =
+        "H 0" + qs + " 65\nT 0\nTPP Z0*Z66\nEXP_VAL Y0\nT" + qs + "\nTPP" + terms + "\nT 65\n";
+    const auto original = trace(parse("H 1500\n" + body));
+    auto collected = original;
+    collected.final_tableau.reset();
+    PhasePolynomialPass baseline;
+    baseline.run(collected);
+    REQUIRE(baseline.wide_rewrites() == 1);
+    REQUIRE_FALSE(baseline.wide_budget_exhausted());
+    for (const bool limited : {false, true}) {
+        CAPTURE(limited);
+        auto hir = original;
+        PhasePolynomialOptions options;
+        if (limited)
+            options.max_wide_work = baseline.wide_work();
+        PhasePolynomialPass pass(options);
+        pass.run(hir);
+        REQUIRE(pass.wide_rewrites() == 1);
+        REQUIRE(pass.pauli_pullbacks() == 1);
+        REQUIRE(pass.output_t_count() == 1);
+        REQUIRE_FALSE(pass.wide_budget_exhausted());
+        REQUIRE(pass.wide_work() == baseline.wide_work());
+        const sampling::ExecutablePlan plan(sampling::plan_sampling(hir));
+        const auto result = sampling::sample(plan, 1, uint64_t{7});
+        REQUIRE(result.exp_vals.size() == 1);
+        REQUIRE(std::abs(result.exp_vals[0] - 1.0) < 1e-12);
     }
 }
