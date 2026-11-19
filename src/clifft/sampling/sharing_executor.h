@@ -3,6 +3,7 @@
 #include "clifft/sampling/batch/classical.h"
 #include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/state.h"
+#include "clifft/util/page_allocation.h"
 
 #include <cstdint>
 #include <limits>
@@ -15,8 +16,7 @@ namespace clifft::sampling {
 // data with SharingExecutor's groups and pool of coefficient states. An optional
 // SharingKey, prepared before execution, groups shots upfront by noise effects
 // on future rotation signs. SharingExecutor applies prepared actions to each
-// group and splits it when needed; each sampling call owns its workers and
-// their storage.
+// group and splits it when needed.
 
 // Default bound on the coefficients, collapse scratch, and page alignment of
 // the states one shared worker holds. States are allocated as trajectories
@@ -91,6 +91,7 @@ class SharingExecutor : public BatchClassicalState {
     [[nodiscard]] uint32_t state_capacity() const noexcept {
         return static_cast<uint32_t>(states_.size());
     }
+    [[nodiscard]] uint64_t state_pool_bytes() const noexcept;
     [[nodiscard]] uint32_t peak_groups() const noexcept { return peak_groups_; }
     [[nodiscard]] uint32_t storage_boundaries() const noexcept { return storage_boundaries_; }
     [[nodiscard]] uint32_t entrance_rejected() const noexcept { return entrance_rejected_; }
@@ -136,6 +137,8 @@ class SharingExecutor : public BatchClassicalState {
     std::vector<uint32_t> key_hash_;
     std::vector<uint32_t> split_factors_;
     uint32_t max_states_ = 0;
+    // Contiguous slabs outlive the non-owning State views in states_.
+    std::vector<PageAlignedAllocation> state_chunks_;
     std::vector<State> states_;
     std::vector<Xoshiro256PlusPlus> shot_rng_;
     std::vector<uint32_t> heads_, next_, groups_, free_;

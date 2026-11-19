@@ -732,3 +732,60 @@ TEST_CASE("Native site noise preparation skips zero-probability sites") {
     // Eight standard deviations around the 1,024 expected flips.
     REQUIRE(std::abs(static_cast<int>(flips) - 1024) < 222);
 }
+
+TEST_CASE("Shared sampling reuses and bounds idle workers across repeated and concurrent calls") {
+    const Program program = row_program(true);
+    const SamplingOutputs outputs(true);
+    const auto& prep = program.sampling_preparation(
+        outputs, {.early_postselection = true, .survivor_counts = true});
+    REQUIRE(prep.retained_shared_worker_count() == 0);
+    REQUIRE(prep.retained_shared_worker_bytes() == 0);
+
+    const SamplingOptions one_thread{.threads = 1, .batch_size = 512, .sharing = true};
+    const auto cold = clifft::sample_survivors(program, 2048, 42, outputs, one_thread);
+    REQUIRE(cold.execution.executor == SamplingExecutor::Shared);
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+    const uint64_t retained_one = prep.retained_shared_worker_bytes();
+    REQUIRE(retained_one > 0);
+    REQUIRE(retained_one <= clifft::kMaxRetainedSharedWorkerBytes);
+
+    // Repeating the same call reuses the idle worker without growing the pool.
+    const auto warm = clifft::sample_survivors(program, 2048, 42, outputs, one_thread);
+    require_same(cold, warm);
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+    REQUIRE(prep.retained_shared_worker_bytes() == retained_one);
+
+    // Concurrent multi-threaded calls check out exclusive workers and stay within the byte cap.
+    const SamplingOptions two_threads{.threads = 2, .batch_size = 512, .sharing = true};
+    const auto expected_two = clifft::sample_survivors(program, 2048, 42, outputs, two_threads);
+    std::array<std::future<SamplingSurvivorResult>, 4> calls;
+    for (auto& call : calls) {
+        call = std::async(std::launch::async, [&] {
+            return clifft::sample_survivors(program, 2048, 42, outputs, two_threads);
+        });
+    }
+    for (auto& call : calls) {
+        require_same(expected_two, call.get());
+    }
+    REQUIRE(prep.retained_shared_worker_count() >= 1);
+    REQUIRE(prep.retained_shared_worker_bytes() <= clifft::kMaxRetainedSharedWorkerBytes);
+
+    // Switching execution configuration replaces the retained pool cleanly.
+    const SamplingOptions one_thread_alt{
+        .threads = 1, .batch_size = 256, .sharing = true, .group_by_noise = true};
+    const auto alt = clifft::sample_survivors(program, 1024, 42, outputs, one_thread_alt);
+    REQUIRE(alt.execution.group_by_noise);
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+
+    // A tighter state budget must not reuse a cached worker built for a larger budget.
+    const uint32_t width = program.sampling_plan(true).peak_active_width();
+    REQUIRE_THROWS_AS(
+        clifft::sample_survivors(program, 65, 1, outputs,
+                                 {.threads = 1,
+                                  .batch_size = 65,
+                                  .sharing = true,
+                                  .max_worker_state_bytes = 2 * State::storage_bytes(width)}),
+        std::runtime_error);
+    require_same(cold, clifft::sample_survivors(program, 2048, 42, outputs, one_thread));
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+}

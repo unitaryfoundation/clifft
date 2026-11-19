@@ -1,4 +1,4 @@
-// Native execution selection, per-call shared workers, and ordered row collection.
+// Native execution selection, reusable shared workers, and ordered row collection.
 
 #include "clifft/api/sampler.h"
 
@@ -8,6 +8,7 @@
 #include "clifft/util/shot_parallel.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <stdexcept>
@@ -19,46 +20,17 @@ namespace {
 
 using namespace sampling;
 
-constexpr uint32_t kMaxInitialSharedStates = 128;
-// Bound upfront state preallocation per worker on wide plans; additional states
-// grow at explicit suspension boundaries when trajectories split.
-constexpr uint64_t kInitialSharedStateBytes = 512 * 1024;
-
-// One call owns its mutable workers. Rows are collected only after a batch
-// finishes dispatch, and batch indices keep collection independent of scheduling.
-struct SharedWorker {
-    using Executor = std::variant<BatchExecutor, SharingExecutor>;
-    Executor executor;
-    uint32_t passed = 0;
-    uint32_t logical_errors = 0;
-    std::vector<uint64_t> observable_ones;
-
-    SharedWorker(const SamplingPreparation& preparation, const PreparedBatchNoise& noise,
-                 const EarlyPostselection* checks, const SharingKey* key,
-                 const SamplingExecution& execution, SamplingOutputs outputs)
-        : executor(make_executor(
-              preparation.plan(), noise, checks, key, execution,
-              outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors)),
-          observable_ones(preparation.plan().num_observables()) {}
-
-    static Executor make_executor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
-                                  const EarlyPostselection* checks, const SharingKey* key,
-                                  const SamplingExecution& execution, BatchOutputMode mode) {
-        // Width-zero plans have no coefficient evolution to share. Their packed
-        // executor applies classical checks without per-shot group bookkeeping.
-        if (plan.peak_active_width() == 0) {
-            return Executor(std::in_place_type<BatchExecutor>, plan, execution.batch_size, mode,
-                            BatchSamplingMode::Ordinary, &noise);
-        }
-        const uint32_t initial_states = static_cast<uint32_t>(std::min<uint64_t>(
-            {execution.batch_size, kMaxInitialSharedStates,
-             std::max<uint64_t>(
-                 1, kInitialSharedStateBytes / State::storage_bytes(plan.peak_active_width()))}));
-        return Executor(std::in_place_type<SharingExecutor>, plan, noise, *checks,
-                        execution.batch_size, initial_states, true, key,
-                        *execution.max_worker_state_bytes, mode);
-    }
-};
+SharedWorkerKey shared_worker_key(const ExecutablePlan& plan, const SamplingExecution& execution,
+                                  SamplingOutputs outputs) noexcept {
+    return SharedWorkerKey{
+        .output_mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors,
+        .noise_mode = *execution.noise_preparation,
+        .lane_capacity = execution.batch_size,
+        .max_worker_state_bytes =
+            plan.peak_active_width() == 0 ? 0 : *execution.max_worker_state_bytes,
+        .group_by_noise = plan.peak_active_width() == 0 ? false : execution.group_by_noise,
+    };
+}
 
 template <typename Result>
 Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
@@ -81,23 +53,26 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
     const auto& noise = preparation.noise(*execution.noise_preparation);
     const auto* checks = plan.peak_active_width() == 0 ? nullptr : &preparation.checks();
     const auto* key = execution.group_by_noise ? &preparation.sharing_key() : nullptr;
+    const auto worker_key = shared_worker_key(plan, execution, outputs);
     const uint32_t capacity = execution.batch_size;
     const uint32_t batch_count = static_cast<uint32_t>((uint64_t{shots} + capacity - 1) / capacity);
     batch_detail::SurvivorRowCollector rows(shots, capacity, survivors && outputs.rows());
     const auto root = make_seed_root(shots, seed);
-    for (auto& worker : workers) {
-        if (worker) {
-            worker->passed = worker->logical_errors = 0;
-            std::fill(worker->observable_ones.begin(), worker->observable_ones.end(), 0);
-        }
-    }
+    std::vector<std::unique_ptr<SharedWorker>> active(execution.shot_workers);
+    std::atomic<size_t> next_warm{0};
     (void)run_shot_ranges(
         batch_count, execution.shot_workers,
         [&](uint32_t index) {
-            auto& worker = workers[index];
+            auto& worker = active[index];
             if (!worker) {
-                worker = std::make_unique<SharedWorker>(preparation, noise, checks, key, execution,
-                                                        outputs);
+                const size_t warm = next_warm.fetch_add(1, std::memory_order_relaxed);
+                if (warm < workers.size()) {
+                    worker = std::move(workers[warm]);
+                    worker->passed = worker->logical_errors = 0;
+                    std::fill(worker->observable_ones.begin(), worker->observable_ones.end(), 0);
+                } else {
+                    worker = std::make_unique<SharedWorker>(plan, noise, checks, key, worker_key);
+                }
             }
             return worker.get();
         },
@@ -127,7 +102,7 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
         },
         1, WorkerInitialization::OnWorkerThread);
     if constexpr (survivors) {
-        for (const auto& worker : workers) {
+        for (const auto& worker : active) {
             // An OpenMP runtime can supply fewer threads than requested.
             if (!worker) {
                 continue;
@@ -142,6 +117,20 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
             rows.finish(result);
         }
     }
+    // Preserve both active workers and any unconsumed warm workers for reuse.
+    std::vector<std::unique_ptr<SharedWorker>> kept;
+    kept.reserve(std::max(workers.size(), active.size()));
+    for (auto& worker : active) {
+        if (worker) {
+            kept.push_back(std::move(worker));
+        }
+    }
+    for (auto& worker : workers) {
+        if (worker) {
+            kept.push_back(std::move(worker));
+        }
+    }
+    workers = std::move(kept);
     return result;
 }
 
@@ -323,8 +312,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                         trial.batch_size = candidate.lane_capacity;
                         trial.shot_workers = candidate.worker_count;
                         return [&, trial,
-                                trial_workers =
-                                    std::vector<std::unique_ptr<SharedWorker>>(trial.shot_workers)](
+                                trial_workers = std::vector<std::unique_ptr<SharedWorker>>{}](
                                    uint32_t count, uint64_t trial_seed) mutable {
                             (void)run_shared<Result>(preparation, count, trial_seed, outputs, trial,
                                                      trial_workers);
@@ -336,8 +324,12 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             execution.shot_workers = tuning->shot_workers;
         }
     }
-    std::vector<std::unique_ptr<SharedWorker>> call_workers(execution.shot_workers);
+    const auto worker_key = shared_worker_key(preparation.plan(), execution, outputs);
+    auto call_workers = preparation.borrow_shared_workers(worker_key, execution.shot_workers);
     auto result = run_shared<Result>(preparation, shots, seed, outputs, execution, call_workers);
+    if (execution.shot_workers != 0) {
+        preparation.return_shared_workers(worker_key, std::move(call_workers));
+    }
     result.batch_tuning = std::move(tuning);
     return result;
 }

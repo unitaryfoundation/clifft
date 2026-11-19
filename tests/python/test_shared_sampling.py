@@ -754,3 +754,68 @@ def test_shared_tuning_respects_worker_budget_and_replays_selected_execution() -
     )
     assert single_replay.execution == single.execution
     assert counts(single_replay) == counts(single)
+
+
+def test_shared_worker_reuse_across_repeated_and_concurrent_calls() -> None:
+    def make_program() -> clifft.Program:
+        return clifft.compile(UNPOSTSELECTED_SOURCE)
+
+    reference_ungrouped = clifft.sample(
+        make_program(),
+        4096,
+        seed=31,
+        threads=4,
+        batch_size=512,
+        sharing=True,
+        keep_records="syndromes",
+        bit_packed=True,
+    )
+    reference_grouped = clifft.sample(
+        make_program(),
+        4096,
+        seed=31,
+        threads=4,
+        batch_size=256,
+        sharing=True,
+        group_by_noise=True,
+        keep_records="syndromes",
+        bit_packed=True,
+    )
+
+    program = make_program()
+    for _ in range(4):
+        repeated = clifft.sample(
+            program,
+            4096,
+            seed=31,
+            threads=4,
+            batch_size=512,
+            sharing=True,
+            keep_records="syndromes",
+            bit_packed=True,
+        )
+        np.testing.assert_array_equal(repeated.detectors, reference_ungrouped.detectors)
+        np.testing.assert_array_equal(repeated.observables, reference_ungrouped.observables)
+
+    def run_task(index: int, target: clifft.Program = program) -> tuple[bool, clifft.SampleResult]:
+        grouped = index % 2 == 1
+        return grouped, clifft.sample(
+            target,
+            4096,
+            seed=31,
+            threads=2,
+            batch_size=256 if grouped else 512,
+            sharing=True,
+            group_by_noise=grouped,
+            keep_records="syndromes",
+            bit_packed=True,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(run_task, range(16)))
+    for grouped, result in outcomes:
+        expected = reference_grouped if grouped else reference_ungrouped
+        np.testing.assert_array_equal(result.detectors, expected.detectors)
+        np.testing.assert_array_equal(result.observables, expected.observables)
+    del run_task
+    del program

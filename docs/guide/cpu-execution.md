@@ -174,9 +174,14 @@ checks before later evolution.
 execution automatically on eligible postselected workloads and noiseless
 unitary-prefix circuits when `sharing="auto"` and `batch_size="auto"`. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
-checks, and any grouping key; later or concurrent calls on the same `Program`
-reuse that immutable preparation and allocate their own workers per call. Pass
-keyword overrides when benchmarking or pinning shared settings:
+checks, and any grouping key. Each prepared output view also retains idle
+shared workers for its most recent execution configuration (up to 512 MiB of
+worker classical buffers and state slabs per prepared output view), checking
+out exclusive workers for each call so repeated calls reuse allocated storage
+without refaulting pages. Concurrent calls allocate additional workers as
+needed, switching configuration replaces the retained pool, and all retained
+worker storage is released when the `Program` is destroyed. Pass keyword
+overrides when benchmarking or pinning shared settings:
 
 ```python
 import clifft
@@ -227,9 +232,11 @@ classical batches than ordinary packed execution:
 - **`max_worker_state_bytes`** (default `64 MiB`): Memory limit per worker for
   quantum coefficient storage, measurement-collapse scratch, and page alignment
   (classical buffers, output rows, and compiled plans are separate). The limit
-  applies per worker rather than across all threads, so state storage can reach
-  `max_worker_state_bytes * shot_workers` when every lane diverges; states are
-  allocated at explicit suspension boundaries as trajectories split. With
+  applies per worker rather than across all threads, so active state storage
+  can reach `max_worker_state_bytes * shot_workers` when every lane diverges;
+  states are packed into contiguous slabs allocated at explicit suspension
+  boundaries as trajectories split. Completed workers are retained on the
+  prepared output view up to 512 MiB total and released with the `Program`. With
   `sharing=True` on nonzero-width plans, the budget must hold at least two
   states. Automatic and tuned capacities fit one state per lane within this
   budget. With a larger explicit capacity, Clifft checks a conservative bound

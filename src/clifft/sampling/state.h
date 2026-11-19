@@ -14,14 +14,19 @@ namespace clifft::sampling {
 // collapsing a non-diagonal measurement.
 class State {
   public:
-    // Coefficients, collapse scratch, and page alignment for one state.
+    // Coefficients, collapse scratch, and page alignment for one standalone state.
     [[nodiscard]] static size_t storage_bytes(uint32_t max_active_width);
+    // Coefficients and collapse scratch for one state inside a 64-byte-aligned slab.
+    [[nodiscard]] static size_t slot_bytes(uint32_t max_active_width);
 
     // Immediately allocates all coefficient and temporary storage required by
     // max_active_width, even when initial_active_width is smaller.
     explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0,
                    uint32_t initialization_workers = 1,
                    uint32_t intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth);
+    // Borrows 64-byte-aligned storage of at least slot_bytes(max_active_width)
+    // bytes owned by the caller for the lifetime of this state.
+    State(double* storage, uint32_t max_active_width, uint32_t initial_active_width = 0);
     ~State();
 
     State(const State&) = delete;

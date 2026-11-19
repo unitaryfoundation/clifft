@@ -745,3 +745,30 @@ TEST_CASE("Shared tuning bounds retained output allocations") {
     REQUIRE(shared_tuning_candidates(8192, 65536, 2, row_bytes).empty());
     REQUIRE(shared_tuning_candidates(8192, 256, 1, budget + 1).empty());
 }
+
+TEST_CASE("SharingExecutor packs narrow states into contiguous slabs within budget") {
+    const ExecutablePlan plan = parallel_t_plan(4);
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    const EarlyPostselection checks(plan);
+    REQUIRE(State::slot_bytes(4) < State::storage_bytes(4));
+
+    SharingExecutor growing(plan, noise, checks, 129, 1, false, nullptr,
+                            kDefaultSharedWorkerStateBudget, BatchOutputMode::Rows);
+    SharingExecutor reserved(plan, noise, checks, 129, 129, false, nullptr,
+                             kDefaultSharedWorkerStateBudget, BatchOutputMode::Rows);
+    const auto root = seed_root_from_seed(734);
+    growing.run_batch(root, 0, 129);
+    reserved.run_batch(root, 0, 129);
+
+    REQUIRE(growing.state_capacity() == 129);
+    REQUIRE(growing.storage_boundaries() >= 1);
+    REQUIRE(growing.state_pool_bytes() <= 129 * State::storage_bytes(4));
+    // Contiguous slabs avoid rounding each narrow state to a 4 KiB page.
+    REQUIRE(growing.state_pool_bytes() < 32 * State::storage_bytes(4));
+    REQUIRE(reserved.state_pool_bytes() < 32 * State::storage_bytes(4));
+    REQUIRE(growing.surviving_shots() == reserved.surviving_shots());
+    for (uint32_t col = 0; col < plan.num_visible_records(); ++col) {
+        REQUIRE(std::ranges::equal(growing.record_columns().column(col),
+                                   reserved.record_columns().column(col)));
+    }
+}
