@@ -1735,15 +1735,24 @@ NB_MODULE(_clifft_core, m) {
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
            bool normalize_syndromes, clifft::HirPassManager* hir_passes,
            const BoolOrAutoOption& reconstruction_option, const std::string& input_format,
-           std::optional<uint32_t> reconstruction_max_schedule_operations,
-           std::optional<uint32_t> reconstruction_max_dilation_qubits) {
+           std::optional<int64_t> reconstruction_max_schedule_operations,
+           std::optional<int64_t> reconstruction_max_dilation_qubits) {
             const auto reconstruction =
                 parse_bool_or_auto_option(reconstruction_option, "reconstruction");
             nb::gil_scoped_release release;
             clifft::ReconstructionLimits limits;
-            limits.max_schedule_operations = reconstruction_max_schedule_operations;
+            const auto limit = [](int64_t value) -> uint32_t {
+                if (value < 0 || value > std::numeric_limits<uint32_t>::max()) {
+                    throw std::invalid_argument(
+                        "reconstruction limits must fit an unsigned 32-bit integer");
+                }
+                return static_cast<uint32_t>(value);
+            };
+            if (reconstruction_max_schedule_operations) {
+                limits.max_schedule_operations = limit(*reconstruction_max_schedule_operations);
+            }
             if (reconstruction_max_dilation_qubits) {
-                limits.max_dilation_qubits = *reconstruction_max_dilation_qubits;
+                limits.max_dilation_qubits = limit(*reconstruction_max_dilation_qubits);
             }
             if (input_format != "stim" && input_format != "qasm2") {
                 throw std::invalid_argument("input_format must be 'stim' or 'qasm2'");
@@ -1871,8 +1880,8 @@ NB_MODULE(_clifft_core, m) {
         "execution (using packed classical batches on width-zero plans), and False\n"
         "disables sharing. group_by_noise=True partitions shots upfront by their effect\n"
         "on future rotation signs and requires sharing=True. noise_preparation accepts\n"
-        "a NoisePreparation member or 'auto' when batching is active; on width-zero\n"
-        "plans 'auto' selects it from the expected faults in one batch.\n"
+        "a NoisePreparation member or 'auto' when batching is active; ordinary packed\n"
+        "execution selects it from the expected faults in one batch.\n"
         "max_worker_state_bytes (default 64 MiB) bounds each shared worker's quantum\n"
         "state pool (requiring room for at least two states on nonzero-width plans);\n"
         "exceeding it during a split raises RuntimeError. Effective settings are\n"
@@ -2116,7 +2125,7 @@ NB_MODULE(_clifft_core, m) {
         "disables sharing. group_by_noise=True partitions surviving shots upfront by\n"
         "their effect on future rotation signs and requires sharing=True.\n"
         "noise_preparation accepts a NoisePreparation member or 'auto' when batching\n"
-        "is active; on width-zero plans 'auto' selects it from the expected faults in\n"
+        "is active; ordinary packed execution selects it from the expected faults in\n"
         "one batch. max_worker_state_bytes (default 64 MiB) bounds each\n"
         "shared worker's quantum state pool (requiring room for at least two states on\n"
         "nonzero-width plans); exceeding it during a split raises RuntimeError.\n"

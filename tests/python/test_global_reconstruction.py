@@ -82,6 +82,22 @@ def test_reconstruction_budgets_apply_to_each_output(policy):
         assert smaller.sampling_plan(keep_records=keep).fallback_reason
 
 
+@pytest.mark.parametrize("value", [-1, 2**32])
+def test_reconstruction_budgets_reject_out_of_range_values(value):
+    with pytest.raises(ValueError):
+        clifft.compile(NOISY, reconstruction_max_schedule_operations=value)
+    with pytest.raises(ValueError):
+        clifft.compile(NOISY, reconstruction_max_dilation_qubits=value)
+
+
+def test_zero_reconstruction_budget_keeps_the_original():
+    for limited in (
+        clifft.compile(NOISY, reconstruction=True, reconstruction_max_schedule_operations=0),
+        clifft.compile(NOISY, reconstruction=True, reconstruction_max_dilation_qubits=0),
+    ):
+        assert not limited.sampling_plan(keep_records=True).reconstruction_selected
+
+
 def test_explicit_schedule_budget_enlarges_auto_search_on_a_narrow_circuit():
     # The repeated single-qubit rotations fill the automatic schedule budget.
     source = "H 0 1\nT 1\n" + "T 0\n" * 2049 + "H 0 1\nM 0 1\nDETECTOR rec[-1]"

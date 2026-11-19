@@ -70,6 +70,23 @@ SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
             split_symbols_[symbol] |= required[reg];
         }
     }
+    for (const auto& action : plan.actions_) {
+        if (const auto* m = std::get_if<ExecutablePlan::ExecuteDormantMeasurement>(&action)) {
+            splits_on_measurement_ |= split_symbols_[m->branch] != 0;
+        } else if (const auto* r = std::get_if<ExecutablePlan::ExecuteReadoutNoise>(&action)) {
+            splits_on_measurement_ |= split_symbols_[r->flip] != 0;
+        }
+    }
+    for (const auto& site : plan.noise_sites_) {
+        double previous = 0;
+        for (uint32_t i = 0; i < site.outcome_count; ++i) {
+            const auto& outcome = plan.noise_outcomes_[site.outcome_begin + i];
+            if (split_symbols_[outcome.symbol]) {
+                expected_sign_faults_ += outcome.cumulative_probability - previous;
+            }
+            previous = outcome.cumulative_probability;
+        }
+    }
 }
 
 SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
@@ -270,7 +287,8 @@ void SharingExecutor::grow_state_pool(uint32_t required) {
     }
 }
 
-void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
+void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
+                                TrajectoryWork* work) {
     reset_classical(root, first_shot, shots);
     sample_presampled_noise();
     apply_early_postselection(*checks_);
@@ -289,7 +307,9 @@ void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint3
     }
     initialize_groups(root, first_shot, shots);
     const auto run = [&]<ExecutorBackend Backend>() {
-        while (const uint32_t required = dispatch_until_storage_boundary<Backend>()) {
+        while (const uint32_t required =
+                   work ? dispatch_until_storage_boundary<Backend, true>(work, shots)
+                        : dispatch_until_storage_boundary<Backend, false>(nullptr, shots)) {
             ++storage_boundaries_;
             grow_state_pool(required);
         }
@@ -411,8 +431,9 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
     }
 }
 
-template <ExecutorBackend Backend>
-uint32_t SharingExecutor::dispatch_until_storage_boundary() noexcept {
+template <ExecutorBackend Backend, bool Measure>
+uint32_t SharingExecutor::dispatch_until_storage_boundary(TrajectoryWork* work,
+                                                          uint32_t shots) noexcept {
     while (action_index_ < plan_->actions_.size() && live_count_ != 0) {
         const auto plan_index = checks_->action_order()[action_index_];
         const auto& action = plan_->actions_[plan_index];
@@ -438,14 +459,32 @@ uint32_t SharingExecutor::dispatch_until_storage_boundary() noexcept {
         std::visit(
             [&](const auto& typed) noexcept {
                 using T = std::decay_t<decltype(typed)>;
+                constexpr bool coefficient =
+                    std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
+                    std::is_same_v<T, ExecutablePlan::ExecutePromotion> ||
+                    std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation> ||
+                    std::is_same_v<T, ExecutablePlan::ExecuteDynamicFusedRotation> ||
+                    std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>;
+                uint64_t size = 0;
+                if constexpr (Measure && coefficient) {
+                    size = uint64_t{1} << states_[groups_[0]].active_width();
+                }
                 if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
                               std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>) {
                     execute_action<Backend>(typed);
                 } else {
                     execute_action(typed);
                 }
+                if constexpr (Measure && coefficient) {
+                    work->shared += size * group_count_;
+                    work->independent += size * shots;
+                }
             },
             action);
+        if constexpr (Measure) {
+            if (work->truncated())
+                return 0;
+        }
         ++action_index_;
     }
     return 0;

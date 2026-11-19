@@ -37,4 +37,24 @@ const sampling::SharingKey& SamplingPreparation::sharing_key() const {
     return sharing_key_.get(*plan_);
 }
 
+uint32_t SamplingPreparation::probe_capacity() const {
+    constexpr uint32_t kProbeLanes = 256;
+    return std::min(kProbeLanes, sampling::max_safe_shared_capacity(
+                                     *plan_, noise(sampling::BatchNoiseMode::SiteSparse), nullptr,
+                                     kProbeStateBytes));
+}
+
+sampling::TrajectoryWork SamplingPreparation::measure_work(uint32_t lanes) const {
+    sampling::TrajectoryWork work;
+    sampling::SharingExecutor worker(*plan_, noise(sampling::BatchNoiseMode::SiteSparse), checks(),
+                                     lanes, 1, true, nullptr, kProbeStateBytes);
+    worker.run_batch(make_seed_root(lanes, 0), 0, lanes, &work);
+    return work;
+}
+
+const sampling::TrajectoryWork& SamplingPreparation::trajectory_work() const {
+    std::call_once(profile_once_, [&] { profile_ = measure_work(probe_capacity()); });
+    return profile_;
+}
+
 }  // namespace clifft

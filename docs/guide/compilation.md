@@ -148,8 +148,9 @@ the active state beyond what operation reordering achieves. By default,
 and syndrome-only outputs. Reconstruction preserves their joint distribution
 and the probability of passing postselection.
 
-Automatic selection compares estimated work when widths tie and accounts for
-additional rotations when postselection offers only a small width reduction.
+Automatic selection compares estimated work when widths tie and, for comparable
+postselected plans, samples a bounded batch to compare coefficient work after
+trajectory splits and early rejection.
 It spends a smaller scheduling budget on narrower original plans. Use
 `reconstruction=True` to try the full budget and select strictly narrower
 plans, or `False` to skip reconstruction. Both settings compose with
@@ -161,7 +162,8 @@ Set `reconstruction_max_schedule_operations` to bound the scheduling problem
 (the number of quantum operations plus the qubits in the reconstructed
 circuit). Set `reconstruction_max_dilation_qubits` to bound the intermediate
 qubits used to represent rotations, measurements, and resets. Smaller values
-can save compilation time on short jobs. Larger values can find narrower plans
+can save compilation time on short jobs. Zero allows no operations or qubits in
+the corresponding budget. Larger values can find narrower plans
 when you expect to reuse the program. Either override works with
 `reconstruction="auto"` and `reconstruction=True`. Omitting either limit keeps
 its default, and auto still compares candidate plans for the requested outputs.

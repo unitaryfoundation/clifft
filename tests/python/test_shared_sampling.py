@@ -47,7 +47,9 @@ def unpack_bits(packed: np.ndarray, columns: int) -> np.ndarray:
 def test_worker_count_and_storage_growth_preserve_seeded_counts_and_rows(
     group_by_noise: bool, readout: float
 ) -> None:
-    program = clifft.compile(SOURCE.replace("M(0.13)", f"M({readout})"), postselection_mask=[1])
+    program = clifft.compile(
+        SOURCE.replace("M(0.13)", f"M({readout})"), postselection_mask=[1], reconstruction=False
+    )
     reference = clifft.sample_survivors(
         program,
         1301,

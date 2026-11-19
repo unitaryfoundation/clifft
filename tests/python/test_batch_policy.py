@@ -91,7 +91,7 @@ def test_width_zero_auto_selects_noise_preparation_and_agrees_with_stim() -> Non
     assert numeric.execution.noise_preparation == clifft.NoisePreparation.DENSE
     shots = 200_000
     bulk = clifft.sample(program, shots, seed=5, keep_records="syndromes")
-    assert bulk.execution.batch_size == 2048
+    assert bulk.execution.batch_size == 8192
     assert bulk.execution.noise_preparation == clifft.NoisePreparation.SITE_SPARSE
 
     def agree(sampled: Any, reference: Any, samples: int) -> bool:
@@ -108,7 +108,7 @@ def test_width_zero_auto_selects_noise_preparation_and_agrees_with_stim() -> Non
     clean = ~detectors.any(axis=1)
     postselected = clifft.compile(str(circuit), postselection_mask=[1] * circuit.num_detectors)
     survivors = clifft.sample_survivors(postselected, shots, seed=7)
-    assert survivors.execution.batch_size == 2048
+    assert survivors.execution.batch_size == 8192
     assert survivors.execution.noise_preparation == clifft.NoisePreparation.SITE_SPARSE
     assert agree(survivors.passed_shots / shots, clean.mean(), shots)
     assert agree(
@@ -131,14 +131,20 @@ def test_terminal_postselection_batches_classical_work_with_bounded_parallel_cap
         (4, 256 if width == 6 else 128),
         (32, 512 if width == 6 else 128),
     ):
-        options = dict(seed=48, threads=threads, keep_records=True)
+        options = dict(seed=48, threads=threads, keep_records=True, sharing=False)
         automatic = clifft.sample_survivors(program, 1025, **options)
         reported = clifft.sample_survivors(
             program, 1025, **options, batch_size="tune", tuning_budget_seconds=0
         )
         assert reported.batch_tuning.baseline_batch_size == capacity
         explicit = clifft.sample_survivors(
-            program, 1025, seed=48, threads=1, keep_records=True, batch_size=capacity
+            program,
+            1025,
+            seed=48,
+            threads=1,
+            keep_records=True,
+            batch_size=capacity,
+            noise_preparation=automatic.execution.noise_preparation,
         )
         repeated = clifft.sample_survivors(program, 1025, **options)
         for result in (reported, explicit, repeated):

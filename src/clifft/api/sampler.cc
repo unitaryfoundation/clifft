@@ -80,7 +80,8 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
         return result;
     }
     const auto& noise = preparation.noise(*execution.noise_preparation);
-    const auto* checks = plan.peak_active_width() == 0 ? nullptr : &preparation.checks();
+    const auto* checks =
+        plan.peak_active_width() || plan.has_postselection() ? &preparation.checks() : nullptr;
     const auto* key = execution.group_by_noise ? &preparation.sharing_key() : nullptr;
     const uint32_t capacity = execution.batch_size;
     const uint32_t batch_count = static_cast<uint32_t>((uint64_t{shots} + capacity - 1) / capacity);
@@ -107,7 +108,13 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
                 [&](auto& executor) {
                     for (uint32_t batch = range.begin; batch < range.end; ++batch) {
                         const uint32_t first = static_cast<uint32_t>(uint64_t{batch} * capacity);
-                        executor.run_batch(root, first, std::min(capacity, shots - first));
+                        const auto lanes = std::min(capacity, shots - first);
+                        if constexpr (std::is_same_v<std::decay_t<decltype(executor)>,
+                                                     BatchExecutor>) {
+                            executor.run_batch(root, first, lanes, checks);
+                        } else {
+                            executor.run_batch(root, first, lanes);
+                        }
                         if constexpr (survivors) {
                             worker->passed += executor.surviving_shots();
                             worker->logical_errors +=
@@ -144,6 +151,48 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
         }
     }
     return result;
+}
+
+bool prefer_shared(const Program& program, const ExecutablePlan& plan, SamplingOutputs outputs,
+                   bool survivors, BatchOutputMode mode, uint32_t shots, uint32_t workers,
+                   uint64_t state_budget) {
+    if (shots < kDefaultMinAutoBatchShots)
+        return false;
+    const auto width = plan.peak_active_width();
+    const auto lanes =
+        resolve_shared_execution_policy(kMaxAutoSharedBatchShots, shots, workers).lane_capacity;
+    const bool bulk = lanes == kMaxAutoSharedBatchShots;
+    if (width == 0)
+        return bulk;
+
+    constexpr uint32_t kMinSharedStates = 64;
+    const auto states = state_budget / State::storage_bytes(width);
+    if (states < kMinSharedStates)
+        return false;
+    constexpr uint64_t kMinWork = 2 * 1024 * 1024;
+    const auto work =
+        saturating_add_u64(plan.estimated_batch_lane_work(mode), plan.num_noise_sites());
+    const bool expensive = saturating_multiply_u64(work, lanes) >= kMinWork;
+    constexpr uint32_t kMinProfileShots = 256;
+    if (!plan.num_presampled_symbols() && !plan.has_readout_noise()) {
+        return !plan.has_postselection() && width >= 8 &&
+               (shots >= kMinProfileShots || expensive) && plan.has_reusable_unitary_prefix();
+    }
+    if (shots < kMinProfileShots || (!bulk && !expensive))
+        return false;
+    const auto& prep = program.sampling_preparation(
+        outputs, {.early_postselection = plan.has_postselection(), .survivor_counts = survivors});
+    const auto capacity = prep.probe_capacity();
+    if (capacity < 2 || capacity > states)
+        return false;
+    const auto& profile = prep.trajectory_work();
+    // With a truncated profile, the unobserved tail might diverge. Require a
+    // prepared check that can also remove trajectories before their evolution.
+    if (profile.truncated() && !prep.checks().num_checks() &&
+        !prep.plan().has_early_postselection(mode)) {
+        return false;
+    }
+    return profile.shared <= profile.independent / 3;
 }
 
 template <typename Result>
@@ -204,11 +253,14 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
 
     const uint32_t workers = std::max(uint32_t{1}, layout.shot_workers);
     const uint32_t width = compiled.peak_active_width();
-    bool shared = options.sharing.value_or(false);
-    if (!options.sharing && !options.batch_size && supported && width != 0) {
-        shared =
-            should_share_sampling(compiled, shots, outputs, layout, options.max_worker_state_bytes);
-    }
+    const auto mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
+    const auto tuning_start = options.tuning_budget_seconds
+                                  ? std::chrono::steady_clock::now()
+                                  : std::chrono::steady_clock::time_point{};
+    const bool shared =
+        options.sharing == true || (!options.sharing && !options.batch_size && supported &&
+                                    prefer_shared(program, compiled, outputs, survivors, mode,
+                                                  shots, workers, options.max_worker_state_bytes));
     const bool compare_executors = !options.sharing && supported && width != 0 && shots > 1 &&
                                    options.tuning_budget_seconds.value_or(0) > 0;
     const bool fits_states = !(shared || compare_executors) || width == 0 ||
@@ -216,22 +268,23 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
     if (options.sharing == true && !fits_states) {
         throw std::invalid_argument("max_worker_state_bytes must hold at least two shared states");
     }
-    const auto mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
     const auto shared_noise_mode = options.noise_preparation.value_or(BatchNoiseMode::SiteSparse);
     const SamplingPreparation* shared_preparation = nullptr;
-    const auto tuning_start = options.tuning_budget_seconds
-                                  ? std::chrono::steady_clock::now()
-                                  : std::chrono::steady_clock::time_point{};
     uint32_t safe = 0;
+    bool group_by_noise = false;
     if ((shared || compare_executors) && fits_states) {
         shared_preparation = &program.sampling_preparation(
             outputs,
             {.early_postselection = compiled.has_postselection(), .survivor_counts = survivors});
         assert(shared_preparation->plan().peak_active_width() == width);
         const auto& noise = shared_preparation->noise(shared_noise_mode);
-        const auto* key = width != 0 && options.group_by_noise.value_or(false)
-                              ? &shared_preparation->sharing_key()
-                              : nullptr;
+        if (width != 0 && options.group_by_noise.value_or(true) &&
+            (options.group_by_noise == true ||
+             (shots >= kMinAutoSharedLanesPerWorker && compiled.num_noise_sites() != 0))) {
+            const auto& key = shared_preparation->sharing_key();
+            group_by_noise = options.group_by_noise.value_or(key.prefers_grouping());
+        }
+        const auto* key = group_by_noise ? &shared_preparation->sharing_key() : nullptr;
         safe = max_safe_shared_capacity(shared_preparation->plan(), noise, key,
                                         options.max_worker_state_bytes, mode);
         if (safe < 2 && options.sharing == true) {
@@ -248,9 +301,8 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             (capacity || (budget.value_or(0) > 0 && shots > 1 && layout.intra_shot_workers == 1) ||
              automatic_batch_eligible(preparation.plan(), shots, layout.intra_shot_workers,
                                       mode))) {
-            const auto selected = width == 0
-                                      ? select_batch_noise_mode(preparation.plan(), shots, capacity)
-                                      : BatchNoiseMode::Dense;
+            const auto selected =
+                select_batch_noise_mode(preparation.plan(), shots, options.batch_size);
             noise = &preparation.noise(options.noise_preparation.value_or(selected));
         }
         if constexpr (survivors) {
@@ -273,7 +325,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
     execution.outputs = outputs;
     if (width != 0) {
         execution.max_worker_state_bytes = options.max_worker_state_bytes;
-        execution.group_by_noise = options.group_by_noise.value_or(false);
+        execution.group_by_noise = group_by_noise;
     }
     execution.noise_preparation = shared_noise_mode;
     auto policy = resolve_shared_execution_policy(safe, shots, workers);
@@ -316,8 +368,13 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             if (compare_executors) {
                 const auto& ordinary = program.sampling_preparation(
                     outputs, {.early_postselection = false, .survivor_counts = survivors});
-                const auto* noise =
-                    &ordinary.noise(options.noise_preparation.value_or(BatchNoiseMode::Dense));
+                const PreparedBatchNoise* noise = nullptr;
+                const auto ordinary_mode = options.noise_preparation.value_or(
+                    select_batch_noise_mode(ordinary.plan(), shots, options.batch_size));
+                if (options.noise_preparation == BatchNoiseMode::SiteRows ||
+                    automatic_batch_eligible(ordinary.plan(), shots, 1, mode)) {
+                    noise = &ordinary.noise(ordinary_mode);
+                }
                 const uint64_t extra =
                     survivors ? uint64_t{compiled.num_observables()} * sizeof(uint64_t) : 0;
                 auto ordinary_policy = resolve_batch_execution_policy(
@@ -335,8 +392,9 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                     candidates.swap(ordinary_candidates);
                     policy = ordinary_policy;
                 }
-                if (!candidates.empty()) {
-                    candidates.insert(candidates.begin() + 1, ordinary_candidates.begin(),
+                if (!candidates.empty() && !ordinary_candidates.empty()) {
+                    candidates.insert(candidates.begin() + 1, ordinary_candidates.front());
+                    candidates.insert(candidates.end(), ordinary_candidates.begin() + 1,
                                       ordinary_candidates.end());
                 }
                 tuning->sharing = policy.sharing;
@@ -358,8 +416,9 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                                 {.early_postselection = false, .survivor_counts = survivors});
                             const auto* noise =
                                 candidate.lane_capacity > 1
-                                    ? &ordinary.noise(
-                                          options.noise_preparation.value_or(BatchNoiseMode::Dense))
+                                    ? &ordinary.noise(options.noise_preparation.value_or(
+                                          select_batch_noise_mode(ordinary.plan(), shots,
+                                                                  options.batch_size)))
                                     : nullptr;
                             return batch_detail::make_ordinary_tuning_probe(
                                 ordinary.plan(), candidate, outputs, survivors, noise);
@@ -395,50 +454,6 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
 }
 
 }  // namespace
-
-bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t shots,
-                           sampling::SamplingOutputs outputs, sampling::ThreadLayout layout,
-                           uint64_t max_worker_state_bytes) noexcept {
-    using namespace sampling;
-    if (compiled.peak_active_width() == 0 || layout.intra_shot_workers != 1 ||
-        (outputs.expectations() && compiled.num_exp_vals() != 0)) {
-        return false;
-    }
-    const uint32_t workers = std::max(uint32_t{1}, layout.shot_workers);
-    const uint32_t shots_per_worker = shots / workers;
-    // Shared workers amortize setup sooner when ordinary shots visit many
-    // coefficients or sample many noise sites. Require at least one packed word.
-    const auto mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
-    const uint64_t work_per_shot =
-        saturating_add_u64(compiled.estimated_batch_lane_work(mode), compiled.num_noise_sites());
-    constexpr uint64_t kMinWorkPerWorker = 2 * 1024 * 1024;
-    const bool expensive_batch =
-        shots_per_worker >= kDefaultMinAutoBatchShots &&
-        saturating_multiply_u64(work_per_shot, shots_per_worker) >= kMinWorkPerWorker;
-    constexpr uint32_t kBulkPostselectionShots = 8192;
-    const bool bulk = shots_per_worker >= kBulkPostselectionShots;
-    const uint32_t selected = compiled.num_postselected_detectors();
-    // On shorter calls, a partial mask on a wide plan should reject shots
-    // before coefficient work finishes to amortize trajectory splits.
-    const bool enough_checks =
-        selected >= 8 &&
-        (compiled.peak_active_width() < 8 || selected == compiled.num_detectors() ||
-         (selected >= 32 && (bulk || compiled.has_early_postselection(mode))));
-    const uint32_t noise_symbols = compiled.num_presampled_symbols();
-    const bool rejection_workload =
-        (bulk || expensive_batch) && noise_symbols != 0 && enough_checks;
-    constexpr uint32_t kMinUnitaryPrefixShots = 256;
-    // Measurement branches can share the preceding unitary evolution when width
-    // shrinks monotonically after measurement and prefix work dominates.
-    const bool unitary_prefix =
-        !compiled.has_postselection() && noise_symbols == 0 && !compiled.has_readout_noise() &&
-        compiled.peak_active_width() >= 8 && (shots >= kMinUnitaryPrefixShots || expensive_batch) &&
-        compiled.has_reusable_unitary_prefix();
-    constexpr uint32_t kMinSharedStates = 64;
-    return (rejection_workload || unitary_prefix) &&
-           max_worker_state_bytes / State::storage_bytes(compiled.peak_active_width()) >=
-               kMinSharedStates;
-}
 
 sampling::SamplingResult sample(const Program& program, uint32_t shots,
                                 std::optional<uint64_t> seed, sampling::SamplingOutputs outputs,

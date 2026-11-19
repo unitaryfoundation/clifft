@@ -78,6 +78,11 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
             )
 
     sharing = {"sharing": True} if report.sharing else {}
+    if result.execution.noise_preparation in (
+        clifft.NoisePreparation.SPARSE,
+        clifft.NoisePreparation.SITE_SPARSE,
+    ):
+        sharing["noise_preparation"] = result.execution.noise_preparation
     pinned = sampling_call(shots, seed=82, threads=threads, batch_size=report.batch_size, **sharing)
     assert pinned.batch_tuning is None
     for field in ("measurements", "detectors", "observables", "exp_vals", "observable_ones"):

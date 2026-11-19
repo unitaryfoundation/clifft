@@ -162,23 +162,33 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
                                           : "reconstruction reaches the dense active-width limit";
             continue;
         }
-        if (compare_cost && width != 0 && data->has_postselection && width_limit - width <= 2) {
-            // Shared trajectories can reject before much of the original evolution.
-            // Extra rotations can outweigh a small decrease in dense state size.
-            const auto rotations = [](const HirModule& hir) {
-                return std::ranges::count_if(hir.ops, [](const HeisenbergOp& op) {
-                    return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
-                });
-            };
-            const auto original_rotations = rotations(original_hir);
-            if (rotations(*lowered.hir) > original_rotations + original_rotations / 2) {
-                variant.fallback_reason = "reconstruction increases postselected rotation work";
-                continue;
-            }
-        }
         auto plan = sampling::plan_sampling(*lowered.hir);
         lowered.hir.reset();
         variant.plan.emplace(std::move(plan));
+        if (compare_cost && width != 0 && data->has_postselection && width_limit - width <= 2 &&
+            sampling::kPackedBatchExecutionAvailable && !data->original->has_instruments() &&
+            !data->original->num_unbound_presampled_symbols()) {
+            // A narrower state can still do more work after trajectories diverge.
+            // Use the same attempted lanes and output projection for both candidates.
+            const auto outputs =
+                keep_records ? sampling::RecordOutputs::All : sampling::RecordOutputs::Syndromes;
+            SamplingPreparation original(*data->original, outputs, true, true);
+            SamplingPreparation candidate(*variant.plan, outputs, true, true);
+            const auto lanes = std::min(original.probe_capacity(), candidate.probe_capacity());
+            if (lanes >= 2) {
+                const auto a = original.measure_work(lanes);
+                const auto b = candidate.measure_work(lanes);
+                if (!a.truncated() && a.shared + a.shared / 4 < b.shared) {
+                    variant.plan.reset();
+                    variant.fallback_reason = "original plan has less postselected trajectory work";
+                    continue;
+                }
+                if (!b.truncated() && b.shared + b.shared / 4 < a.shared) {
+                    variant.fallback_reason.clear();
+                    continue;
+                }
+            }
+        }
         if (compare_cost && width == width_limit) {
             const auto mode = keep_records ? sampling::BatchOutputMode::Rows
                                            : sampling::BatchOutputMode::AggregateSurvivors;

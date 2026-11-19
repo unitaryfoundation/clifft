@@ -51,7 +51,16 @@ class SamplingPreparation {
     [[nodiscard]] const sampling::PreparedBatchNoise& noise(sampling::BatchNoiseMode mode) const;
     [[nodiscard]] const sampling::SharingKey& sharing_key() const;
 
+    // Profile a fixed, independent batch. Both competing plans use the same
+    // lane count; sampling calls cache the profile for their prepared outputs.
+    static constexpr uint64_t kProbeStateBytes = 32 * 1024 * 1024;
+    [[nodiscard]] uint32_t probe_capacity() const;
+    [[nodiscard]] sampling::TrajectoryWork measure_work(uint32_t lanes) const;
+    [[nodiscard]] const sampling::TrajectoryWork& trajectory_work() const;
+
   private:
+    mutable std::once_flag profile_once_;
+    mutable sampling::TrajectoryWork profile_;
     bool early_postselection_;
     std::optional<sampling::ExecutablePlan> compact_;
     const sampling::ExecutablePlan* plan_;

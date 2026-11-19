@@ -63,11 +63,26 @@ class SharingKey {
     explicit SharingKey(const ExecutablePlan& plan);
     [[nodiscard]] size_t num_bits() const noexcept { return registers_.size(); }
 
+    [[nodiscard]] bool prefers_grouping() const noexcept {
+        return !splits_on_measurement_ && expected_sign_faults_ <= 1;
+    }
+
   private:
     friend class SharingExecutor;
+    bool splits_on_measurement_ = false;
+    double expected_sign_faults_ = 0;
     const ExecutablePlan* plan_;
     std::vector<uint32_t> registers_;
     std::vector<uint8_t> split_symbols_;
+};
+
+// Counts amplitude visits across distinct trajectories and across independent
+// lanes. Rejected shots cease contributing shared work at their prepared check.
+struct TrajectoryWork {
+    uint64_t shared = 0;
+    uint64_t independent = 0;
+    static constexpr uint64_t kVisitLimit = 8 * 1024 * 1024;
+    [[nodiscard]] bool truncated() const noexcept { return shared >= kVisitLimit; }
 };
 
 // Shares coefficient states across shots with identical prepared evolution.
@@ -87,7 +102,9 @@ class SharingExecutor : public BatchClassicalState {
         const ExecutablePlan& plan, const PreparedBatchNoise& noise, const SharingKey* key,
         uint32_t lane_capacity, BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
 
-    void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
+    // A profiling batch stops at the visit limit and supplies work counts only.
+    void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
+                   TrajectoryWork* work = nullptr);
     [[nodiscard]] uint32_t state_capacity() const noexcept {
         return static_cast<uint32_t>(states_.size());
     }
@@ -103,8 +120,9 @@ class SharingExecutor : public BatchClassicalState {
     void initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     void grow_state_pool(uint32_t required);
     // Returns zero on completion, otherwise the capacity required to resume.
-    template <ExecutorBackend Backend>
-    [[nodiscard]] uint32_t dispatch_until_storage_boundary() noexcept;
+    template <ExecutorBackend Backend, bool Measure>
+    [[nodiscard]] uint32_t dispatch_until_storage_boundary(TrajectoryWork* work,
+                                                           uint32_t shots) noexcept;
     void copy_state(uint32_t to, uint32_t from) noexcept;
     [[nodiscard]] uint32_t split(uint32_t group) noexcept;
     [[nodiscard]] uint32_t split_by_sign(uint32_t group, std::span<const uint64_t> values) noexcept;

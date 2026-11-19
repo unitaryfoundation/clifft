@@ -27,7 +27,7 @@ result = clifft.sample(program, shots=10_000, seed=42, threads=4)
 Clifft chooses whether that budget is better spent across shots or within a
 wide shot. `sample()` and `sample_survivors()` can also share coefficient
 evolution between shots that follow the same quantum trajectory. For
-postselected workloads and noiseless circuits with a shared unitary prefix,
+noisy workloads with reusable trajectories and noiseless circuits with a shared unitary prefix,
 Clifft considers how much coefficient and noise-sampling work each worker
 would repeat across its shots. A costly circuit can benefit from sharing
 even on a short call. For a wide circuit with a partial postselection mask,
@@ -176,10 +176,12 @@ postselected shots that fail noise-only entrance checks or completed detector
 checks before later evolution.
 
 `sample()`, `sample_detectors()`, and `sample_survivors()` select shared
-execution automatically on eligible postselected workloads and noiseless
-unitary-prefix circuits when `sharing="auto"` and `batch_size="auto"`. On first
+execution automatically when enough shots follow the same evolution, including
+noisy circuits with or without postselection and noiseless unitary-prefix circuits when `sharing="auto"` and `batch_size="auto"`. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
-checks, and any grouping key; later or concurrent calls on the same `Program`
+checks, and any grouping key. For substantial noisy calls, a bounded fixed-seed
+probe estimates the coefficient work after trajectory splits and rejection.
+Later or concurrent calls on the same `Program`
 reuse that immutable preparation and allocate their own workers per call. Pass
 keyword overrides when benchmarking or pinning shared settings:
 
@@ -253,8 +255,8 @@ larger batches.
 | Option | Default | Meaning and when to change |
 |---|---|---|
 | `sharing` | `"auto"` | `"auto"` lets Clifft choose; `True` requires shared execution (or packed classical batches at width zero); `False` keeps ordinary scalar or packed execution, such as when sparse postselection rejects few shots and most trajectories diverge. |
-| `group_by_noise` | `"auto"` | `"auto"` resolves to `False`. Set `True` (with `sharing=True`) to partition shots upfront by their effect on future rotation signs, avoiding per-rotation sign scans at the cost of earlier measurement splits. |
-| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path and `DENSE` on the ordinary packed path, except on [width-zero plans](#noise-preparation-on-width-zero-plans). `SPARSE` shares `DENSE`'s random stream while skipping non-firing faults when few faults occur per batch; `SITE_ROWS` accumulates per-shot fault effects before transposing when individual faults touch many expressions. |
+| `group_by_noise` | `"auto"` | Auto can group larger batches when rotation signs rarely change due to noise and grouping introduces no extra splits on dormant measurements or readout. Set `True` (with `sharing=True`) to partition shots upfront by their effect on future rotation signs, avoiding per-rotation sign scans at the cost of earlier measurement splits. |
+| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path and chooses the ordinary packed representation from expected faults per batch. `SPARSE` shares `DENSE`'s random stream while skipping non-firing faults when few faults occur per batch; `SITE_ROWS` accumulates per-shot fault effects before transposing when individual faults touch many expressions. |
 | `max_worker_state_bytes` | `67108864` | Per-worker quantum state pool limit (64 MiB) when `result.execution.executor == "shared"`. |
 
 Inspection of the resolved choices is available on `result.execution`
@@ -359,8 +361,9 @@ continuations, and WebAssembly.
 
 A width-zero plan, such as a Clifford circuit with Pauli noise, spends all of
 its sampling time on classical work, so how faults are drawn sets its
-throughput. `noise_preparation="auto"` chooses from the expected number of
-faults in one batch:
+throughput. With ordinary packed execution, `noise_preparation="auto"` uses
+the expected number of faults in one batch. Bulk calls using the shared batching
+policy default to `SITE_SPARSE`.
 
 - **`SPARSE`** while a batch expects no more faults than the plan has noise
   sites. It draws once per fault, which suits low noise rates and short calls.

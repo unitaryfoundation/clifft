@@ -11,16 +11,6 @@
 
 namespace clifft::sampling {
 
-uint32_t ExecutablePlan::num_postselected_detectors() const noexcept {
-    uint32_t count = 0;
-    for (const auto& action : actions_) {
-        if (const auto* detector = std::get_if<ExecuteDetector>(&action)) {
-            count += detector->postselected;
-        }
-    }
-    return count;
-}
-
 bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
     uint32_t width = initial_active_width_;
     bool measured = false;

@@ -273,11 +273,10 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
     REQUIRE(cold.execution.shot_workers == 2);
     REQUIRE(cold.execution.outputs == SamplingOutputs(true));
     REQUIRE(cold.execution.max_worker_state_bytes == kDefaultSharedWorkerStateBudget);
-    const auto& plan = program.sampling_plan(true);
-    REQUIRE_FALSE(should_share_sampling(plan, 1024, true, {2, 1}, kDefaultSharedWorkerStateBudget));
-    REQUIRE_FALSE(
-        should_share_sampling(plan, 16384, true, {4, 1}, kDefaultSharedWorkerStateBudget));
-    REQUIRE_FALSE(should_share_sampling(plan, 16384, true, {1, 1}, State::storage_bytes(1)));
+    REQUIRE_FALSE(clifft::sample_survivors(program, 64, 42, true).execution.sharing);
+    REQUIRE_FALSE(clifft::sample_survivors(program, 16384, 42, true,
+                                           {.max_worker_state_bytes = State::storage_bytes(1)})
+                      .execution.sharing);
     require_same(cold, clifft::sample_survivors(program, 16384, 42, true, {.threads = 2}));
     const Program fresh{ExecutablePlan(plan_sampling(hir))};
     auto concurrent = std::async(std::launch::async, [&] {
@@ -288,9 +287,7 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
     auto unselected = hir;
     unselected.postselection.mask.assign(8, 0);
     const Program noisy{ExecutablePlan(plan_sampling(unselected))};
-    const auto ordinary = clifft::sample(noisy, 16384, 42);
-    REQUIRE(ordinary.execution.executor != SamplingExecutor::Shared);
-    REQUIRE_FALSE(ordinary.execution.sharing);
+    REQUIRE(clifft::sample(noisy, 16384, 42).execution.sharing);
 
     auto unitary = trace(parse("H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0 1 2 3 4 5 6 7"));
     const Program terminal{ExecutablePlan(plan_sampling(unitary))};
@@ -338,12 +335,11 @@ TEST_CASE("Postselected state evolution amortizes sharing on smaller calls") {
     hir.postselection.mask.assign(hir.num_detectors, 1);
     default_hir_pass_manager().run(hir);
     const auto program = Program::compile(source, hir, std::nullopt);
-    const auto& plan = program.sampling_plan(false);
-    REQUIRE(should_share_sampling(plan, 1024, false, {1, 1}, kDefaultSharedWorkerStateBudget));
-    REQUIRE_FALSE(
-        should_share_sampling(plan, 1024, false, {32, 1}, kDefaultSharedWorkerStateBudget));
-    REQUIRE_FALSE(should_share_sampling(plan, 1024, false, {1, 1},
-                                        State::storage_bytes(plan.peak_active_width())));
+    for (uint32_t workers : {1u, 32u}) {
+        const auto result = clifft::sample_survivors(program, 1024, 42, false,
+                                                     {.thread_layout = ThreadLayout{workers, 1}});
+        REQUIRE(result.execution.sharing);
+    }
 }
 
 TEST_CASE("Short wide batches with partial masks benefit from early checks") {
@@ -355,10 +351,13 @@ TEST_CASE("Short wide batches with partial masks benefit from early checks") {
     std::fill_n(begin, 32, 1);
     default_hir_pass_manager().run(hir);
     const auto program = Program::compile(source, hir, std::nullopt);
-    const auto& plan = program.sampling_plan(false);
-    REQUIRE(plan.has_early_postselection(BatchOutputMode::Rows) == select_first);
-    REQUIRE(should_share_sampling(plan, 4096, RecordOutputs::Syndromes, {1, 1},
-                                  kDefaultSharedWorkerStateBudget) == select_first);
+
+    const auto result = clifft::sample_survivors(program, 4096, 42, RecordOutputs::Syndromes);
+    if (select_first) {
+        REQUIRE(result.execution.sharing);
+    }
+    REQUIRE(result.passed_shots > 0);
+    REQUIRE(result.passed_shots < 4096);
 }
 
 TEST_CASE("Native shared calibration replays with the selected settings") {
@@ -456,31 +455,16 @@ TEST_CASE("Native shared calibration skips a single candidate") {
     REQUIRE(result.execution.batch_size == 8);
 }
 
-TEST_CASE("Native automatic sharing requires more selected detectors on wider plans") {
-    const uint32_t width = GENERATE(7u, 8u);
-    const uint32_t selected = GENERATE(7u, 8u, 16u, 31u, 32u);
-    const uint32_t detectors = GENERATE_COPY(32u, selected);
-    std::string source;
-    for (const auto* gate : {"H", "T", "M"}) {
-        source += gate;
-        for (uint32_t q = 0; q < width; ++q) {
-            source += " " + std::to_string(q);
-        }
-        source += "\n";
-    }
-    for (uint32_t q = width; q < width + detectors; ++q) {
-        source += "X_ERROR(0.01) " + std::to_string(q) + "\nM " + std::to_string(q) +
-                  "\nDETECTOR rec[-1]\n";
-    }
-    auto hir = trace(parse(source));
-    hir.postselection.mask.assign(detectors, 0);
-    std::fill_n(hir.postselection.mask.begin(), selected, 1);
-    const ExecutablePlan plan(plan_sampling(hir));
-    REQUIRE(plan.peak_active_width() == width);
-    REQUIRE(plan.num_postselected_detectors() == selected);
-    REQUIRE(plan.num_presampled_symbols() == detectors);
-    REQUIRE(should_share_sampling(plan, 8192, false, {1, 1}, kDefaultSharedWorkerStateBudget) ==
-            (selected >= 8 && (width < 8 || selected == detectors || selected >= 32)));
+TEST_CASE("Automatic noise grouping follows dependencies of rotation signs") {
+    const auto feedback = GENERATE(false, true);
+    const std::string prefix = "H 0 1\nX_ERROR(0.001) 0\nM 1\n";
+    const auto hir = trace(parse(prefix + (feedback ? "CX rec[-1] 0\n" : "") +
+                                 "T 0\nH 0\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]"));
+    const Program program{ExecutablePlan(plan_sampling(hir))};
+    const auto result = clifft::sample_survivors(program, 8192, 42, true, {.sharing = true});
+    REQUIRE(result.execution.group_by_noise == !feedback);
+    require_same(result, clifft::sample_survivors(program, 8192, 42, true,
+                                                  {.sharing = true, .group_by_noise = !feedback}));
 }
 
 TEST_CASE("Survivor row collection transfers a single batch and preserves batch order") {
@@ -633,9 +617,9 @@ TEST_CASE("Native width zero sampling selects noise preparation from expected fa
     REQUIRE(brief.execution.noise_preparation == BatchNoiseMode::Sparse);
     const auto bulk = clifft::sample_survivors(program, 8193, 5, true);
     REQUIRE(bulk.execution.executor == SamplingExecutor::Packed);
-    REQUIRE(bulk.execution.batch_size == 2048);
+    REQUIRE(bulk.execution.batch_size == 8192);
     REQUIRE(bulk.execution.noise_preparation == BatchNoiseMode::SiteSparse);
-    REQUIRE_FALSE(bulk.execution.sharing);
+    REQUIRE(bulk.execution.sharing);
 
     // An explicit capacity keeps the seeded rows of Dense preparation under
     // either choice, including the single-shot tail batch.
@@ -653,12 +637,12 @@ TEST_CASE("Native width zero sampling selects noise preparation from expected fa
 
     const auto rows = clifft::sample_survivors(program, 8193, 5, true,
                                                {.noise_preparation = BatchNoiseMode::SiteRows});
-    REQUIRE(rows.execution.batch_size == 2048);
+    REQUIRE(rows.execution.batch_size == 8192);
     REQUIRE(rows.execution.noise_preparation == BatchNoiseMode::SiteRows);
 
     if (!postselect) {
         const auto fixed = clifft::sample(program, 8193, 5);
-        REQUIRE(fixed.execution.batch_size == 2048);
+        REQUIRE(fixed.execution.batch_size == 8192);
         REQUIRE(fixed.execution.noise_preparation == BatchNoiseMode::SiteSparse);
         REQUIRE(clifft::sample(program, 64, 5).execution.noise_preparation ==
                 BatchNoiseMode::Sparse);
@@ -666,12 +650,12 @@ TEST_CASE("Native width zero sampling selects noise preparation from expected fa
                     .execution.noise_preparation == BatchNoiseMode::Dense);
     }
 
-    // Plans with coefficient work keep Dense preparation and the narrow limit.
+    // Ordinary packed plans with coefficient work also select sparse noise.
     const auto active =
         clifft::sample_survivors(row_program(true), 8193, 5, true, {.sharing = false});
     REQUIRE(active.execution.executor == SamplingExecutor::Packed);
     REQUIRE(active.execution.batch_size == 256);
-    REQUIRE(active.execution.noise_preparation == BatchNoiseMode::Dense);
+    REQUIRE(active.execution.noise_preparation == BatchNoiseMode::SiteSparse);
 }
 
 TEST_CASE("Native width zero selection replays across preparation history and concurrency") {
@@ -695,7 +679,11 @@ TEST_CASE("Native width zero selection replays across preparation history and co
     for (auto& call : calls) {
         require_same(cold, call.get());
     }
-    auto serial = clifft::sample_survivors(program, 8193, 19, outputs, {.threads = 1});
+    auto serial = clifft::sample_survivors(program, 8193, 19, outputs,
+                                           {.threads = 1,
+                                            .batch_size = cold.execution.batch_size,
+                                            .sharing = cold.execution.sharing,
+                                            .noise_preparation = cold.execution.noise_preparation});
     serial.execution = cold.execution;
     require_same(cold, serial);
 }
