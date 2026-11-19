@@ -76,9 +76,10 @@ Program::Program(sampling::ExecutablePlan original)
 
 Program::Program(std::shared_ptr<const Data> data) : data_(std::move(data)) {}
 
-Program Program::compile(const Circuit& source, const HirModule& original_hir, bool reconstruction,
-                         bool passes_preserve_sampling, const ReconstructionLimits& limits) {
-    if (!reconstruction) {
+Program Program::compile(const Circuit& source, const HirModule& original_hir,
+                         std::optional<bool> reconstruction, bool passes_preserve_sampling,
+                         const ReconstructionLimits& limits) {
+    if (reconstruction == false) {
         return Program(sampling::ExecutablePlan(sampling::plan_sampling(original_hir)));
     }
     std::shared_ptr<Data> data;
@@ -91,6 +92,16 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
 
     const uint32_t width_limit =
         data->original ? data->original->peak_active_width() : kDenseActiveWidthLimit;
+    // Spend the full scheduling budget when a dense original state already costs
+    // over a MiB in coefficients, or reconstruction is the only sampling path.
+    auto budget = limits;
+    constexpr uint32_t kSmallOriginalWidth = 16;
+    constexpr uint32_t kSmallScheduleBudget = 2048;
+    if (!reconstruction.has_value() && width_limit <= kSmallOriginalWidth) {
+        budget.max_schedule_operations =
+            std::min(budget.max_schedule_operations, kSmallScheduleBudget);
+    }
+    const bool compare_cost = !reconstruction.has_value() && data->original.has_value();
     const bool has_syndrome_outputs = source.num_detectors != 0 || source.num_observables != 0;
     std::optional<GlobalSamplingReconstructor> reconstructor;
     for (bool keep_records : {false, true}) {
@@ -113,7 +124,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
             continue;
         }
         if (!reconstructor) {
-            reconstructor.emplace(source, limits);
+            reconstructor.emplace(source, budget);
         }
         auto result = reconstructor->reconstruct(keep_records ? ReconstructionOutputs::Records
                                                               : ReconstructionOutputs::Detectors);
@@ -124,37 +135,60 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir, b
             variant.fallback_reason = std::move(result.fallback_reason);
             continue;
         }
-        // Avoid expensive lowering and HIR passes without a scheduled width
-        // reduction when the original plan is already available. When the
-        // original HIR overflowed, bounded candidates proceed so post-lowering
-        // optimization passes can still reduce peak width below the dense limit.
-        if (data->original &&
-            result.reconstruction->peak_active_width >= data->original->peak_active_width()) {
+        // A tied schedule can become narrower after HIR optimization. Skip wider
+        // schedules when an original plan exists. On overflow, the only viable
+        // plan can emerge after lowering even if its schedule is too wide.
+        if (data->original && result.reconstruction->peak_active_width > width_limit) {
             variant.fallback_reason = "reconstruction schedule does not reduce peak active width";
             continue;
         }
         auto lowered =
-            lower_global_reconstruction(*result.reconstruction, original_hir.postselection, limits);
+            lower_global_reconstruction(*result.reconstruction, original_hir.postselection, budget);
         result.reconstruction.reset();
         if (!lowered.hir) {
             variant.fallback_reason = std::move(lowered.fallback_reason);
             continue;
         }
-        // Reconstructed HIR runs its own default pass pipeline so caller-owned
-        // pass objects and their counters reflect only the original HIR.
-        auto passes = default_hir_pass_manager();
+        // Reconstructed HIR is already scheduled; run the remaining default
+        // passes so caller-owned pass objects reflect only the original HIR.
+        auto passes = default_hir_pass_manager(/*include_schedule=*/false);
         passes.run(*lowered.hir);
         // Check peak width before plan_sampling(), which enforces the active-width
         // cap and would otherwise throw on a wide candidate.
-        if (summarize_active_width(*lowered.hir).peak_width >= width_limit) {
+        const uint32_t width = summarize_active_width(*lowered.hir).peak_width;
+        if (width > width_limit || (width == width_limit && !compare_cost)) {
             variant.fallback_reason = data->original
                                           ? "reconstruction does not reduce peak active width"
                                           : "reconstruction reaches the dense active-width limit";
             continue;
         }
-        auto plan = sampling::plan_sampling(*lowered.hir);
+        sampling::ExecutablePlan executable(sampling::plan_sampling(*lowered.hir));
         lowered.hir.reset();
-        variant.plan.emplace(std::move(plan));
+        // Under postselection on narrow originals, small width drops that
+        // substantially increase plan actions add more trajectory splits than
+        // the narrower state saves.
+        constexpr uint32_t kMinPostselectedWidthReduction = 3;
+        if (compare_cost && data->has_postselection && width != 0 && width < width_limit &&
+            width_limit <= kSmallOriginalWidth &&
+            width_limit - width < kMinPostselectedWidthReduction &&
+            uint64_t{executable.num_actions()} * 4 > uint64_t{data->original->num_actions()} * 5) {
+            variant.fallback_reason =
+                "postselected reconstruction saves at most two qubits while increasing actions";
+            continue;
+        }
+        if (compare_cost && width == width_limit) {
+            const auto work = [](const sampling::ExecutablePlan& p) {
+                return saturating_add_u64(
+                    p.estimated_batch_lane_work(sampling::BatchOutputMode::AggregateSurvivors),
+                    uint64_t{p.num_actions()} + p.num_noise_sites());
+            };
+            if (executable.num_actions() > data->original->num_actions() ||
+                work(executable) >= work(*data->original)) {
+                variant.fallback_reason = "original plan has lower or equal estimated work";
+                continue;
+            }
+        }
+        variant.plan.emplace(std::move(executable));
         variant.fallback_reason.clear();
     }
 

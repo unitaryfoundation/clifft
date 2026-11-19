@@ -33,7 +33,7 @@ using clifft::sampling::BatchSamplingMode;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::ExpValSlot;
-using clifft::sampling::kDefaultMaxWidthFiveBatchLaneWork;
+using clifft::sampling::kMaxAutoBatchWidth;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::RecordClassical;
@@ -600,73 +600,26 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
         resolve_batch_execution_policy(interleaved, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
             .lane_capacity == 1024);
 
-    SamplingPlan sustained_plan;
-    sustained_plan.num_qubits = 5;
-    sustained_plan.initial_active_width = 5;
-    sustained_plan.peak_active_width = 5;
-    sustained_plan.num_exp_vals = 200;
-    for (uint32_t probe = 0; probe < sustained_plan.num_exp_vals; ++probe) {
-        sustained_plan.actions.push_back(
-            PlannedAction{5, 5,
-                          WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
-                                                ExpValSlot{probe}}});
+    for (uint32_t width : {5u, 6u, 8u, 9u}) {
+        SamplingPlan plan_source;
+        plan_source.num_qubits = width;
+        plan_source.initial_active_width = width;
+        plan_source.peak_active_width = width;
+        plan_source.num_exp_vals = 200;
+        for (uint32_t probe = 0; probe < plan_source.num_exp_vals; ++probe) {
+            plan_source.actions.push_back(PlannedAction{
+                width, width,
+                WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
+                                      ExpValSlot{probe}}});
+        }
+        const ExecutablePlan sustained(plan_source);
+        const auto rows_policy = resolve_batch_execution_policy(
+            sustained, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt);
+        REQUIRE((rows_policy.lane_capacity > 1) == (width <= kMaxAutoBatchWidth));
+        REQUIRE(resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows,
+                                               uint32_t{64})
+                    .lane_capacity == 64);
     }
-    const ExecutablePlan sustained(sustained_plan);
-    REQUIRE(sustained.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) >
-            kDefaultMaxWidthFiveBatchLaneWork);
-    REQUIRE(sustained.estimated_width_five_batch_lane_work(BatchOutputMode::AggregateSurvivors) ==
-            0);
-    REQUIRE(
-        resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
-            .lane_capacity == 1);
-    REQUIRE(resolve_batch_execution_policy(sustained, 4096, 1, 1,
-                                           BatchOutputMode::AggregateSurvivors, std::nullopt)
-                .lane_capacity == 1024);
-    REQUIRE(
-        resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{64})
-            .lane_capacity == 64);
-
-    sustained_plan.num_visible_records = 1024;
-    for (uint32_t record = 0; record < sustained_plan.num_visible_records; ++record) {
-        sustained_plan.actions.push_back(
-            PlannedAction{5, 5, RecordClassical{AffineBool{}, RecordSlot{record}}});
-    }
-    const ExecutablePlan classical_heavy(sustained_plan);
-    REQUIRE(classical_heavy.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) >
-            kDefaultMaxWidthFiveBatchLaneWork);
-    REQUIRE(resolve_batch_execution_policy(classical_heavy, 4096, 8, 1, BatchOutputMode::Rows,
-                                           std::nullopt)
-                .lane_capacity == 1024);
-
-    SamplingPlan brief_width_five_plan;
-    brief_width_five_plan.num_qubits = 5;
-    brief_width_five_plan.initial_active_width = 5;
-    brief_width_five_plan.peak_active_width = 5;
-    brief_width_five_plan.num_visible_records = 2104;
-    brief_width_five_plan.symbols.assign(4, SymbolKind::Branch);
-    for (uint32_t measurement = 0; measurement < 4; ++measurement) {
-        const uint32_t active_before = 5 - measurement;
-        const uint32_t pivot = active_before - 1;
-        const SymbolId branch{measurement};
-        brief_width_five_plan.actions.push_back(
-            PlannedAction{active_before, active_before - 1,
-                          MeasureActivePauli{ActivePauli{uint64_t{1} << pivot, 0}, pivot, branch,
-                                             AffineBool::symbol(branch), RecordSlot{measurement}}});
-    }
-    for (uint32_t cycle = 0; cycle < 2100; ++cycle) {
-        brief_width_five_plan.actions.push_back(
-            PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}});
-        brief_width_five_plan.actions.push_back(
-            PlannedAction{1, 1, RecordClassical{AffineBool{}, RecordSlot{cycle + 4}}});
-    }
-    const ExecutablePlan brief_width_five(brief_width_five_plan);
-    REQUIRE(brief_width_five.estimated_batch_lane_work(BatchOutputMode::Rows) >
-            kDefaultMaxWidthFiveBatchLaneWork);
-    REQUIRE(brief_width_five.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) <
-            kDefaultMaxWidthFiveBatchLaneWork);
-    REQUIRE(resolve_batch_execution_policy(brief_width_five, 4096, 1, 1, BatchOutputMode::Rows,
-                                           std::nullopt)
-                .lane_capacity > 1);
 
     const ExecutablePlan noisy = compile_batch_test_plan();
     REQUIRE(noisy.num_batch_noise_carriers() == 0);
@@ -680,39 +633,38 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                 .lane_capacity == 1);
 }
 
-TEST_CASE("External input work can justify wider automatic packing") {
-    const uint32_t width = GENERATE(5, 6, 8, 9);
+TEST_CASE("Automatic packing admits widths through eight unless early postselection applies") {
+    const uint32_t width = GENERATE(4, 5, 6, 8, 9);
     SamplingPlan source;
     source.num_qubits = width;
     source.initial_active_width = width;
     source.peak_active_width = width;
-    source.num_exp_vals = 200;
+    source.num_exp_vals = 16;
     for (uint32_t probe = 0; probe < source.num_exp_vals; ++probe) {
         source.actions.push_back(
             PlannedAction{width, width,
                           WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
                                                 ExpValSlot{probe}}});
     }
-    const ExecutablePlan sustained(source);
-    const auto capacity = [&](BatchSamplingMode mode, uint64_t inputs) {
-        return resolve_batch_execution_policy(sustained, 4097, 1, 1, BatchOutputMode::Rows,
-                                              std::nullopt, mode, 0, 0, inputs)
+    const ExecutablePlan ordinary(source);
+    const auto capacity = [&](const ExecutablePlan& plan, BatchSamplingMode mode) {
+        return resolve_batch_execution_policy(plan, 4097, 1, 1, BatchOutputMode::Rows, std::nullopt,
+                                              mode)
             .lane_capacity;
     };
-    CHECK(capacity(BatchSamplingMode::Ordinary, 100000) == 1);
-    CHECK(capacity(BatchSamplingMode::FixedFaults, 100000) == 1);
-    CHECK(capacity(BatchSamplingMode::ExternalInputs, 0) == 1);
-    CHECK(capacity(BatchSamplingMode::ExternalInputs, 1) == 1);
-    CHECK((capacity(BatchSamplingMode::ExternalInputs, 100000) > 1) == (width <= 8));
+    CHECK((capacity(ordinary, BatchSamplingMode::Ordinary) > 1) == (width <= kMaxAutoBatchWidth));
+    CHECK((capacity(ordinary, BatchSamplingMode::FixedFaults) > 1) ==
+          (width <= kMaxAutoBatchWidth));
+    CHECK((capacity(ordinary, BatchSamplingMode::ExternalInputs) > 1) ==
+          (width <= kMaxAutoBatchWidth));
 
     source.num_detectors = 1;
-    source.actions.push_back(
+    source.actions.insert(
+        source.actions.begin(),
         PlannedAction{width, width, WriteDetector{RecordParity{}, DetectorSlot{0}, true}});
-    const ExecutablePlan postselected(source);
-    CHECK((resolve_batch_execution_policy(postselected, 4097, 1, 1, BatchOutputMode::Rows,
-                                          std::nullopt, BatchSamplingMode::ExternalInputs, 0, 0,
-                                          100000)
-               .lane_capacity > 1) == (width <= 8));
+    const ExecutablePlan early_postselected(source);
+    REQUIRE(early_postselected.has_early_postselection(BatchOutputMode::Rows));
+    CHECK((capacity(early_postselected, BatchSamplingMode::Ordinary) > 1) == (width <= 4));
 }
 
 TEST_CASE("Wider automatic external packing retains shot and memory limits") {
@@ -723,7 +675,7 @@ TEST_CASE("Wider automatic external packing retains shot and memory limits") {
                              std::optional<uint32_t> requested = std::nullopt) {
         return resolve_batch_execution_policy(plan, shots, workers, 1, BatchOutputMode::Rows,
                                               requested, BatchSamplingMode::ExternalInputs, 0,
-                                              columns, 10000);
+                                              columns);
     };
     for (uint32_t shots : {0, 1, 63}) {
         CHECK(resolve(shots, 3, 0).lane_capacity == 1);

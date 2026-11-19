@@ -73,11 +73,14 @@ def test_selected_and_packed_rows(
     np.testing.assert_array_equal(unpacked.exp_vals, expected_probes)
     np.testing.assert_array_equal(packed.exp_vals, expected_probes)
     if survivor:
-        for result in (unpacked, packed):
-            assert result.total_shots == reference.total_shots
-            assert result.passed_shots == reference.passed_shots
-            assert result.logical_errors == reference.logical_errors
-            np.testing.assert_array_equal(result.observable_ones, reference.observable_ones)
+        assert packed.total_shots == unpacked.total_shots == reference.total_shots
+        assert packed.passed_shots == unpacked.passed_shots
+        assert packed.logical_errors == unpacked.logical_errors
+        np.testing.assert_array_equal(packed.observable_ones, unpacked.observable_ones)
+        if batch_size != "auto":
+            assert unpacked.passed_shots == reference.passed_shots
+            assert unpacked.logical_errors == reference.logical_errors
+            np.testing.assert_array_equal(unpacked.observable_ones, reference.observable_ones)
 
 
 @pytest.mark.parametrize("api", ["sample", "sample_k", "sample_survivors", "sample_k_survivors"])

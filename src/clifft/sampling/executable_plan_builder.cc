@@ -59,30 +59,17 @@ inline constexpr uint64_t kExpressionHashPrime = 0x100000001b3ULL;
     return {.row_output = work};
 }
 
-[[nodiscard]] batch_detail::BatchWorkEstimate classify_batch_lane_work(
-    batch_detail::BatchLaneWork work, uint32_t active_width) noexcept {
-    return {.all_widths = work,
-            .width_five = active_width == 5 ? work : batch_detail::BatchLaneWork{}};
-}
-
 [[nodiscard]] batch_detail::BatchLaneWork add_batch_lane_work(
     batch_detail::BatchLaneWork lhs, batch_detail::BatchLaneWork rhs) noexcept {
     return {.common = saturating_add_u64(lhs.common, rhs.common),
             .row_output = saturating_add_u64(lhs.row_output, rhs.row_output)};
 }
 
-[[nodiscard]] batch_detail::BatchWorkEstimate add_batch_work_estimate(
-    batch_detail::BatchWorkEstimate lhs, batch_detail::BatchWorkEstimate rhs) noexcept {
-    return {.all_widths = add_batch_lane_work(lhs.all_widths, rhs.all_widths),
-            .width_five = add_batch_lane_work(lhs.width_five, rhs.width_five)};
-}
-
-[[nodiscard]] batch_detail::BatchWorkEstimate fused_batch_lane_work(
+[[nodiscard]] batch_detail::BatchLaneWork fused_batch_lane_work(
     const PreparedFusedRotation& rotation) noexcept {
     const uint64_t dimension = uint64_t{1} << rotation.orbit_rank;
-    return classify_batch_lane_work(common_batch_lane_work(saturating_multiply_u64(
-                                        coefficient_size(rotation.active_width), 2 * dimension)),
-                                    rotation.active_width);
+    return common_batch_lane_work(
+        saturating_multiply_u64(coefficient_size(rotation.active_width), 2 * dimension));
 }
 
 }  // namespace
@@ -260,24 +247,20 @@ ExecutablePlanBuilder::ExpressionInterner::prepare_measurement_correction(
     return intern_appended(outcome.constant(), tentative_begin, hash);
 }
 
-batch_detail::BatchWorkEstimate ExecutablePlanBuilder::action_batch_lane_work(
+batch_detail::BatchLaneWork ExecutablePlanBuilder::action_batch_lane_work(
     const ExecutablePlan& plan, const ExecutablePlan::Action& action, uint32_t width) {
     return std::visit(
-        [&](const auto& typed) -> batch_detail::BatchWorkEstimate {
+        [&](const auto& typed) -> batch_detail::BatchLaneWork {
             using T = std::decay_t<decltype(typed)>;
             const auto size = coefficient_size(width);
             if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
                           std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
-                return classify_batch_lane_work(
-                    common_batch_lane_work(saturating_multiply_u64(size, 4)), width);
+                return common_batch_lane_work(saturating_multiply_u64(size, 4));
             } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteActiveMeasurement>) {
-                return classify_batch_lane_work(
-                    common_batch_lane_work(saturating_multiply_u64(size, 6)), width);
+                return common_batch_lane_work(saturating_multiply_u64(size, 6));
             } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteExpectation>) {
-                return classify_batch_lane_work(
-                    typed.active ? row_output_batch_lane_work(saturating_multiply_u64(size, 4))
-                                 : batch_detail::BatchLaneWork{},
-                    width);
+                return typed.active ? row_output_batch_lane_work(saturating_multiply_u64(size, 4))
+                                    : batch_detail::BatchLaneWork{};
             } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation>) {
                 return fused_batch_lane_work(
                     plan.fused_rotations_[typed.rotation_index].rotation());
@@ -501,9 +484,9 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
     for (const auto& action : output.actions_) {
         const auto estimate = action_batch_lane_work(output, action, width);
         output.estimated_batch_lane_work_ =
-            add_batch_work_estimate(output.estimated_batch_lane_work_, estimate);
+            add_batch_lane_work(output.estimated_batch_lane_work_, estimate);
         if (output.has_postselection_) {
-            work.push_back(estimate.all_widths);
+            work.push_back(estimate);
         }
         if (std::holds_alternative<ExecutablePlan::ExecutePromotion>(action)) {
             ++width;
@@ -855,12 +838,12 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_batch_lane_work(
-    batch_detail::BatchWorkEstimate work) {
-    estimated_batch_lane_work_ = add_batch_work_estimate(estimated_batch_lane_work_, work);
+    batch_detail::BatchLaneWork work) {
+    estimated_batch_lane_work_ = add_batch_lane_work(estimated_batch_lane_work_, work);
     if (output_.has_postselection_) {
         assert(action_batch_lane_work_.size() + 1 == output_.actions_.size() &&
                "each lowered action must receive one batch work estimate");
-        action_batch_lane_work_.push_back(work.all_widths);
+        action_batch_lane_work_.push_back(work);
     } else {
         assert(action_batch_lane_work_.empty() &&
                "ordinary plans must not retain action-level batch work");
@@ -965,9 +948,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::prepare_batch_compaction
         }
         remaining_lane_work = add_batch_lane_work(remaining_lane_work, work[index]);
     }
-    assert(remaining_lane_work.common == output.estimated_batch_lane_work_.all_widths.common &&
-           remaining_lane_work.row_output ==
-               output.estimated_batch_lane_work_.all_widths.row_output &&
+    assert(remaining_lane_work.common == output.estimated_batch_lane_work_.common &&
+           remaining_lane_work.row_output == output.estimated_batch_lane_work_.row_output &&
            "forward and reverse batch work totals must agree");
 }
 

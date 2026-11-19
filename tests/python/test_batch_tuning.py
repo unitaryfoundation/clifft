@@ -1,6 +1,7 @@
 """Calibration is extra work before one complete production sampling call."""
 
 import warnings
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
@@ -41,6 +42,7 @@ def sampling_call(request: pytest.FixtureRequest) -> Any:
     def call(shots: int, **kwargs: Any) -> clifft.SampleResult:
         return cast(clifft.SampleResult, getattr(clifft, name)(program, shots, **options, **kwargs))
 
+    call.supports_sharing = "k" not in options  # type: ignore[attr-defined]
     return call
 
 
@@ -59,13 +61,18 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
     measured_sizes = {trial.batch_size for trial in report.trials if trial.shots_per_second > 0}
     assert report.baseline_batch_size in measured_sizes
     assert len(measured_sizes) >= 2
-    assert report.batch_size in {1, 64, 256, 1024, 2048}
+    assert report.sharing == result.execution.sharing
+    if report.sharing:
+        assert 2 <= report.batch_size <= shots
+    else:
+        assert report.batch_size in {1, 64, 256, 1024, 2048}
     assert report.intra_shot_workers == 1
     assert 1 <= report.shot_workers <= threads
     assert report.elapsed_seconds >= 0
     assert report.trial_shots == sum(t.shots + t.warmup_shots for t in report.trials)
     for trial in report.trials:
         assert isinstance(trial, clifft.BatchTuningTrial)
+        assert isinstance(trial.sharing, bool)
         assert trial.shots_per_second >= 0
         assert trial.setup_seconds >= 0
         assert trial.warmup_seconds >= 0
@@ -75,7 +82,13 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
                 trial.warmup_shots / trial.warmup_seconds
             )
 
-    pinned = sampling_call(shots, seed=82, threads=threads, batch_size=report.batch_size)
+    replay: dict[str, Any] = {"batch_size": report.batch_size}
+    if sampling_call.supports_sharing:
+        if result.execution.sharing:
+            replay["sharing"] = True
+        if result.execution.noise_preparation is not None:
+            replay["noise_preparation"] = result.execution.noise_preparation
+    pinned = sampling_call(shots, seed=82, threads=threads, **replay)
     assert pinned.batch_tuning is None
     for field in ("measurements", "detectors", "observables", "exp_vals", "observable_ones"):
         np.testing.assert_array_equal(getattr(result, field), getattr(pinned, field))
@@ -137,11 +150,11 @@ def test_insufficient_tuning_warns_and_still_returns_complete_results(sampling_c
 
 def test_wide_circuit_skips_calibration_without_a_budget_warning() -> None:
     qubits = " ".join(map(str, range(14)))
-    program = clifft.compile(f"H {qubits}\nT {qubits}\nM 0", hir_passes=None)
+    program = clifft.compile(f"H {qubits}\nT {qubits}\nM 0", hir_passes=None, reconstruction=False)
     assert program.peak_active_width == 14
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        result = clifft.sample(program, 65, batch_size="tune")
+        result = clifft.sample(program, 65, batch_size="tune", sharing=False)
     report = result.batch_tuning
     assert report.stop_reason == "single_candidate"
     assert report.trial_shots == 0
@@ -216,11 +229,18 @@ def test_shared_row_tuning_reports_when_the_baseline_exceeds_the_output_budget()
         "H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0 1 2 3 4 5 6 7\n"
         "OBSERVABLE_INCLUDE(127) rec[-1]",
         hir_passes=None,
+        reconstruction=False,
     )
     assert program.peak_active_width == 8
     with pytest.warns(RuntimeWarning):
         result = clifft.sample(
-            program, 65536, seed=42, threads=8, batch_size="tune", tuning_budget_seconds=0.1
+            program,
+            65536,
+            seed=42,
+            threads=8,
+            batch_size="tune",
+            tuning_budget_seconds=0.1,
+            sharing=True,
         )
     assert result.batch_tuning.stop_reason == "output_budget"
     assert result.batch_tuning.trial_shots == 0
@@ -228,3 +248,29 @@ def test_shared_row_tuning_reports_when_the_baseline_exceeds_the_output_budget()
     assert result.batch_tuning.shot_workers == 8
     assert result.measurements.shape == (65536, 8)
     assert result.observables.shape == (65536, 128)
+
+
+def test_auto_sharing_tuning_compares_ordinary_and_shared_candidates() -> None:
+    source = (Path(__file__).parents[1] / "fixtures" / "msc_d3.stim").read_text()
+    mask = [1] * clifft.trace(clifft.parse(source)).num_detectors
+    program = clifft.compile(source, postselection_mask=mask)
+    result = clifft.sample_survivors(
+        program, 4096, seed=91, threads=1, batch_size="tune", tuning_budget_seconds=0.25
+    )
+    report = result.batch_tuning
+    assert report is not None
+    assert report.sufficient_measurements
+    assert {trial.sharing for trial in report.trials} == {False, True}
+    assert report.sharing == result.execution.sharing
+    replay = clifft.sample_survivors(
+        program,
+        4096,
+        seed=91,
+        threads=result.execution.shot_workers,
+        batch_size=result.execution.batch_size,
+        sharing=result.execution.sharing,
+        noise_preparation=result.execution.noise_preparation,
+    )
+    assert replay.passed_shots == result.passed_shots
+    assert replay.logical_errors == result.logical_errors
+    np.testing.assert_array_equal(replay.observable_ones, result.observable_ones)

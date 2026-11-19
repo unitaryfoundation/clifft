@@ -44,9 +44,10 @@ class ExecutablePlanBuilder {
     // adjacent-rotation fusion without introducing a general pass pipeline.
     void lower_action_stream();
     void lower_action(const PlannedAction& planned, size_t& boundary_index);
-    static batch_detail::BatchWorkEstimate action_batch_lane_work(
-        const ExecutablePlan& plan, const ExecutablePlan::Action& action, uint32_t width);
-    void record_batch_lane_work(batch_detail::BatchWorkEstimate work);
+    static batch_detail::BatchLaneWork action_batch_lane_work(const ExecutablePlan& plan,
+                                                              const ExecutablePlan::Action& action,
+                                                              uint32_t width);
+    void record_batch_lane_work(batch_detail::BatchLaneWork work);
     void record_action_origin(uint32_t plan_begin, uint32_t plan_end);
     static void prepare_batch_compaction_costs(ExecutablePlan& output,
                                                std::span<const batch_detail::BatchLaneWork> work);
@@ -115,7 +116,7 @@ class ExecutablePlanBuilder {
     std::vector<uint32_t> boundary_noise_starts_;
     std::vector<uint8_t> bound_presampled_symbols_;
     std::vector<uint32_t> symbol_first_actions_;
-    batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
+    batch_detail::BatchLaneWork estimated_batch_lane_work_;
     std::vector<batch_detail::BatchLaneWork> action_batch_lane_work_;
 };
 

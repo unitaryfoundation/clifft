@@ -187,20 +187,20 @@ After a run, `regions_examined` and `regions_capped` describe the attempted sear
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
 See [Compiling Circuits](../guide/compilation.md#active-width-scheduling) for
-setup and guidance on when to enable this pass.
+how the default pipeline bounds this pass and how to override or disable it.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `beam_width` | `8` | Positive number of partial schedules to retain. Larger beams explore more alternatives but do not guarantee better results. |
-| `search_budget` | `16.0` | Search executions per HIR operation before switching to greedy continuation. `0` requests greedy continuation after the initial sweep; `None` disables budget-driven narrowing. |
+| `search_budget` | `16.0` | Search executions per HIR operation, capped at `max(65536, num_ops)` on large circuits, before switching to greedy continuation. `0` requests greedy continuation after the initial sweep; `None` disables budget-driven narrowing and the probe backstop. |
 | `noise_transparent` | `True` | Allow crossings of Pauli noise, with symbolic sign correction. |
 | `sink_neutral_rotations` | `True` | Delay width-neutral rotations where legal to reduce dense work and expose fusion opportunities. |
+| `min_equal_width` | `13` | Minimum incumbent peak width at which equal-width schedules are accepted for lower estimated dense work. `0` accepts equal-width improvements at any width. |
 
-The search narrows to one retained candidate at half the execution budget.
-Ongoing sweeps and replays finish, so the thresholds can be exceeded. This
-budget does not bound classification probes or wall time: probe counts can
-grow quadratically on circuits with many independent rotations, and each
-probe's cost also depends on the qubit count. Budgets must be finite and
+With a finite `search_budget`, the search narrows to one retained candidate at
+half the execution budget and switches to greedy continuation after the full
+budget or a fixed classification-probe backstop. Ongoing sweeps and replays
+finish, so the thresholds can be exceeded. Budgets must be finite and
 nonnegative, or `None`.
 
 After a run, `incumbent_peak` and `result_peak` report peak active width before

@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -28,19 +29,22 @@ namespace {
 // updates for independent operations commute. Their peak and dense-work histories
 // can differ, so candidate deduplication must retain both costs.
 
-// Only executions control beam narrowing. Count closure probes separately:
-// an expansion can be queried repeatedly without executing.
+// Swept executions control beam narrowing; exceeding either the swept-op budget
+// or the classification-probe backstop switches remaining search to greedy mode.
 struct SearchWork {
     std::optional<double> limit;
     size_t swept_ops = 0;
     size_t probes = 0;
+    size_t probe_limit = std::numeric_limits<size_t>::max();
     // Hints are rechecked against each current basis, so speculative branches
     // can share them without copying or undoing them with the search state.
     std::vector<uint32_t> anticommuting_rows;
 
-    [[nodiscard]] bool greedy() const { return limit && static_cast<double>(swept_ops) > *limit; }
+    [[nodiscard]] bool greedy() const {
+        return (limit && static_cast<double>(swept_ops) > *limit) || probes >= probe_limit;
+    }
     [[nodiscard]] bool narrow() const {
-        return limit && static_cast<double>(swept_ops) > 0.5 * *limit;
+        return (limit && static_cast<double>(swept_ops) > 0.5 * *limit) || probes >= probe_limit;
     }
 };
 
@@ -567,8 +571,8 @@ void append_pareto_front(const std::vector<BeamState>& beam,
 }
 
 // Narrow the beam at half the swept-op budget and choose the lowest ready
-// expansion after the full swept-op budget. Closure still runs to completion:
-// the budget bounds executions, not classification probes or wall time.
+// expansion after the full swept-op budget or classification-probe backstop.
+// Closure always runs to completion so every returned order is legal.
 std::vector<uint32_t> run_beam_search(const HirModule& hir,
                                       const detail::ScheduleDependence& dependence,
                                       uint32_t beam_width, SearchWork& work) {
@@ -816,11 +820,18 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
         detail::ScheduleDependence::build(hir, dependence_options);
 
     SearchWork work{
-        .limit = options_.search_budget
-                     ? std::optional<double>(*options_.search_budget * hir.ops.size())
-                     : std::nullopt,
+        .limit = std::nullopt,
         .anticommuting_rows = std::vector<uint32_t>(hir.ops.size(), hir.num_qubits),
     };
+    if (options_.search_budget) {
+        // Bound speculative search linearly in operation count on large inputs
+        // while keeping a small-circuit floor and a probe backstop (~1 s worst case).
+        constexpr double kMinSearchBudget = 65536.0;
+        constexpr size_t kMaxClassificationProbes = 40000000;
+        work.limit = std::min(*options_.search_budget * static_cast<double>(hir.ops.size()),
+                              std::max(kMinSearchBudget, static_cast<double>(hir.ops.size())));
+        work.probe_limit = kMaxClassificationProbes;
+    }
     std::vector<uint32_t> order = run_beam_search(hir, dependence, options_.beam_width, work);
     swept_ops_ = work.swept_ops;
     classification_probes_ = work.probes;
@@ -831,9 +842,10 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
 
     const ActiveWidthCost candidate = summarize_active_width(hir, order);
 
-    const bool better =
-        (candidate.peak_width < incumbent_peak_) ||
-        (candidate.peak_width == incumbent_peak_ && candidate.dense_work < incumbent_dense_work_);
+    const bool allow_equal = incumbent_peak_ >= options_.min_equal_width;
+    const bool better = (candidate.peak_width < incumbent_peak_) ||
+                        (allow_equal && candidate.peak_width == incumbent_peak_ &&
+                         candidate.dense_work < incumbent_dense_work_);
 
     if (better) {
         detail::apply_schedule(hir, dependence, order);

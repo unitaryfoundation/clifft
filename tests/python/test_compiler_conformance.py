@@ -72,7 +72,9 @@ INTERFERENCE_SOURCE = "H 0 1\nT 0 1\nH 0 1"
 
 CASES = (
     # Neither pass alone can satisfy the other pass's width-reduction witness.
-    UnitaryCase("fusion", "H 0\nT 0\nT_DAG 0\nH 0", 1, "PeepholeFusionPass"),
+    UnitaryCase(
+        "fusion", "H 0\nT 0\nT_DAG 0\nH 0", 1, "PeepholeFusionPass", reconstructed_widths=(0, 0)
+    ),
     UnitaryCase(
         "squeeze", INTERFERENCE_SOURCE, 2, "StatevectorSqueezePass", reconstructed_widths=(1, 1)
     ),
@@ -157,11 +159,6 @@ def test_samples_and_annotations_match_independent_oracle(
 
 
 @pytest.mark.parametrize("mode", RECONSTRUCTION_MODES, ids=lambda mode: mode.name)
-@pytest.mark.parametrize(
-    "case",
-    [case for case in CASES if any(w is not None for w in case.reconstructed_widths)],
-    ids=lambda case: case.name,
-)
 def test_reconstructed_samples_share_unitary_oracles(
     case: UnitaryCase, mode: CpuSamplingMode
 ) -> None:
@@ -191,16 +188,6 @@ def test_reconstructed_samples_share_unitary_oracles(
         expected_joint = np.bincount(det_bits + 2 * obs_bits, weights=probabilities, minlength=4)
         joint = np.hstack((syndromes.detectors, syndromes.observables))
         assert_joint_distribution(joint, expected_joint)
-
-
-def test_reconstruction_fallback_preserves_original_plan_width() -> None:
-    for case in (case for case in CASES if case.reconstructed_widths == (None, None)):
-        program = clifft.compile(case.annotated_source, hir_passes=None, reconstruction=True)
-        for keep_records in (False, True):
-            plan = program.sampling_plan(keep_records=keep_records)
-            assert not plan.reconstruction_selected
-            assert "does not reduce peak active width" in plan.fallback_reason
-            assert plan.peak_active_width == program.original_plan.peak_active_width
 
 
 def _assert_annotated_distribution(
@@ -321,6 +308,17 @@ def test_noisy_joint_outputs_and_survivor_reuse(
         assert plan.peak_active_width == (1 if reconstruction else 2)
         result = mode.sample_survivors(program, shots, seed=803, keep_records=keep_records)
         _assert_noisy_survivors(result, expected, shots, keep_records)
+
+
+def test_default_reconstructed_syndromes_match_joint_oracle(
+    noisy_joint_probabilities: np.ndarray,
+) -> None:
+    program = clifft.compile(
+        NOISY_INTERFERENCE_SOURCE, expected_detectors=[1, 1], expected_observables=[1, 0]
+    )
+    assert program.sampling_plan(keep_records=False).reconstruction_selected
+    result = clifft.sample_survivors(program, 4097, seed=803, keep_records=False)
+    _assert_noisy_survivors(result, noisy_joint_probabilities, 4097, False)
 
 
 def test_joint_output_check_detects_unwritten_observable(
@@ -576,12 +574,14 @@ def test_default_profile_uses_fresh_production_factory(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(clifft, "default_hir_pass_manager", factory)
     monkeypatch.setattr(
-        clifft, "compile", lambda source, *, hir_passes: received.append(hir_passes)
+        clifft,
+        "compile",
+        lambda source, *, hir_passes, reconstruction: received.append((hir_passes, reconstruction)),
     )
     DEFAULT.compile("H 0")
     DEFAULT.compile("H 0")
     assert len(managers) == 2 and managers[0] is not managers[1]
-    assert received == managers
+    assert received == [(manager, False) for manager in managers]
 
 
 def test_cpu_sampling_modes_include_batch_and_worker_configurations() -> None:

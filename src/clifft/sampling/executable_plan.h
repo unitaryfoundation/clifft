@@ -125,11 +125,7 @@ class ExecutablePlan {
     }
     [[nodiscard]] size_t num_actions() const { return actions_.size(); }
     [[nodiscard]] uint64_t estimated_batch_lane_work(BatchOutputMode output_mode) const noexcept {
-        return estimated_batch_lane_work_.all_widths.for_output_mode(output_mode);
-    }
-    [[nodiscard]] uint64_t estimated_width_five_batch_lane_work(
-        BatchOutputMode output_mode) const noexcept {
-        return estimated_batch_lane_work_.width_five.for_output_mode(output_mode);
+        return estimated_batch_lane_work_.for_output_mode(output_mode);
     }
     [[nodiscard]] size_t num_new_x_instrument_activations() const;
     [[nodiscard]] uint32_t num_unbound_presampled_symbols() const noexcept {
@@ -401,7 +397,7 @@ class ExecutablePlan {
     ExecutorBackend backend_ = ExecutorBackend::Scalar;
     uint32_t num_readout_noise_sites_ = 0;
     uint32_t initial_noise_end_ = 0;
-    batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
+    batch_detail::BatchLaneWork estimated_batch_lane_work_;
     // The earliest selected detector has the largest remaining coefficient work.
     batch_detail::BatchLaneWork postselection_remaining_lane_work_;
     std::optional<Tableau> final_tableau_;

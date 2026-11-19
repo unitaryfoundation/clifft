@@ -16,12 +16,16 @@ std::unique_ptr<HirPass> make_hir_pass(std::string_view name) {
     throw std::invalid_argument("Unknown HIR pass: " + std::string(name));
 }
 
-HirPassManager default_hir_pass_manager() {
+HirPassManager default_hir_pass_manager(bool include_schedule) {
     HirPassManager pm;
     for (const auto& info : kRegisteredPasses) {
-        if (info.default_enabled) {
-            pm.add_pass(info.make());
+        if (!info.default_enabled) {
+            continue;
         }
+        if (!include_schedule && info.make == make_hir<ActiveWidthSchedulePass>) {
+            continue;
+        }
+        pm.add_pass(info.make());
     }
     return pm;
 }

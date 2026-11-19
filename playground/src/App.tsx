@@ -250,7 +250,7 @@ export default function App() {
     if (wasmStatus !== "ready" || !passConfigReady) return;
     if (timerRef.current) clearTimeout(timerRef.current);
     timerRef.current = setTimeout(() => {
-      const result = compile(source, passConfig);
+      const result = compile(source, userPassConfig);
       setCompileResult(result);
 
       // Save draft on successful compile
@@ -266,7 +266,7 @@ export default function App() {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  }, [source, passConfig, passConfigReady, wasmStatus, compile, compileBaseline, diffView]);
+  }, [source, userPassConfig, passConfigReady, wasmStatus, compile, compileBaseline, diffView]);
 
   // Keep ref in sync for cursor handlers that close over mount-time state
   useEffect(() => {
@@ -462,7 +462,7 @@ export default function App() {
     setSimulating(true);
     requestAnimationFrame(() => {
       const t0 = performance.now();
-      const result = simulate(source, shots, passConfig);
+      const result = simulate(source, shots, userPassConfig);
       const elapsed = performance.now() - t0;
       setSimResult(result);
       setSimElapsedMs(elapsed);
@@ -475,7 +475,7 @@ export default function App() {
         setSimTab("measurements");
       }
     });
-  }, [source, shots, passConfig, simulate]);
+  }, [source, shots, userPassConfig, simulate]);
 
   const handleTourClose = useCallback(() => {
     setTourOpen(false);
