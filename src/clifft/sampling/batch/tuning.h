@@ -8,6 +8,7 @@
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <vector>
@@ -35,6 +36,13 @@ void validate_batch_tuning_options(std::optional<uint32_t> batch_size,
     BatchOutputMode output_mode, BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
     BatchExecutionPolicy baseline, uint64_t additional_worker_bit_columns = 0,
     uint64_t additional_output_row_bytes = 0, const PreparedBatchNoise* noise = nullptr);
+
+// A calibration candidate retains its workers across timed chunks.
+using BatchTuningProbe = std::function<void(uint32_t, uint64_t)>;
+[[nodiscard]] BatchTuningProbe make_ordinary_tuning_probe(const ExecutablePlan& plan,
+                                                          BatchExecutionPolicy policy,
+                                                          SamplingOutputs outputs, bool survivors,
+                                                          const PreparedBatchNoise* noise);
 
 // The clock and probe factory are injected so budget and selection behavior can
 // be tested without depending on machine load or the speed of a particular CPU.

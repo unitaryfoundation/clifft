@@ -226,6 +226,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         shared_preparation = &program.sampling_preparation(
             outputs,
             {.early_postselection = compiled.has_postselection(), .survivor_counts = survivors});
+        assert(shared_preparation->plan().peak_active_width() == width);
         const auto& noise = shared_preparation->noise(shared_noise_mode);
         const auto* key = width != 0 && options.group_by_noise.value_or(false)
                               ? &shared_preparation->sharing_key()
@@ -237,31 +238,30 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                 "shared execution requires capacity for at least two lanes");
         }
     }
-    auto run_ordinary = [&](uint32_t count, std::optional<uint64_t> run_seed,
-                            std::optional<uint32_t> capacity, std::optional<double> budget,
+    auto run_ordinary = [&](std::optional<uint32_t> capacity, std::optional<double> budget,
                             std::optional<ThreadLayout> run_layout) {
         const auto& preparation = program.sampling_preparation(
             outputs, {.early_postselection = false, .survivor_counts = survivors});
         const PreparedBatchNoise* noise = nullptr;
-        if (count != 0 && capacity != 1 &&
-            (capacity || (budget.value_or(0) > 0 && count > 1 && layout.intra_shot_workers == 1) ||
-             automatic_batch_eligible(preparation.plan(), count, layout.intra_shot_workers,
+        if (shots != 0 && capacity != 1 &&
+            (capacity || (budget.value_or(0) > 0 && shots > 1 && layout.intra_shot_workers == 1) ||
+             automatic_batch_eligible(preparation.plan(), shots, layout.intra_shot_workers,
                                       mode))) {
             const auto selected = width == 0
-                                      ? select_batch_noise_mode(preparation.plan(), count, capacity)
+                                      ? select_batch_noise_mode(preparation.plan(), shots, capacity)
                                       : BatchNoiseMode::Dense;
             noise = &preparation.noise(options.noise_preparation.value_or(selected));
         }
         if constexpr (survivors) {
-            return sampling::sample_survivors(preparation.plan(), count, run_seed, outputs,
+            return sampling::sample_survivors(preparation.plan(), shots, seed, outputs,
                                               options.threads, run_layout, capacity, budget, noise);
         } else {
-            return sampling::sample(preparation.plan(), count, run_seed, options.threads,
-                                    run_layout, capacity, budget, outputs, noise);
+            return sampling::sample(preparation.plan(), shots, seed, options.threads, run_layout,
+                                    capacity, budget, outputs, noise);
         }
     };
     if (safe < 2) {
-        return run_ordinary(shots, seed, options.batch_size, options.tuning_budget_seconds,
+        return run_ordinary(options.batch_size, options.tuning_budget_seconds,
                             options.thread_layout);
     }
 
@@ -350,36 +350,35 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                 tuning = batch_detail::sweep_batch_candidates(
                     candidates, policy, 1, std::max(0.0, *options.tuning_budget_seconds - now()),
                     make_seed_root(shots, seed), now,
-                    [&](BatchExecutionPolicy candidate) {
+                    [&](BatchExecutionPolicy candidate) -> batch_detail::BatchTuningProbe {
+                        if (!candidate.sharing) {
+                            const auto& ordinary = program.sampling_preparation(
+                                outputs,
+                                {.early_postselection = false, .survivor_counts = survivors});
+                            const auto* noise =
+                                candidate.lane_capacity > 1
+                                    ? &ordinary.noise(
+                                          options.noise_preparation.value_or(BatchNoiseMode::Dense))
+                                    : nullptr;
+                            return batch_detail::make_ordinary_tuning_probe(
+                                ordinary.plan(), candidate, outputs, survivors, noise);
+                        }
                         auto trial = execution;
                         trial.batch_size = candidate.lane_capacity;
                         trial.shot_workers = candidate.worker_count;
-                        return [&, trial, candidate,
-                                trial_workers =
-                                    std::vector<std::unique_ptr<SharedWorker>>(trial.shot_workers)](
-                                   uint32_t count, uint64_t trial_seed) mutable {
-                            if (candidate.sharing) {
-                                // Mixed trials time whole calls, including worker construction
-                                // for both executors. Shared-only tuning reuses its workers.
-                                if (compare_executors) {
-                                    for (auto& worker : trial_workers) {
-                                        worker.reset();
-                                    }
-                                }
-                                (void)run_shared<Result>(preparation, count, trial_seed, outputs,
-                                                         trial, trial_workers);
-                            } else {
-                                (void)run_ordinary(count, trial_seed, trial.batch_size,
-                                                   std::nullopt,
-                                                   ThreadLayout{trial.shot_workers, 1});
-                            }
+                        auto workers = std::make_shared<std::vector<std::unique_ptr<SharedWorker>>>(
+                            trial.shot_workers);
+                        return [&, trial, workers = std::move(workers)](uint32_t count,
+                                                                        uint64_t trial_seed) {
+                            (void)run_shared<Result>(preparation, count, trial_seed, outputs, trial,
+                                                     *workers);
                         };
                     },
                     shots);
             }
             tuning->elapsed_seconds = now();
             if (!tuning->sharing) {
-                auto result = run_ordinary(shots, seed, tuning->batch_size, std::nullopt,
+                auto result = run_ordinary(tuning->batch_size, std::nullopt,
                                            ThreadLayout{tuning->shot_workers, 1});
                 result.batch_tuning = std::move(tuning);
                 return result;
