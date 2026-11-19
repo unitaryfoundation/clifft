@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <bit>
 #include <cassert>
+#include <cstddef>
 #include <map>
 #include <stdexcept>
 #include <type_traits>
@@ -119,7 +120,6 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
         throw std::invalid_argument("max_worker_state_bytes cannot hold one shared state");
     }
     initial_states = std::min(initial_states, max_states_);
-    states_.reserve(initial_states);
     grow_state_pool(initial_states);
     split_factors_.reserve(plan.actions_.size());
     for (const auto& action : plan.actions_) {
@@ -254,6 +254,16 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
     return candidates;
 }
 
+uint64_t SharingExecutor::state_pool_bytes() const noexcept {
+    uint64_t bytes = saturating_add_u64(
+        saturating_multiply_u64(states_.capacity(), sizeof(State)),
+        saturating_multiply_u64(state_chunks_.capacity(), sizeof(PageAlignedAllocation)));
+    for (const auto& chunk : state_chunks_) {
+        bytes = saturating_add_u64(bytes, chunk.size());
+    }
+    return bytes;
+}
+
 void SharingExecutor::grow_state_pool(uint32_t required) {
     assert(required <= lane_capacity_ && "shared states cannot outnumber classical lanes");
     if (required > max_states_) {
@@ -261,11 +271,39 @@ void SharingExecutor::grow_state_pool(uint32_t required) {
             "shared state pool exceeds max_worker_state_bytes; increase the budget or reduce "
             "batch_size");
     }
+    const uint32_t old_count = static_cast<uint32_t>(states_.size());
+    if (required <= old_count) {
+        return;
+    }
     // This is an explicit suspension boundary. Live coefficients and sampled
     // outcomes remain intact while storage grows, then the same action resumes.
-    while (states_.size() < required) {
-        const uint32_t slot = static_cast<uint32_t>(states_.size());
-        states_.emplace_back(plan_->peak_active_width(), plan_->initial_active_width());
+    // Keep initial_states exact on construction, then grow geometrically so
+    // splitting batches allocate O(log n) contiguous slabs instead of tiny chunks.
+    const uint32_t target =
+        old_count == 0
+            ? required
+            : static_cast<uint32_t>(std::min<uint64_t>(
+                  max_states_,
+                  std::max<uint64_t>(required,
+                                     uint64_t{old_count} + std::max<uint64_t>(old_count / 2, 1))));
+    const uint32_t width = plan_->peak_active_width();
+    const size_t slot_bytes = State::slot_bytes(width);
+    const uint32_t add = target - old_count;
+    if (add > std::numeric_limits<size_t>::max() / slot_bytes) {
+        throw std::length_error("shared state slab exceeds addressable memory");
+    }
+    const auto alignment = slot_bytes >= PageAlignedAllocation::kHugePageSize
+                               ? PageAlignedAllocation::Alignment::HugePageEligible
+                               : PageAlignedAllocation::Alignment::BasePage;
+    states_.reserve(target);
+    state_chunks_.reserve(state_chunks_.size() + 1);
+    PageAlignedAllocation chunk(size_t{add} * slot_bytes, alignment);
+    auto* base = static_cast<std::byte*>(chunk.data());
+    state_chunks_.push_back(std::move(chunk));
+    for (uint32_t i = 0; i < add; ++i) {
+        const uint32_t slot = old_count + i;
+        auto* storage = reinterpret_cast<double*>(base + size_t{i} * slot_bytes);
+        states_.push_back(State::borrowed(storage, width, plan_->initial_active_width()));
         free_[free_count_++] = slot;
     }
 }

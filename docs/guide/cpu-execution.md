@@ -174,9 +174,15 @@ checks before later evolution.
 execution automatically on eligible postselected workloads and noiseless
 unitary-prefix circuits when `sharing="auto"` and `batch_size="auto"`. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
-checks, and any grouping key; later or concurrent calls on the same `Program`
-reuse that immutable preparation and allocate their own workers per call. Pass
-keyword overrides when benchmarking or pinning shared settings:
+checks, and any grouping key. Repeated calls on a `Program` with the same
+execution settings reuse idle shared workers instead of reallocating their
+buffers and state storage. Idle shared workers are capped at 512 MiB total
+across all live `Program` instances: returning workers evicts the least
+recently used idle workers from other programs, switching settings (batch size,
+noise preparation, grouping, or state budget) replaces the program's cached
+workers before allocating replacements, concurrent calls allocate extra workers
+as needed, and dropping a `Program` releases its cached workers immediately.
+Pass keyword overrides when benchmarking or pinning shared settings:
 
 ```python
 import clifft
@@ -225,11 +231,14 @@ classical batches than ordinary packed execution:
   capacities up to that safe limit for the call. An explicit shared capacity can
   exceed the safe limit when you know trajectories share states.
 - **`max_worker_state_bytes`** (default `64 MiB`): Memory limit per worker for
-  quantum coefficient storage, measurement-collapse scratch, and page alignment
-  (classical buffers, output rows, and compiled plans are separate). The limit
-  applies per worker rather than across all threads, so state storage can reach
-  `max_worker_state_bytes * shot_workers` when every lane diverges; states are
-  allocated at explicit suspension boundaries as trajectories split. With
+  quantum coefficient storage and measurement-collapse scratch, counting each
+  state at page granularity (classical buffers, output rows, and compiled plans
+  are separate; narrow states are packed into contiguous slabs so actual state
+  memory can be lower than the limit). The limit applies per worker rather than
+  across all threads, so active state storage can reach
+  `max_worker_state_bytes * shot_workers` when every lane diverges; states grow
+  at explicit suspension boundaries as trajectories split (and idle workers
+  follow the 512 MiB process-wide retention limit described above). With
   `sharing=True` on nonzero-width plans, the budget must hold at least two
   states. Automatic and tuned capacities fit one state per lane within this
   budget. With a larger explicit capacity, Clifft checks a conservative bound

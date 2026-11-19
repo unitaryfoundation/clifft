@@ -3,9 +3,9 @@
 // Owns a circuit's compiled ExecutablePlan (when below the dense active-width
 // limit) together with optional reconstructed sampling plans with or without
 // measurement records, plus the sampling preparation derived from them on
-// first use. Copies share both. Mutable workers belong to each sampling call.
-// State queries, exact probabilities, replay, and fixed-fault sampling require
-// the original plan.
+// first use. Copies share both, including bounded idle shared-worker storage
+// checked out exclusively by each call. State queries, exact probabilities,
+// replay, and fixed-fault sampling require the original plan.
 
 #include "clifft/optimizer/global_reconstruction.h"
 #include "clifft/sampling/executable_plan.h"
