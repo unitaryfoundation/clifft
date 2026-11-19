@@ -328,7 +328,22 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
     default_hir_pass_manager().run(qv_hir);
     const auto qv = Program::compile(qv_source, qv_hir, true);
     REQUIRE(qv.sampling_plan(true).has_reusable_unitary_prefix());
-    REQUIRE(clifft::sample(qv, 256, 42).execution.executor == SamplingExecutor::Shared);
+    REQUIRE(clifft::sample(qv, 64, 42).execution.executor == SamplingExecutor::Shared);
+}
+
+TEST_CASE("Postselected state evolution amortizes sharing on smaller calls") {
+    const auto source =
+        parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/reconstruction_msc_d5.stim");
+    auto hir = trace(source);
+    hir.postselection.mask.assign(hir.num_detectors, 1);
+    default_hir_pass_manager().run(hir);
+    const auto program = Program::compile(source, hir, std::nullopt);
+    const auto& plan = program.sampling_plan(false);
+    REQUIRE(should_share_sampling(plan, 1024, false, {1, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE_FALSE(
+        should_share_sampling(plan, 1024, false, {32, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE_FALSE(should_share_sampling(plan, 1024, false, {1, 1},
+                                        State::storage_bytes(plan.peak_active_width())));
 }
 
 TEST_CASE("Native shared calibration replays with the selected settings") {

@@ -5,6 +5,7 @@
 #include "clifft/api/sampling_preparation.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/batch/output.h"
+#include "clifft/util/numeric.h"
 #include "clifft/util/shot_parallel.h"
 
 #include <algorithm>
@@ -404,22 +405,31 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
         return false;
     }
     const uint32_t workers = std::max(uint32_t{1}, layout.shot_workers);
-    // Preparation is cached on Program. Keep batches large enough per worker to
-    // amortize worker setup. Selecting every syndrome also admits smaller codes.
-    constexpr uint32_t kMinShotsPerWorker = 8192;
+    const uint32_t shots_per_worker = shots / workers;
+    // Shared workers amortize setup sooner when ordinary shots visit many
+    // coefficients or sample many noise sites. Require at least one packed word.
+    const auto mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
+    const uint64_t work_per_shot =
+        saturating_add_u64(compiled.estimated_batch_lane_work(mode), compiled.num_noise_sites());
+    constexpr uint64_t kMinWorkPerWorker = 2 * 1024 * 1024;
+    const bool expensive_batch =
+        shots_per_worker >= kDefaultMinAutoBatchShots &&
+        saturating_multiply_u64(work_per_shot, shots_per_worker) >= kMinWorkPerWorker;
+    constexpr uint32_t kBulkPostselectionShots = 8192;
     const uint32_t selected = compiled.num_postselected_detectors();
     const bool enough_checks =
         selected >= 8 && (compiled.peak_active_width() < 8 || selected >= 32 ||
                           selected == compiled.num_detectors());
     const uint32_t noise_symbols = compiled.num_presampled_symbols();
     const bool rejection_workload =
-        shots >= uint64_t{kMinShotsPerWorker} * workers && noise_symbols != 0 && enough_checks;
+        (shots_per_worker >= kBulkPostselectionShots || expensive_batch) && noise_symbols != 0 &&
+        enough_checks;
     constexpr uint32_t kMinUnitaryPrefixShots = 256;
     // Measurement branches can share the preceding unitary evolution when width
     // shrinks monotonically after measurement and prefix work dominates.
     const bool unitary_prefix =
         !compiled.has_postselection() && noise_symbols == 0 && !compiled.has_readout_noise() &&
-        compiled.peak_active_width() >= 8 && shots >= kMinUnitaryPrefixShots &&
+        compiled.peak_active_width() >= 8 && (shots >= kMinUnitaryPrefixShots || expensive_batch) &&
         compiled.has_reusable_unitary_prefix();
     constexpr uint32_t kMinSharedStates = 64;
     return (rejection_workload || unitary_prefix) &&

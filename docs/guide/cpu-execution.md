@@ -26,10 +26,11 @@ result = clifft.sample(program, shots=10_000, seed=42, threads=4)
 
 Clifft chooses whether that budget is better spent across shots or within a
 wide shot. `sample()` and `sample_survivors()` can also share coefficient
-evolution between shots that follow the same quantum trajectory. This is useful
-for sufficiently large postselected workloads and noiseless circuits with a
-shared unitary prefix. Short calls and uncertain cases use ordinary scalar or
-packed execution. Requested expectation-value rows use ordinary execution so
+evolution between shots that follow the same quantum trajectory. For
+postselected workloads and noiseless circuits with a shared unitary prefix,
+Clifft considers how much coefficient and noise-sampling work each worker
+would repeat across its shots. A costly circuit can benefit from sharing
+even on a short call. Requested expectation-value rows use ordinary execution so
 every probe is retained.
 
 Calls can run concurrently on the same `Program` and reuse its preparation.
