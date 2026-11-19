@@ -46,18 +46,12 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_
       probability_one_(storage.probability_one_entries, 0.0),
       lane_values_(storage.lane_value_entries, 0.0) {}
 
-void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
-                              const EarlyPostselection* checks) noexcept {
+void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept {
     assert(sampling_mode_ == BatchSamplingMode::Ordinary &&
            "ordinary execution requires an ordinary packed worker");
     reset_batch(root, first_shot, shots);
     sample_presampled_noise();
-    if (checks) {
-        apply_early_postselection(*checks);
-    }
-    if (live_count_ != 0) {
-        execute_actions();
-    }
+    execute_actions();
     if (output_mode_ == BatchOutputMode::Rows) {
         finalize_live_lanes();
     }

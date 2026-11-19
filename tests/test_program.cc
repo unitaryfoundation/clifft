@@ -458,7 +458,31 @@ TEST_CASE("Automatic reconstruction guards small postselected drops and breaks t
                 forced_postselected.sampling_plan(keep_records).peak_active_width());
     }
 
-    // Equal-width ties select reconstruction when its estimated work is lower.
+    // Small postselected width drops that do not inflate actions keep reconstruction.
+    const auto compact_source = parse(R"(
+        H 0 1 2
+        T 0 1 2
+        CX 0 1
+        CX 1 2
+        T 0 1 2
+        H 0 1 2
+        M 0 1 2
+        DETECTOR rec[-3]
+        DETECTOR rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )");
+    auto compact_hir = trace(compact_source);
+    compact_hir.postselection.mask.assign(compact_hir.num_detectors, 1);
+    const auto compact_auto = Program::compile(compact_source, compact_hir);
+    const auto compact_orig = Program::compile(compact_source, compact_hir, false);
+    REQUIRE(compact_auto.uses_reconstruction(false));
+    REQUIRE(compact_auto.sampling_plan(false).peak_active_width() + 1 ==
+            compact_orig.sampling_plan(false).peak_active_width());
+    REQUIRE(compact_auto.sampling_plan(false).num_actions() <=
+            compact_orig.sampling_plan(false).num_actions());
+
+    // Equal-width ties select reconstruction when actions do not grow and work is lower,
+    // and keep the original otherwise.
     const auto msc3_source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/msc_d3.stim");
     auto msc3_hir = trace(msc3_source);
     msc3_hir.postselection.mask.assign(msc3_hir.num_detectors, 1);
@@ -468,6 +492,18 @@ TEST_CASE("Automatic reconstruction guards small postselected drops and breaks t
     REQUIRE(msc3_auto.uses_reconstruction(false));
     REQUIRE(msc3_auto.sampling_plan(false).peak_active_width() ==
             msc3_orig.sampling_plan(false).peak_active_width());
+
+    const auto d3_source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    auto d3_hir = trace(d3_source);
+    d3_hir.postselection.mask.assign(d3_hir.num_detectors, 1);
+    default_hir_pass_manager().run(d3_hir);
+    const auto d3_auto = Program::compile(d3_source, d3_hir);
+    const auto d3_orig = Program::compile(d3_source, d3_hir, false);
+    REQUIRE_FALSE(d3_auto.uses_reconstruction(false));
+    REQUIRE(d3_auto.sampling_plan(false).peak_active_width() ==
+            d3_orig.sampling_plan(false).peak_active_width());
+    REQUIRE(d3_auto.reconstruction_fallback_reason(false) ==
+            "original plan has lower or equal estimated work");
 }
 
 }  // namespace clifft::test

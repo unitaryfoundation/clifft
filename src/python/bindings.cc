@@ -1375,12 +1375,14 @@ NB_MODULE(_clifft_core, m) {
     nb::class_<clifft::ActiveWidthSchedulePass, clifft::HirPass>(
         m, "ActiveWidthSchedulePass",
         "State-aware beam search over the schedule-dependence trace class that\n"
-        "reduces peak active width, then a dense-work estimate. Opt in by\n"
-        "adding it after PeepholeFusionPass and StatevectorSqueezePass.")
+        "reduces peak active width, then a dense-work estimate at width >=\n"
+        "min_equal_width. Included in the default pipeline after\n"
+        "StatevectorSqueezePass.")
         .def(
             "__init__",
             [](clifft::ActiveWidthSchedulePass* self, bool noise_transparent, uint32_t beam_width,
-               std::optional<double> search_budget, bool sink_neutral_rotations) {
+               std::optional<double> search_budget, bool sink_neutral_rotations,
+               uint32_t min_equal_width) {
                 // The C++ constructor validates options; nanobind translates failures to
                 // ValueError.
                 clifft::ActiveWidthScheduleOptions options;
@@ -1388,11 +1390,13 @@ NB_MODULE(_clifft_core, m) {
                 options.beam_width = beam_width;
                 options.search_budget = search_budget;
                 options.sink_neutral_rotations = sink_neutral_rotations;
+                options.min_equal_width = min_equal_width;
                 new (self) clifft::ActiveWidthSchedulePass(options);
             },
             nb::arg("noise_transparent") = true, nb::arg("beam_width") = uint32_t{8},
             nb::arg("search_budget").none() = clifft::ActiveWidthScheduleOptions{}.search_budget,
-            nb::arg("sink_neutral_rotations") = true)
+            nb::arg("sink_neutral_rotations") = true,
+            nb::arg("min_equal_width") = clifft::ActiveWidthScheduleOptions{}.min_equal_width)
         .def_prop_ro("incumbent_peak", &clifft::ActiveWidthSchedulePass::incumbent_peak)
         .def_prop_ro("result_peak", &clifft::ActiveWidthSchedulePass::result_peak)
         .def_prop_ro("incumbent_dense_work", &clifft::ActiveWidthSchedulePass::incumbent_dense_work)
@@ -1494,7 +1498,7 @@ NB_MODULE(_clifft_core, m) {
                     // add() retains each pass even if the caller clears the overrides list.
                     result.attr("add")(replacements[i]);
                 } else if (info.default_enabled) {
-                    manager.add_pass(info.make_default());
+                    manager.add_pass(info.make());
                 }
             }
             return result;

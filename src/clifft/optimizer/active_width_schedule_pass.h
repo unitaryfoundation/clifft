@@ -21,21 +21,22 @@ struct ActiveWidthScheduleOptions {
     // one keeps only the best candidate, while larger beams explore alternatives.
     uint32_t beam_width = 8;
 
-    // Search executions per HIR op. At half the budget, retain one parent;
-    // after the full budget, choose the lowest-index ready expansion. Ongoing
-    // sweeps and replays finish, so these thresholds can be exceeded.
-    //
-    // This does not bound classification probes or wall time. Zero requests
-    // greedy continuation; nullopt disables narrowing. Must be finite and nonnegative.
+    // Search executions per HIR op, capped at max(65536, num_ops) on large
+    // circuits. At half the budget, retain one parent; after the full budget
+    // or the classification-probe backstop, choose the lowest-index ready
+    // expansion. Ongoing sweeps and replays finish, so these thresholds can be
+    // exceeded. Zero requests greedy continuation; nullopt disables narrowing
+    // and the probe backstop. Must be finite and nonnegative.
     std::optional<double> search_budget = 16.0;
 
     // Delay neutral rotations past independent non-expanding ops to reduce
     // dense work and expose rotation fusion opportunities.
     bool sink_neutral_rotations = true;
 
-    // Default-pipeline mode: bounds speculative search and probes, and keeps
-    // narrow equal-width schedules in their original order.
-    bool automatic = false;
+    // Minimum incumbent peak width at which equal-width schedules are accepted
+    // for lower estimated dense work. Zero accepts equal-width improvements at
+    // any width; higher values preserve fused rotation runs on narrow circuits.
+    uint32_t min_equal_width = 13;
 };
 
 class ActiveWidthSchedulePass : public HirPass {
@@ -44,7 +45,6 @@ class ActiveWidthSchedulePass : public HirPass {
 
     void run(HirModule& hir) override;
     bool preserves_sampling_distribution() const override { return true; }
-    [[nodiscard]] bool automatic() const noexcept { return options_.automatic; }
 
     // Statistics from the last run() call. All read as zero/false before
     // the first call.

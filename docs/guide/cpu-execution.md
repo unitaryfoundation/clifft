@@ -339,8 +339,8 @@ do not impose that restriction. Width refers to the selected executable
 plan; use `program.sampling_plan(keep_records=...)` to inspect its width.
 Postselected plans of width 1-4 keep the 256-lane cap under ordinary packed
 execution so rejected lanes carry less work. Width-zero plans have no
-coefficient work, use entrance checks when postselected, and keep the 2048-lane
-cap; fixed-fault sampling keeps the 256-lane cap there.
+coefficient work and keep the 2048-lane cap; fixed-fault sampling keeps the
+256-lane cap there.
 
 For widths 6-8, capacities are also bounded by attempted shots per worker
 when each requested worker has at least 64 shots. Shorter requests retain their

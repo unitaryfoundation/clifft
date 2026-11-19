@@ -35,8 +35,7 @@ class BatchExecutor : public BatchClassicalState {
     BatchExecutor(BatchExecutor&&) = delete;
     BatchExecutor& operator=(BatchExecutor&&) = delete;
 
-    void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
-                   const EarlyPostselection* checks = nullptr) noexcept;
+    void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept;
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
                    KFaultSampler& fault_sampler) noexcept;
 

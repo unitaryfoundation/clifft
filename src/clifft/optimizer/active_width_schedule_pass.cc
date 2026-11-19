@@ -29,8 +29,8 @@ namespace {
 // updates for independent operations commute. Their peak and dense-work histories
 // can differ, so candidate deduplication must retain both costs.
 
-// Only executions control beam narrowing. Count closure probes separately:
-// an expansion can be queried repeatedly without executing.
+// Swept executions control beam narrowing; exceeding either the swept-op budget
+// or the classification-probe backstop switches remaining search to greedy mode.
 struct SearchWork {
     std::optional<double> limit;
     size_t swept_ops = 0;
@@ -40,9 +40,11 @@ struct SearchWork {
     // can share them without copying or undoing them with the search state.
     std::vector<uint32_t> anticommuting_rows;
 
-    [[nodiscard]] bool greedy() const { return limit && static_cast<double>(swept_ops) > *limit; }
+    [[nodiscard]] bool greedy() const {
+        return (limit && static_cast<double>(swept_ops) > *limit) || probes >= probe_limit;
+    }
     [[nodiscard]] bool narrow() const {
-        return limit && static_cast<double>(swept_ops) > 0.5 * *limit;
+        return (limit && static_cast<double>(swept_ops) > 0.5 * *limit) || probes >= probe_limit;
     }
 };
 
@@ -262,9 +264,6 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFro
                                                  SearchWork& work) {
     // The bitset scan skips ops whose expansion verdict is still valid.
     while (const std::optional<uint32_t> op = frontier.first_candidate()) {
-        if (work.probes == work.probe_limit) {
-            return std::nullopt;
-        }
         ++work.probes;
         if (detail::is_expanding(hir, hir.ops[*op], subspace, work.anticommuting_rows[*op])) {
             frontier.note_expanding(*op);
@@ -451,7 +450,7 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
         undo_all(parent.frontier, log, newly_ready_log);
         scored.push_back(std::move(candidate));
 
-        if (work.greedy() || work.probes == work.probe_limit) {
+        if (work.greedy()) {
             break;
         }
     }
@@ -572,8 +571,8 @@ void append_pareto_front(const std::vector<BeamState>& beam,
 }
 
 // Narrow the beam at half the swept-op budget and choose the lowest ready
-// expansion after the full swept-op budget. Closure still runs to completion:
-// the budget bounds executions, not classification probes or wall time.
+// expansion after the full swept-op budget or classification-probe backstop.
+// Closure always runs to completion so every returned order is legal.
 std::vector<uint32_t> run_beam_search(const HirModule& hir,
                                       const detail::ScheduleDependence& dependence,
                                       uint32_t beam_width, SearchWork& work) {
@@ -583,9 +582,6 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
 
     std::optional<BeamState> best;
     while (!beam.empty()) {
-        if (work.probes == work.probe_limit) {
-            return {};
-        }
         // Avoid speculation when the choice is fixed. Before a finite budget
         // is exhausted, retain replay accounting so narrowing happens at the same point.
         if (beam.size() == 1 && beam.front().frontier.lowest_ready() < dependence.num_ops() &&
@@ -618,9 +614,6 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
                 break;
             }
             std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i, working, work);
-            if (work.probes == work.probe_limit) {
-                return {};
-            }
             if (!scored.empty()) {
                 parent_has_candidates[i] = true;
                 for (ScoredCandidate& candidate : scored) {
@@ -808,14 +801,6 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
     swept_ops_ = 0;
     classification_probes_ = 0;
 
-    // Clifford-only input needs neither the dormant basis nor the dependence graph.
-    if (options_.automatic && !has_rotation_op(hir)) {
-        incumbent_peak_ = result_peak_ = 0;
-        incumbent_dense_work_ = result_dense_work_ = 0.0;
-        applied_ = false;
-        return;
-    }
-
     const ActiveWidthCost incumbent = summarize_active_width(hir);
     incumbent_peak_ = incumbent.peak_width;
     incumbent_dense_work_ = incumbent.dense_work;
@@ -835,17 +820,15 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
         detail::ScheduleDependence::build(hir, dependence_options);
 
     SearchWork work{
-        .limit = options_.search_budget
-                     ? std::optional<double>(*options_.search_budget * hir.ops.size())
-                     : std::nullopt,
+        .limit = std::nullopt,
         .anticommuting_rows = std::vector<uint32_t>(hir.ops.size(), hir.num_qubits),
     };
-    if (options_.automatic) {
-        // Bound speculative search linearly in operation count while keeping a
-        // small-circuit floor and capping pathological classification probes.
+    if (options_.search_budget) {
+        // Bound speculative search linearly in operation count on large inputs
+        // while keeping a small-circuit floor and a probe backstop (~1 s worst case).
         constexpr double kMinSearchBudget = 65536.0;
-        constexpr size_t kMaxClassificationProbes = 2000000;
-        work.limit = std::min(work.limit.value_or(kMinSearchBudget),
+        constexpr size_t kMaxClassificationProbes = 40000000;
+        work.limit = std::min(*options_.search_budget * static_cast<double>(hir.ops.size()),
                               std::max(kMinSearchBudget, static_cast<double>(hir.ops.size())));
         work.probe_limit = kMaxClassificationProbes;
     }
@@ -853,23 +836,13 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
     swept_ops_ = work.swept_ops;
     classification_probes_ = work.probes;
 
-    if (order.empty()) {
-        applied_ = false;
-        result_peak_ = incumbent_peak_;
-        result_dense_work_ = incumbent_dense_work_;
-        return;
-    }
-
     if (options_.sink_neutral_rotations) {
         sink_neutral_rotations(hir, dependence, order);
     }
 
     const ActiveWidthCost candidate = summarize_active_width(hir, order);
 
-    // At narrow widths, preserving fused rotation runs and noise deadlines
-    // outweighs small reductions in estimated dense work.
-    constexpr uint32_t kMinEqualWidthSchedule = 13;
-    const bool allow_equal = !options_.automatic || incumbent_peak_ >= kMinEqualWidthSchedule;
+    const bool allow_equal = incumbent_peak_ >= options_.min_equal_width;
     const bool better = (candidate.peak_width < incumbent_peak_) ||
                         (allow_equal && candidate.peak_width == incumbent_peak_ &&
                          candidate.dense_work < incumbent_dense_work_);

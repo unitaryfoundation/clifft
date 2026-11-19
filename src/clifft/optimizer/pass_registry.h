@@ -55,8 +55,6 @@ struct PassInfo {
     RecordOrder record_order;
     InstrumentPrefixStability instrument_prefix;
     HirPassFactory make;
-
-    [[nodiscard]] std::unique_ptr<HirPass> make_default() const;
 };
 
 [[nodiscard]] constexpr bool is_trajectory_compatible(const PassInfo& info) {
@@ -108,14 +106,6 @@ inline const PassInfo kRegisteredPasses[] = {
      .instrument_prefix = kMayChangeInstrumentPrefix,
      .make = make_hir<DropNonUnitaryPass>},
 };
-
-inline std::unique_ptr<HirPass> PassInfo::make_default() const {
-    if (make == make_hir<ActiveWidthSchedulePass>) {
-        return std::make_unique<ActiveWidthSchedulePass>(
-            ActiveWidthScheduleOptions{.automatic = true});
-    }
-    return make();
-}
 
 inline constexpr size_t kNumRegisteredPasses =
     sizeof(kRegisteredPasses) / sizeof(kRegisteredPasses[0]);

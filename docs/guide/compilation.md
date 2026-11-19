@@ -110,11 +110,12 @@ plans. Circuit and measurement counts still describe the original circuit.
 
 ## Active-width scheduling
 
-The default HIR pipeline includes a bounded `ActiveWidthSchedulePass` after
-fusion, phase reduction, and squeezing. It searches legal operation orders to
-reduce peak active width (and, on wider circuits, estimated dense work) while
-capping speculative sweeps and classification probes linearly in operation count
-so compilation stays bounded.
+The default HIR pipeline includes `ActiveWidthSchedulePass` after fusion, phase
+reduction, and squeezing. It searches legal operation orders to reduce peak
+active width (and, at width 13 or above by default, estimated dense work), while
+capping speculative sweeps at `max(65536, num_ops)` and switching to greedy
+completion at a fixed classification-probe backstop so compilation stays
+bounded.
 
 To customize search parameters or inspect pass statistics, override it in the
 default pipeline:
@@ -128,13 +129,14 @@ program = clifft.compile("H 0 1 2\nT 0 1 2\nM 0 1 2", hir_passes=pm)
 ```
 
 Appending an explicit `ActiveWidthSchedulePass` to
-`default_hir_pass_manager()` replaces the default automatic pass rather than
-running two schedulers back-to-back. In the playground, **ActiveWidthSchedulePass**
-is enabled by default under **Passes** and can be toggled off there.
+`default_hir_pass_manager()` replaces the existing scheduler rather than running
+two schedulers back-to-back. In the playground, **ActiveWidthSchedulePass** is
+enabled by default under **Passes** and can be toggled off there.
 
-To disable scheduling for short runs where compile time dominates, build a
-custom `HirPassManager` without it or pass `hir_passes=None`. Reordering
-preserves sampling distributions but can change samples for a given random seed.
+To disable only scheduling, pass a `HirPassManager` containing just the other
+passes you want; passing `hir_passes=None` skips all HIR optimization passes.
+Reordering preserves sampling distributions but can change samples for a given
+random seed.
 
 See [Optimization Passes](../reference/passes.md#activewidthschedulepass) for
 options, result statistics, and search-budget limits, and the
@@ -153,16 +155,19 @@ distillation circuits.
 output-specific reconstruction for both full-record and syndrome-only sampling:
 
 - Takes a reconstructed plan when it lowers peak active width, except on
-  postselected circuits where a nonzero reconstructed width saves at most two
-  qubits (such as multi-round coherent-noise memory circuits, where extra
+  postselected circuits of original width at most 16 where a nonzero
+  reconstructed width saves at most two qubits while increasing plan actions by
+  more than 25% (such as multi-round coherent-noise memory circuits, where extra
   rotations and trajectory splits outweigh the smaller state).
-- Breaks equal-width ties by comparing estimated plan work.
+- Breaks equal-width ties by requiring no increase in plan actions and lower
+  estimated plan work.
 - Uses a smaller scheduling budget when the original plan is already at most
   width 16, and the full budget on wider or overflowing originals.
 
-Pass `reconstruction=True` to use the full reconstruction budget for any
-strictly narrower plan, or `reconstruction=False` to keep the original plan for
-all outputs.
+Automatic reconstruction adds compilation time over compiling the original plan
+alone; pass `reconstruction=False` when compile time dominates over sampling, or
+`reconstruction=True` to use the full reconstruction budget for any strictly
+narrower plan.
 
 This small example uses `hir_passes=None` so automatic reconstruction exposes a
 width reduction from two to one (the default HIR passes already achieve width

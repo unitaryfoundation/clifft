@@ -12,13 +12,12 @@ void HirPassManager::add_pass(std::unique_ptr<HirPass> pass) {
 }
 
 void HirPassManager::add_pass(HirPass& pass) {
-    // Appending an explicit scheduler replaces the adjacent automatic search.
-    if (!passes_.empty() && dynamic_cast<ActiveWidthSchedulePass*>(&pass)) {
-        const auto* previous = dynamic_cast<ActiveWidthSchedulePass*>(passes_.back());
-        if (previous && previous->automatic()) {
-            passes_.back() = &pass;
-            return;
-        }
+    // Appending a scheduler replaces an adjacent scheduler so callers adding an
+    // explicit pass to the default pipeline do not run scheduling twice.
+    if (!passes_.empty() && dynamic_cast<ActiveWidthSchedulePass*>(&pass) &&
+        dynamic_cast<ActiveWidthSchedulePass*>(passes_.back())) {
+        passes_.back() = &pass;
+        return;
     }
     passes_.push_back(&pass);
 }

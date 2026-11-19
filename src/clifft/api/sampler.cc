@@ -51,8 +51,7 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
         return result;
     }
     const auto& noise = preparation.noise(*execution.noise_preparation);
-    const auto* checks =
-        plan.peak_active_width() != 0 || plan.has_postselection() ? &preparation.checks() : nullptr;
+    const auto* checks = plan.peak_active_width() == 0 ? nullptr : &preparation.checks();
     const auto* key = execution.group_by_noise ? &preparation.sharing_key() : nullptr;
     const auto worker_key = shared_worker_key(plan, execution, outputs);
     const uint32_t capacity = execution.batch_size;
@@ -82,13 +81,7 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
                 [&](auto& executor) {
                     for (uint32_t batch = range.begin; batch < range.end; ++batch) {
                         const uint32_t first = static_cast<uint32_t>(uint64_t{batch} * capacity);
-                        const uint32_t lanes = std::min(capacity, shots - first);
-                        if constexpr (std::is_same_v<std::decay_t<decltype(executor)>,
-                                                     BatchExecutor>) {
-                            executor.run_batch(root, first, lanes, checks);
-                        } else {
-                            executor.run_batch(root, first, lanes);
-                        }
+                        executor.run_batch(root, first, std::min(capacity, shots - first));
                         if constexpr (survivors) {
                             worker->passed += executor.surviving_shots();
                             worker->logical_errors +=
@@ -244,11 +237,8 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
     }
     auto run_ordinary = [&](std::optional<uint32_t> capacity, std::optional<double> budget,
                             std::optional<ThreadLayout> run_layout) {
-        const bool width_zero_early_checks =
-            survivors && width == 0 && compiled.has_postselection();
         const auto& preparation = program.sampling_preparation(
-            outputs,
-            {.early_postselection = width_zero_early_checks, .survivor_counts = survivors});
+            outputs, {.early_postselection = false, .survivor_counts = survivors});
         const PreparedBatchNoise* noise = nullptr;
         const bool tuning_packed =
             budget.value_or(0) > 0 && shots > 1 && layout.intra_shot_workers == 1;
@@ -260,12 +250,9 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                 select_batch_noise_mode(preparation.plan(), shots, options.batch_size);
             noise = &preparation.noise(options.noise_preparation.value_or(selected));
         }
-        const EarlyPostselection* checks =
-            width_zero_early_checks ? &preparation.checks() : nullptr;
         if constexpr (survivors) {
             return sampling::sample_survivors(preparation.plan(), shots, seed, outputs,
-                                              options.threads, run_layout, capacity, budget, noise,
-                                              checks);
+                                              options.threads, run_layout, capacity, budget, noise);
         } else {
             return sampling::sample(preparation.plan(), shots, seed, options.threads, run_layout,
                                     capacity, budget, outputs, noise);
@@ -333,27 +320,18 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                     automatic_batch_eligible(ordinary.plan(), shots, 1, mode)) {
                     noise = &ordinary.noise(ordinary_mode);
                 }
-                const uint64_t extra =
-                    survivors ? uint64_t{compiled.num_observables()} * sizeof(uint64_t) : 0;
-                auto ordinary_policy = resolve_batch_execution_policy(
-                    ordinary.plan(), shots, workers, 1, mode, std::nullopt,
-                    BatchSamplingMode::Ordinary, extra, 0, noise);
-                if (ordinary_policy.lane_capacity == 1) {
-                    ordinary_policy.worker_count = workers;
-                }
-                auto ordinary_candidates = batch_detail::batch_tuning_candidates(
-                    ordinary.plan(), shots, workers, 1, mode, BatchSamplingMode::Ordinary, extra,
-                    ordinary_policy, 0, 0, noise);
+                auto ordinary_plan = batch_detail::ordinary_tuning_plan(
+                    ordinary.plan(), shots, workers, outputs, survivors, noise);
                 // Measure the automatic baseline first, followed by the alternate
                 // executor's baseline, so tight budgets still compare executors.
                 if (!shared) {
-                    candidates.swap(ordinary_candidates);
-                    policy = ordinary_policy;
+                    candidates.swap(ordinary_plan.candidates);
+                    policy = ordinary_plan.baseline;
                 }
-                if (!candidates.empty() && !ordinary_candidates.empty()) {
-                    candidates.insert(candidates.begin() + 1, ordinary_candidates.front());
-                    candidates.insert(candidates.end(), ordinary_candidates.begin() + 1,
-                                      ordinary_candidates.end());
+                if (!candidates.empty() && !ordinary_plan.candidates.empty()) {
+                    candidates.insert(candidates.begin() + 1, ordinary_plan.candidates.front());
+                    candidates.insert(candidates.end(), ordinary_plan.candidates.begin() + 1,
+                                      ordinary_plan.candidates.end());
                 }
                 tuning->sharing = policy.sharing;
                 tuning->batch_size = tuning->baseline_batch_size = policy.lane_capacity;

@@ -162,25 +162,28 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
                                           : "reconstruction reaches the dense active-width limit";
             continue;
         }
-        // Under postselection, small width drops often add more rotations and
-        // trajectory splits than the narrower state saves.
-        constexpr uint32_t kMinPostselectedWidthReduction = 3;
-        if (compare_cost && data->has_postselection && width != 0 && width < width_limit &&
-            width_limit - width < kMinPostselectedWidthReduction) {
-            variant.fallback_reason =
-                "postselected reconstruction saves at most two qubits of width";
-            continue;
-        }
         sampling::ExecutablePlan executable(sampling::plan_sampling(*lowered.hir));
         lowered.hir.reset();
+        // Under postselection on narrow originals, small width drops that
+        // substantially increase plan actions add more trajectory splits than
+        // the narrower state saves.
+        constexpr uint32_t kMinPostselectedWidthReduction = 3;
+        if (compare_cost && data->has_postselection && width != 0 && width < width_limit &&
+            width_limit <= kSmallOriginalWidth &&
+            width_limit - width < kMinPostselectedWidthReduction &&
+            uint64_t{executable.num_actions()} * 4 > uint64_t{data->original->num_actions()} * 5) {
+            variant.fallback_reason =
+                "postselected reconstruction saves at most two qubits while increasing actions";
+            continue;
+        }
         if (compare_cost && width == width_limit) {
-            const auto mode = keep_records ? sampling::BatchOutputMode::Rows
-                                           : sampling::BatchOutputMode::AggregateSurvivors;
-            const auto work = [mode](const sampling::ExecutablePlan& p) {
-                return saturating_add_u64(p.estimated_batch_lane_work(mode),
-                                          uint64_t{p.num_actions()} + p.num_noise_sites());
+            const auto work = [](const sampling::ExecutablePlan& p) {
+                return saturating_add_u64(
+                    p.estimated_batch_lane_work(sampling::BatchOutputMode::AggregateSurvivors),
+                    uint64_t{p.num_actions()} + p.num_noise_sites());
             };
-            if (work(executable) >= work(*data->original)) {
+            if (executable.num_actions() > data->original->num_actions() ||
+                work(executable) >= work(*data->original)) {
                 variant.fallback_reason = "original plan has lower or equal estimated work";
                 continue;
             }

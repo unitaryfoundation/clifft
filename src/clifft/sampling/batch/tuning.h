@@ -13,23 +13,30 @@
 #include <span>
 #include <vector>
 
-namespace clifft::sampling {
-
-class EarlyPostselection;
-
-namespace batch_detail {
+namespace clifft::sampling::batch_detail {
 
 using BatchTuningProbe = std::function<void(uint32_t, uint64_t)>;
-
-[[nodiscard]] BatchTuningProbe make_ordinary_tuning_probe(
-    const ExecutablePlan& plan, BatchExecutionPolicy policy, SamplingOutputs outputs,
-    bool survivors, const PreparedBatchNoise* noise, const EarlyPostselection* checks = nullptr);
 
 struct BatchTuningCandidate {
     BatchExecutionPolicy policy;
     uint32_t min_probe_shots;
     uint32_t max_probe_shots;
 };
+
+struct OrdinaryTuningPlan {
+    BatchExecutionPolicy baseline;
+    std::vector<BatchTuningCandidate> candidates;
+};
+
+[[nodiscard]] OrdinaryTuningPlan ordinary_tuning_plan(const ExecutablePlan& plan, uint32_t shots,
+                                                      uint32_t shot_workers,
+                                                      SamplingOutputs outputs, bool survivors,
+                                                      const PreparedBatchNoise* noise);
+
+[[nodiscard]] BatchTuningProbe make_ordinary_tuning_probe(const ExecutablePlan& plan,
+                                                          BatchExecutionPolicy policy,
+                                                          SamplingOutputs outputs, bool survivors,
+                                                          const PreparedBatchNoise* noise);
 
 // Calibration bounds row allocations independently of worker storage budgets.
 [[nodiscard]] inline uint32_t max_batch_probe_shots(uint32_t shots, uint64_t row_bytes) noexcept {
@@ -186,5 +193,4 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
     return report;
 }
 
-}  // namespace batch_detail
-}  // namespace clifft::sampling
+}  // namespace clifft::sampling::batch_detail

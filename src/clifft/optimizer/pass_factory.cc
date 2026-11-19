@@ -25,7 +25,7 @@ HirPassManager default_hir_pass_manager(bool include_schedule) {
         if (!include_schedule && info.make == make_hir<ActiveWidthSchedulePass>) {
             continue;
         }
-        pm.add_pass(info.make_default());
+        pm.add_pass(info.make());
     }
     return pm;
 }

@@ -319,6 +319,7 @@ TEST_CASE("A zero search budget preserves greedy scheduling", "[schedule_pass]")
         clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim"));
     ActiveWidthScheduleOptions options;
     options.search_budget = 0.0;
+    options.min_equal_width = 0;
     ActiveWidthSchedulePass pass(options);
     const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
 
@@ -531,6 +532,7 @@ R_PAULI(0.3) Z3
     ActiveWidthScheduleOptions options;
     options.beam_width = 2;
     options.search_budget = std::nullopt;
+    options.min_equal_width = 0;
     ActiveWidthSchedulePass pass(options);
     const HirModule scheduled = run_peephole_squeeze_schedule(raw, pass);
     REQUIRE(pass.result_peak() == 4);
@@ -628,7 +630,7 @@ TEST_CASE("Scheduled programs are exactly sampling equivalent for every checked 
             continue;
         }
 
-        ActiveWidthSchedulePass pass;
+        ActiveWidthSchedulePass pass(ActiveWidthScheduleOptions{.min_equal_width = 0});
         const HirModule scheduled = run_peephole_squeeze_schedule(original, pass);
         applied_count += pass.applied() ? 1 : 0;
         crossed_count += crossed_noise(scheduled) ? 1 : 0;
@@ -917,6 +919,7 @@ TEST_CASE("Schedule pass reaches the brute-force optimal peak on a beam dedup re
     ActiveWidthScheduleOptions options;
     options.beam_width = 16;
     options.sink_neutral_rotations = false;
+    options.min_equal_width = 0;
     ActiveWidthSchedulePass pass(options);
     HirModule scheduled = hir;
     pass.run(scheduled);
@@ -948,6 +951,7 @@ TEST_CASE("Schedule pass reaches the brute-force optimum on a beam dedup Pareto 
     ActiveWidthScheduleOptions options;
     options.beam_width = 16;
     options.sink_neutral_rotations = false;
+    options.min_equal_width = 0;
     ActiveWidthSchedulePass pass(options);
     HirModule scheduled = hir;
     pass.run(scheduled);
@@ -1033,13 +1037,21 @@ TEST_CASE("Default scheduler deduplicates explicit replacement and preserves nar
     REQUIRE(explicit_pass.incumbent_peak() == 5);
     REQUIRE(explicit_pass.result_peak() == 4);
 
-    // Automatic scheduling keeps narrow equal-width circuits in their original order.
+    // Default min_equal_width keeps narrow equal-width circuits in their original order,
+    // while min_equal_width = 0 enables equal-width dense-work reordering.
     const Circuit qv10 = clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/qv10.stim");
     HirModule qv_hir = clifft::trace(qv10);
     clifft::default_hir_pass_manager(/*include_schedule=*/false).run(qv_hir);
-    ActiveWidthSchedulePass auto_pass(ActiveWidthScheduleOptions{.automatic = true});
-    auto_pass.run(qv_hir);
-    REQUIRE(auto_pass.incumbent_peak() == 10);
-    REQUIRE(auto_pass.result_peak() == 10);
-    REQUIRE_FALSE(auto_pass.applied());
+    ActiveWidthSchedulePass default_pass;
+    default_pass.run(qv_hir);
+    REQUIRE(default_pass.incumbent_peak() == 10);
+    REQUIRE(default_pass.result_peak() == 10);
+    REQUIRE_FALSE(default_pass.applied());
+
+    ActiveWidthSchedulePass equal_width_pass(ActiveWidthScheduleOptions{.min_equal_width = 0});
+    equal_width_pass.run(qv_hir);
+    REQUIRE(equal_width_pass.incumbent_peak() == 10);
+    REQUIRE(equal_width_pass.result_peak() == 10);
+    REQUIRE(equal_width_pass.applied());
+    REQUIRE(equal_width_pass.result_dense_work() < equal_width_pass.incumbent_dense_work());
 }
