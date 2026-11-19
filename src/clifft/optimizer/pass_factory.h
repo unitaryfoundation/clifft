@@ -13,7 +13,7 @@ namespace clifft {
 std::unique_ptr<HirPass> make_hir_pass(std::string_view name);
 
 /// Build an HirPassManager with all default-enabled HIR passes.
-HirPassManager default_hir_pass_manager();
+HirPassManager default_hir_pass_manager(bool schedule = true);
 
 /// Serialize the pass registry to a JSON string.
 /// Format: [{"name":"...","kind":"hir","default":true|false}, ...]

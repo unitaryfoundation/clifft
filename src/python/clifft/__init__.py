@@ -481,7 +481,7 @@ def compile(
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
     input_format: Literal["stim", "qasm2"] = "stim",
     *,
-    reconstruction: bool = False,
+    reconstruction: bool | Literal["auto"] = "auto",
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -510,9 +510,11 @@ def compile(
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
         input_format: ``"stim"`` for Clifft's Stim-compatible syntax or
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
-        reconstruction: Try narrower CPU sampling plans with and without
-            measurement records. Inspect the plan for your outputs with
-            ``program.sampling_plan(keep_records=...)``. If the original plan
+        reconstruction: By default, ``"auto"`` considers compile cost, active
+            width, and estimated work separately for each output mode. Pass
+            ``True`` to try the full reconstruction budget for strictly narrower
+            plans, or ``False`` to use the original plan for all outputs. Inspect
+            each plan with ``program.sampling_plan(keep_records=...)``. If the original plan
             is too wide, sampling can still use a reconstructed plan. State
             queries, exact probabilities, replay, and fixed-fault sampling
             then raise ``OverflowError``.

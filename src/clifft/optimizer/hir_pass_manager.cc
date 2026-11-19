@@ -1,11 +1,26 @@
 #include "clifft/optimizer/hir_pass_manager.h"
 
+#include "clifft/optimizer/active_width_schedule_pass.h"
+
 #include <algorithm>
 
 namespace clifft {
 
 void HirPassManager::add_pass(std::unique_ptr<HirPass> pass) {
-    passes_.push_back(std::move(pass));
+    owned_.push_back(std::move(pass));
+    add_pass(*owned_.back());
+}
+
+void HirPassManager::add_pass(HirPass& pass) {
+    // Appending a configured scheduler replaces the adjacent automatic search.
+    if (!passes_.empty() && dynamic_cast<ActiveWidthSchedulePass*>(&pass)) {
+        const auto* previous = dynamic_cast<ActiveWidthSchedulePass*>(passes_.back());
+        if (previous && previous->automatic()) {
+            passes_.back() = &pass;
+            return;
+        }
+    }
+    passes_.push_back(&pass);
 }
 
 void HirPassManager::run(HirModule& hir) {

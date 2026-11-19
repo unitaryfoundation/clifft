@@ -9,6 +9,7 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <utility>
@@ -34,6 +35,7 @@ struct SearchWork {
     std::optional<double> limit;
     size_t swept_ops = 0;
     size_t probes = 0;
+    size_t probe_limit = std::numeric_limits<size_t>::max();
     // Hints are rechecked against each current basis, so speculative branches
     // can share them without copying or undoing them with the search state.
     std::vector<uint32_t> anticommuting_rows;
@@ -260,6 +262,9 @@ std::optional<uint32_t> find_ready_non_expanding(const HirModule& hir, SearchFro
                                                  SearchWork& work) {
     // The bitset scan skips ops whose expansion verdict is still valid.
     while (const std::optional<uint32_t> op = frontier.first_candidate()) {
+        if (work.probes == work.probe_limit) {
+            return std::nullopt;
+        }
         ++work.probes;
         if (detail::is_expanding(hir, hir.ops[*op], subspace, work.anticommuting_rows[*op])) {
             frontier.note_expanding(*op);
@@ -446,7 +451,7 @@ std::vector<ScoredCandidate> score_candidates(const HirModule& hir, BeamState& p
         undo_all(parent.frontier, log, newly_ready_log);
         scored.push_back(std::move(candidate));
 
-        if (work.greedy()) {
+        if (work.greedy() || work.probes == work.probe_limit) {
             break;
         }
     }
@@ -578,6 +583,9 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
 
     std::optional<BeamState> best;
     while (!beam.empty()) {
+        if (work.probes == work.probe_limit) {
+            return {};
+        }
         // Avoid speculation when the choice is fixed. Before a finite budget
         // is exhausted, retain replay accounting so narrowing happens at the same point.
         if (beam.size() == 1 && beam.front().frontier.lowest_ready() < dependence.num_ops() &&
@@ -610,6 +618,9 @@ std::vector<uint32_t> run_beam_search(const HirModule& hir,
                 break;
             }
             std::vector<ScoredCandidate> scored = score_candidates(hir, beam[i], i, working, work);
+            if (work.probes == work.probe_limit) {
+                return {};
+            }
             if (!scored.empty()) {
                 parent_has_candidates[i] = true;
                 for (ScoredCandidate& candidate : scored) {
@@ -797,6 +808,17 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
     swept_ops_ = 0;
     classification_probes_ = 0;
 
+    // Bound the dense dormant basis (four bit matrices) and the dependence graph
+    // before allocating either one. Clifford-only input needs neither.
+    constexpr uint32_t kMaxAutomaticQubits = 16384;
+    constexpr size_t kMaxAutomaticOps = 200000;
+    if (options_.automatic && (hir.num_qubits > kMaxAutomaticQubits ||
+                               hir.ops.size() > kMaxAutomaticOps || !has_rotation_op(hir))) {
+        incumbent_peak_ = result_peak_ = 0;
+        incumbent_dense_work_ = result_dense_work_ = 0;
+        applied_ = false;
+        return;
+    }
     const ActiveWidthCost incumbent = summarize_active_width(hir);
     incumbent_peak_ = incumbent.peak_width;
     incumbent_dense_work_ = incumbent.dense_work;
@@ -821,19 +843,38 @@ void ActiveWidthSchedulePass::run(HirModule& hir) {
                      : std::nullopt,
         .anticommuting_rows = std::vector<uint32_t>(hir.ops.size(), hir.num_qubits),
     };
+    if (options_.automatic) {
+        // Bound speculative alternatives on long tapes while retaining the linear
+        // greedy continuation. Classification can revisit many ready expansions.
+        constexpr double kMinSearchBudget = 65536;
+        constexpr size_t kMaxClassificationProbes = 2000000;
+        work.limit = std::min(work.limit.value_or(kMinSearchBudget),
+                              std::max(kMinSearchBudget, double(hir.ops.size())));
+        work.probe_limit = kMaxClassificationProbes;
+    }
     std::vector<uint32_t> order = run_beam_search(hir, dependence, options_.beam_width, work);
     swept_ops_ = work.swept_ops;
     classification_probes_ = work.probes;
 
+    if (order.empty()) {
+        applied_ = false;
+        result_peak_ = incumbent_peak_;
+        result_dense_work_ = incumbent_dense_work_;
+        return;
+    }
     if (options_.sink_neutral_rotations) {
         sink_neutral_rotations(hir, dependence, order);
     }
 
     const ActiveWidthCost candidate = summarize_active_width(hir, order);
 
-    const bool better =
-        (candidate.peak_width < incumbent_peak_) ||
-        (candidate.peak_width == incumbent_peak_ && candidate.dense_work < incumbent_dense_work_);
+    // At narrow widths, preserving fused runs and early noise deadlines matters
+    // more than small savings in estimated coefficient work.
+    constexpr uint32_t kMinEqualWidthSchedule = 13;
+    const bool allow_equal = !options_.automatic || incumbent_peak_ >= kMinEqualWidthSchedule;
+    const bool better = (candidate.peak_width < incumbent_peak_) ||
+                        (allow_equal && candidate.peak_width == incumbent_peak_ &&
+                         candidate.dense_work < incumbent_dense_work_);
 
     if (better) {
         detail::apply_schedule(hir, dependence, order);

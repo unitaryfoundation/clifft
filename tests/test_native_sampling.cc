@@ -429,6 +429,7 @@ TEST_CASE("Native shared calibration skips a single candidate") {
 TEST_CASE("Native automatic sharing requires more selected detectors on wider plans") {
     const uint32_t width = GENERATE(7u, 8u);
     const uint32_t selected = GENERATE(7u, 8u, 16u, 31u, 32u);
+    const uint32_t detectors = GENERATE_COPY(32u, selected);
     std::string source;
     for (const auto* gate : {"H", "T", "M"}) {
         source += gate;
@@ -437,19 +438,19 @@ TEST_CASE("Native automatic sharing requires more selected detectors on wider pl
         }
         source += "\n";
     }
-    for (uint32_t q = width; q < width + 32; ++q) {
+    for (uint32_t q = width; q < width + detectors; ++q) {
         source += "X_ERROR(0.01) " + std::to_string(q) + "\nM " + std::to_string(q) +
                   "\nDETECTOR rec[-1]\n";
     }
     auto hir = trace(parse(source));
-    hir.postselection.mask.assign(32, 0);
+    hir.postselection.mask.assign(detectors, 0);
     std::fill_n(hir.postselection.mask.begin(), selected, 1);
     const ExecutablePlan plan(plan_sampling(hir));
     REQUIRE(plan.peak_active_width() == width);
     REQUIRE(plan.num_postselected_detectors() == selected);
-    REQUIRE(plan.num_presampled_symbols() == 32);
+    REQUIRE(plan.num_presampled_symbols() == detectors);
     REQUIRE(should_share_sampling(plan, 8192, false, {1, 1}, kDefaultSharedWorkerStateBudget) ==
-            (selected >= (width < 8 ? 8 : 32)));
+            (selected >= 8 && (width < 8 || selected == detectors || selected >= 32)));
 }
 
 TEST_CASE("Survivor row collection transfers a single batch and preserves batch order") {

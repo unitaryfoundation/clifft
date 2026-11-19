@@ -4,8 +4,6 @@ Validates that bidirectional bubble sort of HIR operations reduces peak active w
 by compacting qubit lifetimes, while preserving circuit semantics.
 """
 
-from typing import Any
-
 import numpy as np
 import pytest
 from conftest import assert_statevectors_equiv, cross_binomial_tolerance
@@ -21,9 +19,12 @@ def _squeeze_only_pass_manager() -> clifft.HirPassManager:
     return pm
 
 
-def _clifft_statevector(circuit_str: str, **compile_kwargs: Any) -> np.ndarray:
-    """Compile and execute a noiseless circuit, return dense statevector."""
-    return np.asarray(clifft.get_statevector(clifft.compile(circuit_str, **compile_kwargs)))
+def _compile_squeeze_pair(circuit: str) -> tuple[clifft.Program, clifft.Program]:
+    base = clifft.compile(circuit, hir_passes=None, reconstruction=False)
+    squeezed = clifft.compile(
+        circuit, hir_passes=_squeeze_only_pass_manager(), reconstruction=False
+    )
+    return base, squeezed
 
 
 class TestSqueezeBasicPeakActiveWidthReduction:
@@ -40,8 +41,7 @@ class TestSqueezeBasicPeakActiveWidthReduction:
         """
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nM 1"
 
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         assert (
             base.peak_active_width == 2
@@ -54,8 +54,7 @@ class TestSqueezeBasicPeakActiveWidthReduction:
     def test_three_independent_qubits(self) -> None:
         """Three independent qubits: squeeze should reduce peak active width."""
         circuit = "H 0\nT 0\nH 1\nT 1\nH 2\nT 2\nM 0\nM 1\nM 2"
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         assert base.peak_active_width == 3
         assert squeezed.peak_active_width < base.peak_active_width
@@ -65,8 +64,7 @@ class TestSqueezeBasicPeakActiveWidthReduction:
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nM 1"
         shots = 10_000
 
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         base_result = clifft.sample(base, shots, seed=42)
         squeezed_result = clifft.sample(squeezed, shots, seed=42)
@@ -87,8 +85,7 @@ class TestSqueezeBasicPeakActiveWidthReduction:
         The squeezer respects anti-commutation barriers and preserves semantics.
         """
         circuit = "H 0\nCX 0 1\nT 0\nT 1\nM 0\nM 1"
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         # Verify sampling correctness regardless of the peak active-width change.
         shots = 10_000
@@ -108,8 +105,7 @@ class TestSqueezeBasicPeakActiveWidthReduction:
         The order of quantum-significant ops must be preserved.
         """
         circuit_str = "H 0\nT 0\nX_ERROR(0.1) 0\nM 0"
-        base = clifft.compile(circuit_str, hir_passes=None)
-        squeezed = clifft.compile(circuit_str, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit_str)
 
         # Both should have peak active width 1 since the noise barrier blocks
         # the measurement from bubbling past X_ERROR
@@ -130,8 +126,7 @@ class TestSqueezeClassicalDataflow:
         """
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nDETECTOR rec[-1]\nM 1"
 
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         assert base.peak_active_width == 2
         assert squeezed.peak_active_width == 0
@@ -193,8 +188,7 @@ class TestSqueezeClassicalDataflow:
         """M 1 should bubble past an OBSERVABLE that only references meas_idx 0."""
         circuit = "H 0\nT 0\nH 1\nT 1\nM 0\nOBSERVABLE_INCLUDE(0) rec[-1]\nM 1"
 
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         assert base.peak_active_width == 2
         assert squeezed.peak_active_width == 0
@@ -208,8 +202,7 @@ class TestSqueezeClassicalDataflow:
         """
         circuit = "H 0\nT 0\n" "H 1\nT 1\n" "H 2\nT 2\n" "M 0\n" "DETECTOR rec[-1]\n" "M 1\nM 2"
         shots = 10_000
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         assert squeezed.peak_active_width < base.peak_active_width
 
@@ -249,8 +242,7 @@ class TestSqueezeSweep2Expansion:
     def test_phase_rotation_bubbles_right(self) -> None:
         """PHASE_ROTATION (from R_Z) should bubble rightward in Sweep 2."""
         circuit = "H 0\nH 1\nR_Z(0.3) 0\nR_Z(0.4) 1\nM 0\nM 1"
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         # With squeeze, the measurements should compact before the rotations
         assert squeezed.peak_active_width <= base.peak_active_width
@@ -262,22 +254,19 @@ class TestSqueezeEdgeCases:
     def test_single_qubit_no_op(self) -> None:
         """A single M 0 circuit has nothing to squeeze."""
         circuit = "H 0\nM 0"
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
         assert base.peak_active_width == squeezed.peak_active_width
 
     def test_empty_circuit(self) -> None:
         """Empty circuit should not crash the squeezer."""
         circuit = ""
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
         assert base.peak_active_width == squeezed.peak_active_width == 0
 
     def test_all_cliffords_no_squeeze_needed(self) -> None:
         """Pure Clifford circuit: squeezer runs but nothing expands."""
         circuit = "H 0\nCX 0 1\nS 0\nM 0\nM 1"
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
         assert squeezed.peak_active_width == base.peak_active_width
 
     def test_squeeze_idempotent(self) -> None:
@@ -288,8 +277,8 @@ class TestSqueezeEdgeCases:
         pm2.add(clifft.StatevectorSqueezePass())
         pm2.add(clifft.StatevectorSqueezePass())
 
-        once = clifft.compile(circuit, hir_passes=pm1)
-        twice = clifft.compile(circuit, hir_passes=pm2)
+        once = clifft.compile(circuit, hir_passes=pm1, reconstruction=False)
+        twice = clifft.compile(circuit, hir_passes=pm2, reconstruction=False)
         assert once.peak_active_width == twice.peak_active_width
 
     def test_squeeze_with_default_pipeline(self) -> None:
@@ -311,9 +300,8 @@ class TestSqueezeStatevectorOracle:
         from conftest import random_clifford_t_circuit
 
         circuit = random_clifford_t_circuit(5, 40, seed=seed)
-        base_sv = _clifft_statevector(circuit, hir_passes=None)
-        squeezed_sv = _clifft_statevector(circuit, hir_passes=_squeeze_only_pass_manager())
-        assert_statevectors_equiv(squeezed_sv, base_sv)
+        base, squeezed = _compile_squeeze_pair(circuit)
+        assert_statevectors_equiv(clifft.get_statevector(squeezed), clifft.get_statevector(base))
 
 
 class TestSqueezeStatisticalEquivalence:
@@ -341,11 +329,7 @@ class TestSqueezeStatisticalEquivalence:
     @pytest.mark.parametrize("seed", [0, 1, 2, 3, 4])
     def test_noisy_uncomputation_ladder_10q(self, seed: int) -> None:
         circuit = generate_uncomputation_ladder(10, 100, seed=seed, noise_prob=0.02)
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(
-            circuit,
-            hir_passes=_squeeze_only_pass_manager(),
-        )
+        base, squeezed = _compile_squeeze_pair(circuit)
         base_result = clifft.sample(base, self._SHOTS, seed=seed)
         squeezed_result = clifft.sample(squeezed, self._SHOTS, seed=seed)
         self._assert_marginals_match(base_result.measurements, squeezed_result.measurements)
@@ -385,8 +369,7 @@ class TestSqueezeProbabilisticReordering:
         """
         circuit = "H 0\nH 1\nT 0\nT 1\nX_ERROR(0.1) 0\nM 0\nM 1"
 
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         # M 1 should bubble past X_ERROR(0) and M 0 since masks commute
         assert squeezed.peak_active_width < base.peak_active_width
@@ -405,8 +388,7 @@ class TestSqueezeProbabilisticReordering:
         circuit = "H 0\nH 1\nT 0\nT 1\nZ_ERROR(0.05) 0\nM 0\nM 1"
         shots = self._SHOTS
 
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         assert squeezed.peak_active_width < base.peak_active_width
 
@@ -473,8 +455,7 @@ class TestSqueezeProbabilisticReordering:
         circuit = "\n".join(lines)
         shots = self._SHOTS
 
-        base = clifft.compile(circuit, hir_passes=None)
-        squeezed = clifft.compile(circuit, hir_passes=_squeeze_only_pass_manager())
+        base, squeezed = _compile_squeeze_pair(circuit)
 
         assert squeezed.peak_active_width < base.peak_active_width
 

@@ -40,7 +40,7 @@ def assert_same_result(a, b):
 @pytest.mark.parametrize("keep_records", [False, True])
 def test_plan_views_preserve_metadata_without_reconstruction(keep_records):
     programs = (
-        clifft.compile(SOURCE),
+        clifft.compile(SOURCE, reconstruction=False),
         clifft.lower(clifft.trace(clifft.parse(SOURCE))),
     )
     for program in programs:
@@ -128,7 +128,7 @@ def test_plan_view_keeps_owner_alive_and_is_read_only(mode):
 
 
 def test_exact_queries_use_original_plan():
-    original = clifft.compile(SOURCE, hir_passes=None)
+    original = clifft.compile(SOURCE, hir_passes=None, reconstruction=False)
     selected = compile_selected()
     assert isinstance(selected, clifft.Program)
     assert selected.original_plan.inspect() == original.inspect()
@@ -307,7 +307,7 @@ def test_forced_faults_keep_original_sites_and_seeded_results(
 ):
     mask = [1] if postselection else None
     selected = compile_selected(NOISY, postselection_mask=mask)
-    original = clifft.compile(NOISY, hir_passes=None, postselection_mask=mask)
+    original = clifft.compile(NOISY, hir_passes=None, postselection_mask=mask, reconstruction=False)
     np.testing.assert_array_equal(
         selected.noise_site_probabilities, original.noise_site_probabilities
     )
@@ -335,7 +335,7 @@ def test_forced_faults_keep_original_sites_and_seeded_results(
     ],
 )
 def test_unsupported_or_unprofitable_sampling_falls_back(source, reason):
-    original = clifft.compile(source)
+    original = clifft.compile(source, reconstruction=False)
     fallback = clifft.compile(source, reconstruction=True)
     assert not fallback.sampling_plan(keep_records=True).reconstruction_selected
     assert reason.lower() in fallback.sampling_plan(keep_records=True).fallback_reason.lower()
@@ -382,7 +382,11 @@ def test_general_angle_and_three_qubit_noise_select_with_default_passes():
     passes = clifft.default_hir_pass_manager()
     passes.add(clifft.ActiveWidthSchedulePass())
     original = clifft.compile(
-        noisy_circuit, hir_passes=passes, postselection_mask=[1, 0], expected_detectors=[1, 0]
+        noisy_circuit,
+        hir_passes=passes,
+        postselection_mask=[1, 0],
+        expected_detectors=[1, 0],
+        reconstruction=False,
     )
     selected = clifft.compile(
         noisy_circuit,
@@ -505,6 +509,19 @@ def test_full_noisy_fixtures_use_reconstructed_plans_with_default_passes(fixture
         assert result.measurements.shape == (65 if keep_records else 0, program.num_measurements)
 
 
+def test_postselected_small_width_reduction_requires_less_rotation_work():
+    source = (Path(__file__).parents[1] / "fixtures" / "coherent_d5_r5.stim").read_text()
+    mask = [1] * clifft.trace(clifft.parse(source)).num_detectors
+    automatic = clifft.compile(source, postselection_mask=mask)
+    explicit = clifft.compile(source, postselection_mask=mask, reconstruction=True)
+    for keep in (True, "syndromes"):
+        original = automatic.sampling_plan(keep_records=keep)
+        narrower = explicit.sampling_plan(keep_records=keep)
+        assert not original.reconstruction_selected
+        assert narrower.reconstruction_selected
+        assert narrower.peak_active_width == original.peak_active_width - 2
+
+
 @pytest.mark.parametrize(
     "fault_qubits, fired_detectors, logical_flip",
     [((), [], 0), ((0,), [89], 1), ((0, 3, 9, 15, 23), [], 1)],
@@ -575,7 +592,11 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
         mask = [int(i < 3) for i in range(num_detectors)]
     else:
         mask = [1] * num_detectors
-    original = clifft.compile(source, postselection_mask=mask, normalize_syndromes=True)
+    original = clifft.compile(
+        source, reconstruction=False, postselection_mask=mask, normalize_syndromes=True
+    )
+    for keep in (True, "syndromes"):
+        assert not original.sampling_plan(keep_records=keep).reconstruction_selected
     selected = clifft.compile(
         source, reconstruction=True, postselection_mask=mask, normalize_syndromes=True
     )
@@ -584,7 +605,13 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
     shots = 8192 if postselection == "all" else 4096
     reference = clifft.sample_survivors(original, shots, seed=34, keep_records=True, batch_size=1)
     actual = clifft.sample_survivors(
-        selected, shots, seed=81, keep_records=True, batch_size="tune", tuning_budget_seconds=0
+        selected,
+        shots,
+        seed=81,
+        keep_records=True,
+        batch_size="tune",
+        tuning_budget_seconds=0,
+        sharing=False,
     )
     assert actual.batch_tuning.baseline_batch_size == (512 if distance == 5 else 128)
     columns = original.num_measurements + original.num_detectors + original.num_observables
@@ -618,7 +645,7 @@ def test_pure_clifford_memory_suffix():
     lines.append("OBSERVABLE_INCLUDE(0) rec[-2] rec[-1]")
     source = "\n".join(lines) + "\n"
 
-    original = clifft.compile(source, hir_passes=None)
+    original = clifft.compile(source, hir_passes=None, reconstruction=False)
     selected = clifft.compile(source, hir_passes=None, reconstruction=True)
     assert original.peak_active_width == 2
     for keep_records in (False, True):
@@ -863,7 +890,7 @@ def test_normalization_reconstructs_wide_reference_below_planner_limit():
     )
     # The noiseless sequential plan fits the planner but its dense state exceeds an EiB.
     clean = source.replace("DEPOLARIZE2(0.2) 0 1\n", "").replace("READOUT_NOISE(1) rec[-1]\n", "")
-    assert 56 <= clifft.compile(clean).peak_active_width < 60
+    assert 56 <= clifft.compile(clean, reconstruction=False).peak_active_width < 60
 
     program = clifft.compile(
         source, postselection_mask=[1], normalize_syndromes=True, reconstruction=True

@@ -157,6 +157,9 @@ struct BatchExecutionPolicy {
 
     // Maximum simultaneous workers allowed by work and memory budgets.
     uint32_t worker_count = 1;
+
+    // Shared candidates can have the same lane capacity as ordinary packed candidates.
+    bool sharing = false;
 };
 
 namespace batch_detail {

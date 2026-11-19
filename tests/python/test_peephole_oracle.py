@@ -39,9 +39,11 @@ def _clifft_statevector(circuit_str: str, *, optimize: bool = False) -> np.ndarr
     clifft.compile() call would run the very pass under test.
     """
     if optimize:
-        program = clifft.compile(circuit_str, hir_passes=_peephole_pass_manager())
+        program = clifft.compile(
+            circuit_str, hir_passes=_peephole_pass_manager(), reconstruction=False
+        )
     else:
-        program = clifft.compile(circuit_str, hir_passes=None)
+        program = clifft.compile(circuit_str, hir_passes=None, reconstruction=False)
     return np.asarray(clifft.get_statevector(program))
 
 
@@ -93,10 +95,11 @@ class TestTerminalMeasurementPhaseElimination:
     def test_measure_reset_corrections_preserve_distribution(self) -> None:
         """Disjoint MR corrections can be crossed without changing outputs."""
         exact_circuit = "H 0 1\nR_Z(0.3) 0 1\nMR 0 1"
-        exact_baseline = clifft.compile(exact_circuit, hir_passes=None)
+        exact_baseline = clifft.compile(exact_circuit, hir_passes=None, reconstruction=False)
         exact_optimized = clifft.compile(
             exact_circuit,
             hir_passes=_peephole_pass_manager(),
+            reconstruction=False,
         )
         assert exact_baseline.peak_active_width == 2
         assert exact_optimized.peak_active_width == 0
@@ -117,10 +120,11 @@ class TestTerminalMeasurementPhaseElimination:
             "DETECTOR rec[-2] rec[-1]\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        baseline = clifft.compile(noisy_circuit, hir_passes=None)
+        baseline = clifft.compile(noisy_circuit, hir_passes=None, reconstruction=False)
         optimized = clifft.compile(
             noisy_circuit,
             hir_passes=_peephole_pass_manager(),
+            reconstruction=False,
         )
         assert baseline.peak_active_width == 2
         assert optimized.peak_active_width == 0
@@ -153,10 +157,11 @@ class TestTerminalMeasurementPhaseElimination:
         branch = f"{pauli_branch}\n" if pauli_branch else ""
         circuit = "H 0\n" "R_Z(0.37) 0\n" f"{branch}" "M 0\n" "CX rec[-1] 1\n" "M 1"
         records = ["00", "01", "10", "11"]
-        baseline = clifft.compile(circuit, hir_passes=None)
+        baseline = clifft.compile(circuit, hir_passes=None, reconstruction=False)
         optimized = clifft.compile(
             circuit,
             hir_passes=_peephole_pass_manager(),
+            reconstruction=False,
         )
 
         np.testing.assert_allclose(
@@ -180,10 +185,11 @@ class TestTerminalMeasurementPhaseElimination:
             "M 2\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        baseline = clifft.compile(circuit, hir_passes=None)
+        baseline = clifft.compile(circuit, hir_passes=None, reconstruction=False)
         optimized = clifft.compile(
             circuit,
             hir_passes=_peephole_pass_manager(),
+            reconstruction=False,
         )
         assert baseline.peak_active_width == 2
         assert optimized.peak_active_width == 0
@@ -369,7 +375,7 @@ class TestMirrorTGateAnnihilation:
         meas = "M " + " ".join(str(i) for i in range(self.NUM_QUBITS))
         circuit_with_meas = circuit + "\n" + meas
 
-        prog_baseline = clifft.compile(circuit_with_meas, hir_passes=None)
+        prog_baseline = clifft.compile(circuit_with_meas, hir_passes=None, reconstruction=False)
         prog_optimized = _compile_optimized(circuit_with_meas)
 
         assert (
@@ -444,11 +450,11 @@ class TestPeepholePassMetadata:
 def _assert_absorption_preserves_state(stim_text: str, rtol: float = 1e-6) -> clifft.Program:
     """Compile with and without optimization; assert statevector equivalence."""
     # Baseline: no HIR passes.
-    prog_base = clifft.compile(stim_text, hir_passes=None)
+    prog_base = clifft.compile(stim_text, hir_passes=None, reconstruction=False)
     sv_base = np.array(clifft.get_statevector(prog_base))
 
     # Optimized: only PeepholeFusionPass.
-    prog_opt = clifft.compile(stim_text, hir_passes=_peephole_pass_manager())
+    prog_opt = clifft.compile(stim_text, hir_passes=_peephole_pass_manager(), reconstruction=False)
     sv_opt = np.array(clifft.get_statevector(prog_opt))
 
     assert_statevectors_equiv(
@@ -585,8 +591,10 @@ class TestPauliRotationAbsorption:
 
     def test_fused_pauli_residue_preserves_record_probabilities(self) -> None:
         circuit = "H 0\nR_Z(0.3) 0\nR_Z(0.7) 0\nH 0\nM 0"
-        baseline = clifft.compile(circuit, hir_passes=None)
-        optimized = clifft.compile(circuit, hir_passes=_peephole_pass_manager())
+        baseline = clifft.compile(circuit, hir_passes=None, reconstruction=False)
+        optimized = clifft.compile(
+            circuit, hir_passes=_peephole_pass_manager(), reconstruction=False
+        )
 
         np.testing.assert_allclose(
             clifft.record_probabilities(optimized, ["0", "1"]),

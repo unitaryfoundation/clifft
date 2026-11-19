@@ -124,7 +124,7 @@ def test_terminal_postselection_batches_classical_work_with_bounded_parallel_cap
     source = f"H {targets}\nT {targets}\n"
     source += f"REPEAT 256 {{\nX_ERROR(0.01) {width}\nM {width}\n}}\n"
     source += f"H {targets}\nM {targets}\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]"
-    program = clifft.compile(source, hir_passes=None, postselection_mask=[1])
+    program = clifft.compile(source, hir_passes=None, postselection_mask=[1], reconstruction=False)
     assert program.peak_active_width == width
     for threads, capacity in (
         (1, 512 if width == 6 else 128),

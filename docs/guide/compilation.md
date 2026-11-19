@@ -110,23 +110,24 @@ plans. Circuit and measurement counts still describe the original circuit.
 
 ## Active-width scheduling
 
-For repeated sampling, try the opt-in `ActiveWidthSchedulePass`. It searches
-for an operation order with lower peak active width, or less estimated dense
-work at the same peak. A smaller active state can save sampling time and memory,
-but the search adds compilation time and may find no improvement.
+A smaller active state can save sampling time and memory. The default pipeline
+searches for a lower peak width within a bounded amount of work. On wider
+states it also considers reorderings that reduce estimated coefficient work at
+the same peak. On narrower states it keeps the existing order at a tie, which
+preserves fused rotations and the timing of early noise checks.
 
-Add it after the default fusion, phase reduction and squeezing passes:
+To control the search and inspect its statistics, replace the default scheduler
+with an explicit pass. Appending a scheduler directly after the default one also
+runs the supplied instance once.
 
 ```python
 import clifft
 
-pm = clifft.default_hir_pass_manager()
-pm.add(clifft.ActiveWidthSchedulePass())
+scheduler = clifft.ActiveWidthSchedulePass(beam_width=2)
+pm = clifft.default_hir_pass_manager(overrides=[scheduler])
 program = clifft.compile("H 0 1 2\nT 0 1 2\nM 0 1 2", hir_passes=pm)
+print(scheduler.incumbent_peak, scheduler.result_peak)
 ```
-
-In the playground, open **Passes** and enable **ActiveWidthSchedulePass**.
-Ordinary compilation keeps this extra search disabled.
 
 Compare compilation plus sampling time at the shot counts your application
 uses. Compilation is paid once per program, so savings across many shots can
@@ -141,11 +142,18 @@ affects active width.
 
 ## Global reconstruction for sampling
 
-For repeated CPU sampling, `reconstruction=True` can reduce the active quantum
-state beyond local optimization, particularly in magic-state cultivation and
-distillation circuits. It reorganizes the computation while preserving the
-joint distribution of measurement records, detectors, observables, and
-postselection acceptance. The option is off by default.
+For magic-state cultivation and distillation, reorganizing the circuit can reduce
+the active state beyond what operation reordering achieves. By default,
+`reconstruction="auto"` considers this separately for retained measurements
+and syndrome-only outputs. Reconstruction preserves their joint distribution
+and the probability of passing postselection.
+
+Automatic selection compares estimated work when widths tie and accounts for
+additional rotations when postselection offers only a small width reduction.
+It spends a smaller scheduling budget on narrower original plans. Use
+`reconstruction=True` to try the full budget and select strictly narrower
+plans, or `False` to skip reconstruction. Both settings compose with
+`hir_passes`.
 
 This small example uses `hir_passes=None` to expose a width reduction from two
 to one. Keep the default passes for ordinary use; they already achieve width
@@ -166,8 +174,8 @@ result = clifft.sample(program, shots=100, seed=42)
 ```
 
 Ordinary and survivor sampling use the plan for the requested `keep_records`.
-If the circuit is ineligible or reconstruction cannot reduce the width, the
-sampler uses the original plan when available. See
+If a candidate is ineligible or falls back, the sampler uses the original
+plan when available. See
 [Inspect sampling cost](#inspect-sampling-cost) to check which plan was selected.
 
 The CPU planner reaches its dense-state limit when 60 coordinates are active
@@ -177,17 +185,15 @@ that reconstruction brings below it. Requesting an unavailable mode or the
 original plan raises `OverflowError`. Exact queries, replay, fixed-fault
 sampling, and `noise_site_probabilities` all need the original plan.
 
-Custom `hir_passes` configure the original pipeline; reconstructed candidates
-use the default passes.
+Custom `hir_passes` configure the original pipeline. Reconstructed candidates
+already have a width schedule and run the remaining default HIR optimizations.
+Pass both `hir_passes=None` and `reconstruction=False` for a direct comparison
+with the original traced circuit.
 
 Compare total compilation and sampling time at your intended shot count.
-Unsuccessful attempts can still cost several times ordinary compilation, and
-the early width guard can miss improvements found by later optimization.
-Selection compares peak active width only: on postselected circuits where
-reconstruction lowers the width by only one or two, the reconstructed plan can
-sample slower than the original, by several times on multi-round coherent-noise
-memory circuits. Seeded results are reproducible for a fixed configuration but
-can differ from the original plan.
+Unsuccessful attempts still cost compile time, and the early width check can
+miss improvements found by later passes. Seeded samples can differ between
+plans that have the same output distribution.
 
 See [the reconstruction theory](../theory/stabilizer-optimization.md#closed-output-global-reconstruction)
 for the transformation, eligibility, and cost guard, and

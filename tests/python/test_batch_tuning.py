@@ -59,7 +59,9 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
     measured_sizes = {trial.batch_size for trial in report.trials if trial.shots_per_second > 0}
     assert report.baseline_batch_size in measured_sizes
     assert len(measured_sizes) >= 2
-    assert report.batch_size in {1, 64, 256, 1024, 2048}
+    assert (report.sharing, report.batch_size) in {
+        (trial.sharing, trial.batch_size) for trial in report.trials
+    }
     assert report.intra_shot_workers == 1
     assert 1 <= report.shot_workers <= threads
     assert report.elapsed_seconds >= 0
@@ -75,7 +77,8 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
                 trial.warmup_shots / trial.warmup_seconds
             )
 
-    pinned = sampling_call(shots, seed=82, threads=threads, batch_size=report.batch_size)
+    sharing = {"sharing": True} if report.sharing else {}
+    pinned = sampling_call(shots, seed=82, threads=threads, batch_size=report.batch_size, **sharing)
     assert pinned.batch_tuning is None
     for field in ("measurements", "detectors", "observables", "exp_vals", "observable_ones"):
         np.testing.assert_array_equal(getattr(result, field), getattr(pinned, field))
@@ -135,19 +138,32 @@ def test_insufficient_tuning_warns_and_still_returns_complete_results(sampling_c
         assert getattr(result, field) == getattr(baseline, field)
 
 
-def test_wide_circuit_skips_calibration_without_a_budget_warning() -> None:
+def test_wide_circuit_with_ordinary_execution_skips_calibration_without_a_budget_warning() -> None:
     qubits = " ".join(map(str, range(14)))
-    program = clifft.compile(f"H {qubits}\nT {qubits}\nM 0", hir_passes=None)
+    program = clifft.compile(f"H {qubits}\nT {qubits}\nM 0", hir_passes=None, reconstruction=False)
     assert program.peak_active_width == 14
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        result = clifft.sample(program, 65, batch_size="tune")
+        result = clifft.sample(program, 65, batch_size="tune", sharing=False)
     report = result.batch_tuning
     assert report.stop_reason == "single_candidate"
     assert report.trial_shots == 0
     assert report.trials == []
     assert report.batch_size == 1
     assert result.measurements.shape == (65, 1)
+
+
+def test_auto_tuning_compares_sharing_on_a_scalar_baseline() -> None:
+    program = clifft.compile("H 0\nT 0\nH 0\nM 0", reconstruction=False)
+    result = clifft.sample(program, 257, seed=42, batch_size="tune")
+    report = result.batch_tuning
+    assert report is not None and report.sufficient_measurements
+    assert {trial.sharing for trial in report.trials} == {False, True}
+    assert result.execution.sharing == report.sharing
+    pinned = clifft.sample(
+        program, 257, seed=42, sharing=report.sharing, batch_size=report.batch_size
+    )
+    np.testing.assert_array_equal(result.measurements, pinned.measurements)
 
 
 def test_tuning_uses_default_budget_and_entropy() -> None:
@@ -216,6 +232,7 @@ def test_shared_row_tuning_reports_when_the_baseline_exceeds_the_output_budget()
         "H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0 1 2 3 4 5 6 7\n"
         "OBSERVABLE_INCLUDE(127) rec[-1]",
         hir_passes=None,
+        reconstruction=False,
     )
     assert program.peak_active_width == 8
     with pytest.warns(RuntimeWarning):

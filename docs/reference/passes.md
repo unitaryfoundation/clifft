@@ -187,7 +187,8 @@ After a run, `regions_examined` and `regions_capped` describe the attempted sear
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
 See [Compiling Circuits](../guide/compilation.md#active-width-scheduling) for
-setup and guidance on when to enable this pass.
+the automatic selection policy. Supplying an explicit instance enables the
+full search described below, including equal-width improvements on narrow states.
 
 | Option | Default | Meaning |
 |---|---|---|

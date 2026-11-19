@@ -95,37 +95,23 @@ TEST_CASE("Program preserves the original plan across bounded reconstruction fai
     }
 }
 
-TEST_CASE("Program skips reconstruction lowering without a scheduled width reduction",
+TEST_CASE("Reconstruction lowers tied schedules that simplify to a narrower plan",
           "[reconstruction]") {
     const auto source = parse("H 0\nT 0\nT_DAG 0\nH 0\nM 0\nDETECTOR rec[-1]\n");
     const auto hir = trace(source);
-    const auto original = Program::compile(source, hir);
-    REQUIRE(original.original().peak_active_width() == 1);
-
-    // Later passes can improve this candidate, but the scheduled width does
-    // not justify their compilation cost under the default selection policy.
-    for (auto outputs : {ReconstructionOutputs::Detectors, ReconstructionOutputs::Records}) {
+    for (const auto outputs : {ReconstructionOutputs::Detectors, ReconstructionOutputs::Records}) {
         const auto result = reconstruct_global_sampling(source, outputs);
         REQUIRE(result.reconstruction);
         REQUIRE(result.reconstruction->peak_active_width == 1);
-        auto lowered = lower_global_reconstruction(*result.reconstruction);
-        REQUIRE(lowered.hir);
-        default_hir_pass_manager().run(*lowered.hir);
-        REQUIRE(analyze_active_width(*lowered.hir).peak_width == 0);
     }
-
-    auto limits = ReconstructionLimits{};
-    // A zero lowering budget makes an attempted lowering fail, so the fallback
-    // reason also checks that the width guard runs before that work.
-    limits.max_lowering_bytes = 0;
-    const auto guarded = Program::compile(source, hir, true, true, limits);
-    for (bool keep_records : {false, true}) {
-        REQUIRE_FALSE(guarded.uses_reconstruction(keep_records));
-        REQUIRE(guarded.reconstruction_fallback_reason(keep_records) ==
-                "reconstruction schedule does not reduce peak active width");
-        REQUIRE(&guarded.sampling_plan(keep_records) == &guarded.original());
+    for (auto mode : {std::optional<bool>{true}, std::optional<bool>{}}) {
+        const auto program = Program::compile(source, hir, mode);
+        REQUIRE(program.original().peak_active_width() == 1);
+        for (bool keep_records : {false, true}) {
+            REQUIRE(program.uses_reconstruction(keep_records));
+            REQUIRE(program.sampling_plan(keep_records).peak_active_width() == 0);
+        }
     }
-    REQUIRE(guarded.original().inspect() == original.original().inspect());
 }
 
 TEST_CASE("Program shares reconstruction preparation across asymmetric output variants",

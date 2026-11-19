@@ -41,7 +41,7 @@ calls. [Benchmark before overriding](#benchmark-before-overriding) the defaults.
 | Argument | Default | Meaning |
 |---|---|---|
 | `threads` | `1` | Total CPU worker budget; `"auto"` uses reported hardware concurrency. |
-| `batch_size` | `"auto"` | Select execution automatically; `1` forces scalar execution, another integer requests ordinary packed execution, and `"tune"` measures capacities within the selected path. |
+| `batch_size` | `"auto"` | Select execution automatically; `1` forces scalar execution, another integer requests ordinary packed execution, and `"tune"` compares eligible executors and batch sizes. |
 | `tuning_budget_seconds` | `None` | Keyword-only soft calibration budget for `batch_size="tune"`; `None` uses 0.25 seconds. |
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
@@ -115,8 +115,9 @@ before the requested shots run. Keep these points in mind:
   record types can make calibration fit; a longer time budget does not help.
 
 The selected capacity and timings are returned in `result.batch_tuning`, and the
-resolved settings appear on `result.execution`. Calibration compares capacities
-within the selected execution path. To reproduce a calibrated run, pass
+resolved settings appear on `result.execution`. With `sharing="auto"`, calibration
+compares ordinary and shared execution on eligible nonzero-width plans. Pass `sharing=True` or `False` to measure
+capacities for that execution mode alone. To reproduce a calibrated run, pass
 `batch_size=result.execution.batch_size` together with
 `sharing=result.execution.sharing` and any explicit noise or grouping
 overrides; a numeric `batch_size` with `sharing="auto"` selects ordinary
@@ -131,6 +132,7 @@ machine changes; selections are not cached automatically.
     | Field | Meaning |
     |---|---|
     | `batch_size`, `baseline_batch_size` | Selected and automatic batch sizes; `1` means scalar. |
+    | `sharing` | Whether the selected batch uses the shared execution path. Each trial also records this choice. |
     | `shot_workers`, `intra_shot_workers` | Resolved worker layout. |
     | `elapsed_seconds` | Total calibration time, including setup and cleanup. |
     | `trial_shots` | Extra attempted shots, including warmup. |
@@ -443,7 +445,7 @@ Peak width alone does not determine the best layout.
 
 ## Compile-time scheduling
 
-For repeated sampling, the opt-in active-width scheduler can reduce the active
-state at extra compilation cost. See
-[Active-width scheduling](compilation.md#active-width-scheduling) for setup,
-playground controls, and how to compare compilation plus sampling time.
+The default active-width scheduler can reduce the memory and time needed for
+repeated sampling at extra compilation cost. See
+[Active-width scheduling](compilation.md#active-width-scheduling) for overrides
+and how to compare compilation plus sampling time.

@@ -208,61 +208,61 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         shared =
             should_share_sampling(compiled, shots, outputs, layout, options.max_worker_state_bytes);
     }
-    if (shared && width != 0 && options.max_worker_state_bytes / State::storage_bytes(width) < 2) {
-        if (options.sharing == true) {
-            throw std::invalid_argument(
-                "max_worker_state_bytes must hold at least two shared states");
-        }
-        shared = false;
+    const bool compare_executors = !options.sharing && supported && width != 0 && shots > 1 &&
+                                   options.tuning_budget_seconds.value_or(0) > 0;
+    const bool fits_states = !(shared || compare_executors) || width == 0 ||
+                             options.max_worker_state_bytes / State::storage_bytes(width) >= 2;
+    if (options.sharing == true && !fits_states) {
+        throw std::invalid_argument("max_worker_state_bytes must hold at least two shared states");
     }
     const auto mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
     const auto shared_noise_mode = options.noise_preparation.value_or(BatchNoiseMode::SiteSparse);
     const SamplingPreparation* shared_preparation = nullptr;
+    const auto tuning_start = options.tuning_budget_seconds
+                                  ? std::chrono::steady_clock::now()
+                                  : std::chrono::steady_clock::time_point{};
     uint32_t safe = 0;
-    if (shared) {
+    if ((shared || compare_executors) && fits_states) {
         shared_preparation = &program.sampling_preparation(
             outputs,
             {.early_postselection = compiled.has_postselection(), .survivor_counts = survivors});
-        assert(shared_preparation->plan().peak_active_width() == width &&
-               "output preparation must preserve compiled peak active width");
         const auto& noise = shared_preparation->noise(shared_noise_mode);
         const auto* key = width != 0 && options.group_by_noise.value_or(false)
                               ? &shared_preparation->sharing_key()
                               : nullptr;
         safe = max_safe_shared_capacity(shared_preparation->plan(), noise, key,
                                         options.max_worker_state_bytes, mode);
-        if (safe < 2) {
-            if (options.sharing == true) {
-                throw std::invalid_argument(
-                    "shared execution requires capacity for at least two lanes");
-            }
-            shared = false;
+        if (safe < 2 && options.sharing == true) {
+            throw std::invalid_argument(
+                "shared execution requires capacity for at least two lanes");
         }
     }
-    if (!shared) {
+    auto run_ordinary = [&](uint32_t count, std::optional<uint64_t> run_seed,
+                            std::optional<uint32_t> capacity, std::optional<double> budget,
+                            std::optional<ThreadLayout> run_layout) {
         const auto& preparation = program.sampling_preparation(
             outputs, {.early_postselection = false, .survivor_counts = survivors});
         const PreparedBatchNoise* noise = nullptr;
-        const bool tuning_packed = options.tuning_budget_seconds.value_or(0) > 0 && shots > 1 &&
-                                   layout.intra_shot_workers == 1;
-        if (shots != 0 && options.batch_size != 1 &&
-            (options.batch_size || tuning_packed ||
-             automatic_batch_eligible(preparation.plan(), shots, layout.intra_shot_workers,
+        if (count != 0 && capacity != 1 &&
+            (capacity || (budget.value_or(0) > 0 && count > 1 && layout.intra_shot_workers == 1) ||
+             automatic_batch_eligible(preparation.plan(), count, layout.intra_shot_workers,
                                       mode))) {
-            const auto selected =
-                width == 0 ? select_batch_noise_mode(preparation.plan(), shots, options.batch_size)
-                           : BatchNoiseMode::Dense;
+            const auto selected = width == 0
+                                      ? select_batch_noise_mode(preparation.plan(), count, capacity)
+                                      : BatchNoiseMode::Dense;
             noise = &preparation.noise(options.noise_preparation.value_or(selected));
         }
         if constexpr (survivors) {
-            return sampling::sample_survivors(
-                preparation.plan(), shots, seed, outputs, options.threads, options.thread_layout,
-                options.batch_size, options.tuning_budget_seconds, noise);
+            return sampling::sample_survivors(preparation.plan(), count, run_seed, outputs,
+                                              options.threads, run_layout, capacity, budget, noise);
         } else {
-            return sampling::sample(preparation.plan(), shots, seed, options.threads,
-                                    options.thread_layout, options.batch_size,
-                                    options.tuning_budget_seconds, outputs, noise);
+            return sampling::sample(preparation.plan(), count, run_seed, options.threads,
+                                    run_layout, capacity, budget, outputs, noise);
         }
+    };
+    if (safe < 2) {
+        return run_ordinary(shots, seed, options.batch_size, options.tuning_budget_seconds,
+                            options.thread_layout);
     }
 
     const auto& preparation = *shared_preparation;
@@ -285,11 +285,13 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                 workers, (uint64_t{shots} + policy.lane_capacity - 1) / policy.lane_capacity));
         }
     }
+    policy.sharing = true;
     execution.batch_size = policy.lane_capacity;
     execution.shot_workers = policy.worker_count;
     std::optional<BatchTuningReport> tuning;
     if (options.tuning_budget_seconds) {
         tuning.emplace();
+        tuning->sharing = true;
         tuning->batch_size = tuning->baseline_batch_size = policy.lane_capacity;
         tuning->shot_workers = execution.shot_workers;
         if (shots == 0) {
@@ -297,9 +299,9 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         } else if (*options.tuning_budget_seconds == 0) {
             tuning->stop_reason = "zero_budget";
         } else {
-            const auto now = [] {
-                return std::chrono::duration<double>(
-                           std::chrono::steady_clock::now().time_since_epoch())
+            const auto now = [&] {
+                return std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                                     tuning_start)
                     .count();
             };
             const uint64_t row_bytes =
@@ -309,28 +311,78 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                      ? uint64_t{outputs.stride(preparation.plan().num_detectors())} +
                            outputs.stride(preparation.plan().num_observables())
                      : 0);
-            const auto candidates = shared_tuning_candidates(safe, shots, workers, row_bytes);
+            auto candidates = shared_tuning_candidates(safe, shots, workers, row_bytes);
+            if (compare_executors) {
+                const auto& ordinary = program.sampling_preparation(
+                    outputs, {.early_postselection = false, .survivor_counts = survivors});
+                const auto* noise =
+                    &ordinary.noise(options.noise_preparation.value_or(BatchNoiseMode::Dense));
+                const uint64_t extra =
+                    survivors ? uint64_t{compiled.num_observables()} * sizeof(uint64_t) : 0;
+                auto ordinary_policy = resolve_batch_execution_policy(
+                    ordinary.plan(), shots, workers, 1, mode, std::nullopt,
+                    BatchSamplingMode::Ordinary, extra, 0, 0, noise);
+                if (ordinary_policy.lane_capacity == 1) {
+                    ordinary_policy.worker_count = workers;
+                }
+                auto ordinary_candidates = batch_detail::batch_tuning_candidates(
+                    ordinary.plan(), shots, workers, 1, mode, BatchSamplingMode::Ordinary, extra,
+                    ordinary_policy, 0, 0, noise);
+                // Time the production baseline first, followed by the other executor's
+                // baseline, so small budgets can compare executors before varying capacity.
+                if (!shared) {
+                    candidates.swap(ordinary_candidates);
+                    policy = ordinary_policy;
+                }
+                if (!candidates.empty()) {
+                    candidates.insert(candidates.begin() + 1, ordinary_candidates.begin(),
+                                      ordinary_candidates.end());
+                }
+                tuning->sharing = policy.sharing;
+                tuning->batch_size = tuning->baseline_batch_size = policy.lane_capacity;
+                tuning->shot_workers = policy.worker_count;
+            }
             if (candidates.empty()) {
                 tuning->stop_reason = "output_budget";
             } else if (candidates.size() == 1) {
                 tuning->stop_reason = "single_candidate";
             } else {
                 tuning = batch_detail::sweep_batch_candidates(
-                    candidates, policy, 1, *options.tuning_budget_seconds,
+                    candidates, policy, 1, std::max(0.0, *options.tuning_budget_seconds - now()),
                     make_seed_root(shots, seed), now,
                     [&](BatchExecutionPolicy candidate) {
                         auto trial = execution;
                         trial.batch_size = candidate.lane_capacity;
                         trial.shot_workers = candidate.worker_count;
-                        return [&, trial,
+                        return [&, trial, candidate,
                                 trial_workers =
                                     std::vector<std::unique_ptr<SharedWorker>>(trial.shot_workers)](
                                    uint32_t count, uint64_t trial_seed) mutable {
-                            (void)run_shared<Result>(preparation, count, trial_seed, outputs, trial,
-                                                     trial_workers);
+                            if (candidate.sharing) {
+                                // Mixed trials time whole calls, including worker construction
+                                // for both executors. Shared-only tuning reuses its workers.
+                                if (compare_executors) {
+                                    for (auto& worker : trial_workers) {
+                                        worker.reset();
+                                    }
+                                }
+                                (void)run_shared<Result>(preparation, count, trial_seed, outputs,
+                                                         trial, trial_workers);
+                            } else {
+                                (void)run_ordinary(count, trial_seed, trial.batch_size,
+                                                   std::nullopt,
+                                                   ThreadLayout{trial.shot_workers, 1});
+                            }
                         };
                     },
                     shots);
+            }
+            tuning->elapsed_seconds = now();
+            if (!tuning->sharing) {
+                auto result = run_ordinary(shots, seed, tuning->batch_size, std::nullopt,
+                                           ThreadLayout{tuning->shot_workers, 1});
+                result.batch_tuning = std::move(tuning);
+                return result;
             }
             execution.batch_size = tuning->batch_size;
             execution.shot_workers = tuning->shot_workers;
@@ -353,25 +405,16 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
         return false;
     }
     const uint32_t workers = std::max(uint32_t{1}, layout.shot_workers);
-    // Noise-heavy preparation needs enough work per worker to repay its cold
-    // cost. These call-size classes cover cultivation through its escape stage.
-    // A few selected detectors alone do not establish useful rejection.
-    // Wider cultivation plans need more checks to offset divergent states.
-    // Sparse selections can keep most shots alive even at long call sizes.
-    const uint32_t min_selected_detectors = compiled.peak_active_width() >= 8 ? 32 : 8;
+    // Preparation is cached on Program. Keep batches large enough per worker to
+    // amortize worker setup. Selecting every syndrome also admits smaller codes.
+    constexpr uint32_t kMinShotsPerWorker = 8192;
+    const uint32_t selected = compiled.num_postselected_detectors();
+    const bool enough_checks =
+        selected >= 8 && (compiled.peak_active_width() < 8 || selected >= 32 ||
+                          selected == compiled.num_detectors());
     const uint32_t noise_symbols = compiled.num_presampled_symbols();
-    constexpr uint32_t kLargeNoiseProgram = 32768;
-    constexpr uint32_t kMinSharedShotsPerWorker = 8192;
-    const uint32_t min_call_shots = noise_symbols >= kLargeNoiseProgram ? 65536
-                                    : noise_symbols >= 8192             ? 32768
-                                    : noise_symbols >= 4096             ? 16384
-                                                                        : 8192;
-    const uint64_t required_shots =
-        noise_symbols >= kLargeNoiseProgram
-            ? uint64_t{min_call_shots} * workers
-            : std::max(uint64_t{min_call_shots}, uint64_t{kMinSharedShotsPerWorker} * workers);
-    const bool rejection_workload = shots >= required_shots && noise_symbols != 0 &&
-                                    compiled.num_postselected_detectors() >= min_selected_detectors;
+    const bool rejection_workload =
+        shots >= uint64_t{kMinShotsPerWorker} * workers && noise_symbols != 0 && enough_checks;
     constexpr uint32_t kMinUnitaryPrefixShots = 256;
     // Measurement branches can share the preceding unitary evolution when width
     // shrinks monotonically after measurement and prefix work dominates.

@@ -796,7 +796,7 @@ TEST_CASE("Schedule pass registry entry resolves and the factory produces a work
     for (const auto& info : clifft::kRegisteredPasses) {
         if (info.name == "ActiveWidthSchedulePass") {
             found = true;
-            REQUIRE_FALSE(info.default_enabled);
+            REQUIRE(info.default_enabled);
             // The trajectory pipeline excludes passes that can reorder records.
             REQUIRE_FALSE(clifft::is_trajectory_compatible(info));
         }
