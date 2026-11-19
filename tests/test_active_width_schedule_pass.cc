@@ -796,7 +796,7 @@ TEST_CASE("Schedule pass registry entry resolves and the factory produces a work
     for (const auto& info : clifft::kRegisteredPasses) {
         if (info.name == "ActiveWidthSchedulePass") {
             found = true;
-            REQUIRE_FALSE(info.default_enabled);
+            REQUIRE(info.default_enabled);
             // The trajectory pipeline excludes passes that can reorder records.
             REQUIRE_FALSE(clifft::is_trajectory_compatible(info));
         }
@@ -1016,4 +1016,30 @@ TEST_CASE("Schedule pass collapses interleaved noisy blocks across a multi-word 
     REQUIRE(pass.result_dense_work() < pass.incumbent_dense_work());
     REQUIRE(summarize_active_width(scheduled).peak_width == 1);
     clifft::test::check_sampling_equivalent(baseline, scheduled, 4096, 0xCA17, 0xB10C);
+}
+
+TEST_CASE("Default scheduler deduplicates explicit replacement and preserves narrow ties",
+          "[schedule_pass]") {
+    // Appending an explicit scheduler to default_hir_pass_manager replaces the
+    // automatic scheduler instead of running scheduling twice.
+    const Circuit d3 =
+        clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    HirModule hir = clifft::trace(d3);
+    ActiveWidthSchedulePass explicit_pass;
+    HirPassManager pm = clifft::default_hir_pass_manager();
+    pm.add_pass(explicit_pass);
+    pm.run(hir);
+    REQUIRE(explicit_pass.applied());
+    REQUIRE(explicit_pass.incumbent_peak() == 5);
+    REQUIRE(explicit_pass.result_peak() == 4);
+
+    // Automatic scheduling keeps narrow equal-width circuits in their original order.
+    const Circuit qv10 = clifft::parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/qv10.stim");
+    HirModule qv_hir = clifft::trace(qv10);
+    clifft::default_hir_pass_manager(/*include_schedule=*/false).run(qv_hir);
+    ActiveWidthSchedulePass auto_pass(ActiveWidthScheduleOptions{.automatic = true});
+    auto_pass.run(qv_hir);
+    REQUIRE(auto_pass.incumbent_peak() == 10);
+    REQUIRE(auto_pass.result_peak() == 10);
+    REQUIRE_FALSE(auto_pass.applied());
 }

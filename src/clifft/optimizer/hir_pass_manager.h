@@ -20,11 +20,14 @@ class HirPassManager {
     HirPassManager& operator=(const HirPassManager&) = delete;
 
     void add_pass(std::unique_ptr<HirPass> pass);
+    // The caller keeps a borrowed pass alive for the lifetime of the manager.
+    void add_pass(HirPass& pass);
     void run(HirModule& hir);
     [[nodiscard]] bool preserves_sampling_distribution() const;
 
   private:
-    std::vector<std::unique_ptr<HirPass>> passes_;
+    std::vector<std::unique_ptr<HirPass>> owned_;
+    std::vector<HirPass*> passes_;
 };
 
 }  // namespace clifft

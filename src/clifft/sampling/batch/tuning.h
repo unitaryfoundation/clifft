@@ -5,13 +5,25 @@
 #include "clifft/util/shot_seed.h"
 
 #include <algorithm>
+#include <array>
 #include <cassert>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <vector>
 
-namespace clifft::sampling::batch_detail {
+namespace clifft::sampling {
+
+class EarlyPostselection;
+
+namespace batch_detail {
+
+using BatchTuningProbe = std::function<void(uint32_t, uint64_t)>;
+
+[[nodiscard]] BatchTuningProbe make_ordinary_tuning_probe(
+    const ExecutablePlan& plan, BatchExecutionPolicy policy, SamplingOutputs outputs,
+    bool survivors, const PreparedBatchNoise* noise, const EarlyPostselection* checks = nullptr);
 
 struct BatchTuningCandidate {
     BatchExecutionPolicy policy;
@@ -48,6 +60,7 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
     assert(!production_shots || *production_shots > 0);
     const double start = now();
     BatchTuningReport report;
+    report.sharing = baseline.sharing;
     report.batch_size = baseline.lane_capacity;
     report.baseline_batch_size = baseline.lane_capacity;
     report.shot_workers = baseline.worker_count;
@@ -55,8 +68,11 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
     report.stop_reason = "completed";
     report.trials.reserve(candidates.size());
     double best_selection_rate = 0;
-    double best_packed_rate_per_worker = 0;
-    uint32_t smallest_measured_packed_capacity = 0;
+    struct PackedTiming {
+        double best_rate_per_worker = 0;
+        uint32_t smallest_capacity = 0;
+    };
+    std::array<PackedTiming, 2> packed_timings{};
     size_t measured_candidates = 0;
     uint64_t probe_index = 0;
     for (size_t i = 0; i < candidates.size(); ++i) {
@@ -67,18 +83,20 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
             break;
         }
         const auto& candidate = candidates[i];
+        auto& packed = packed_timings[candidate.policy.sharing];
         // Scalar timing cannot predict a packed speedup. After a packed probe,
         // use its throughput to avoid starting larger probes near the deadline.
-        if (best_packed_rate_per_worker > 0 &&
-            candidate.policy.lane_capacity > smallest_measured_packed_capacity &&
+        if (packed.best_rate_per_worker > 0 &&
+            candidate.policy.lane_capacity > packed.smallest_capacity &&
             candidate.min_probe_shots /
-                    (best_packed_rate_per_worker * candidate.policy.worker_count) >
+                    (packed.best_rate_per_worker * candidate.policy.worker_count) >
                 remaining) {
             report.stop_reason = "budget_exhausted";
             continue;
         }
         const double slice = remaining / static_cast<double>(candidates.size() - i);
         BatchTuningTrial trial;
+        trial.sharing = candidate.policy.sharing;
         trial.batch_size = candidate.policy.lane_capacity;
         trial.shot_workers = candidate.policy.worker_count;
         {
@@ -122,12 +140,12 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
         if (rate > 0) {
             ++measured_candidates;
             if (trial.batch_size > 1) {
-                best_packed_rate_per_worker =
-                    std::max(best_packed_rate_per_worker, rate / trial.shot_workers);
-                smallest_measured_packed_capacity =
-                    smallest_measured_packed_capacity == 0
+                packed.best_rate_per_worker =
+                    std::max(packed.best_rate_per_worker, rate / trial.shot_workers);
+                packed.smallest_capacity =
+                    packed.smallest_capacity == 0
                         ? trial.batch_size
-                        : std::min(smallest_measured_packed_capacity, trial.batch_size);
+                        : std::min(packed.smallest_capacity, trial.batch_size);
             }
             // Preallocated buffers can incur page faults on their first use.
             // Charge this excess once, not once per chunk or once per shot.
@@ -141,6 +159,7 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
                                  : rate;
             if (selection_rate > best_selection_rate) {
                 best_selection_rate = selection_rate;
+                report.sharing = trial.sharing;
                 report.batch_size = trial.batch_size;
                 report.shot_workers = trial.shot_workers;
             }
@@ -157,6 +176,7 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
     report.sufficient_measurements = measured_candidates >= 2 && !report.trials.empty() &&
                                      report.trials.front().shots_per_second() > 0;
     if (!report.sufficient_measurements) {
+        report.sharing = baseline.sharing;
         report.batch_size = baseline.lane_capacity;
         report.shot_workers = baseline.worker_count;
         if (report.stop_reason != "budget_exhausted") {
@@ -166,4 +186,5 @@ BatchTuningReport sweep_batch_candidates(std::span<const BatchTuningCandidate> c
     return report;
 }
 
-}  // namespace clifft::sampling::batch_detail
+}  // namespace batch_detail
+}  // namespace clifft::sampling

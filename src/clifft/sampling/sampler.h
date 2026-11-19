@@ -12,6 +12,7 @@
 
 namespace clifft::sampling {
 
+class EarlyPostselection;
 class PreparedBatchNoise;
 
 inline constexpr double kDefaultBatchTuningBudgetSeconds = 0.25;
@@ -83,7 +84,7 @@ struct ThreadLayout {
     std::optional<ThreadLayout> thread_layout = std::nullopt,
     std::optional<uint32_t> batch_size = std::nullopt,
     std::optional<double> tuning_budget_seconds = std::nullopt,
-    const PreparedBatchNoise* noise = nullptr);
+    const PreparedBatchNoise* noise = nullptr, const EarlyPostselection* checks = nullptr);
 
 [[nodiscard]] SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
                                       std::optional<uint64_t> seed = std::nullopt,

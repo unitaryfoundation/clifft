@@ -191,9 +191,9 @@ when it fits.
 all consume that same type. One compiled program can be reused for many calls
 and shot counts.
 
-With `reconstruction=True`, a `Program` can own separate plans for sampling
-with and without measurement records. Ordinary and survivor sampling select
-the plan for `keep_records`. Output preparation then removes unneeded storage
+With `reconstruction="auto"` (the default) or `reconstruction=True`, a
+`Program` can own separate plans for sampling with and without measurement
+records. Ordinary and survivor sampling select the plan for `keep_records`. Output preparation then removes unneeded storage
 and evaluations. See [Global reconstruction for sampling](../guide/compilation.md#global-reconstruction-for-sampling)
 for plan selection and the dense-state limit.
 

@@ -59,7 +59,7 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir,
         return op.op_type() == OpType::T_GATE || op.op_type() == OpType::PHASE_ROTATION;
     });
     if (has_non_clifford) {
-        default_hir_pass_manager().run(clean_hir);
+        default_hir_pass_manager(/*include_schedule=*/false).run(clean_hir);
     }
 
     // Compile without postselection or expected parities.
@@ -85,7 +85,7 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir,
         width_limit > kMaxDirectReferenceWidth) {
         auto lowered = reconstruct_noiseless_detectors(*reconstruction_source, limits);
         if (lowered.hir) {
-            default_hir_pass_manager().run(*lowered.hir);
+            default_hir_pass_manager(/*include_schedule=*/false).run(*lowered.hir);
             if (summarize_active_width(*lowered.hir).peak_width < width_limit) {
                 clean_program.emplace(sampling::plan_sampling(*lowered.hir));
             } else if (!clean_program) {

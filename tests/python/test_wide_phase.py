@@ -258,7 +258,7 @@ def test_wide_phase_reduces_direct_readout_preparation() -> None:
     first_readout = next(i for i in range(last_t + 1, len(lines)) if lines[i].startswith("M"))
     preparation = clifft.compile("\n".join(lines[:first_readout]), hir_passes=manager)
     assert preparation.num_measurements == 162
-    assert preparation.peak_active_width == 9
+    assert preparation.original_plan.peak_active_width == 9
 
 
 def _cube_rotation(start: int, mask: int) -> str:

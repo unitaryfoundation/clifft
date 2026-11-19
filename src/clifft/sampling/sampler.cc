@@ -451,7 +451,7 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
     batch_detail::validate_batch_tuning_options(batch_size, tuning_budget_seconds);
     BatchExecutionPolicy policy = resolve_batch_execution_policy(
         plan, shots, layout.shot_workers, layout.intra_shot_workers, output_mode, batch_size,
-        sampling_mode, additional_worker_bytes, 0, 0, noise);
+        sampling_mode, additional_worker_bytes, 0, noise);
     if (policy.lane_capacity == 1) {
         policy.worker_count = layout.shot_workers;
     }
@@ -557,7 +557,93 @@ Result sample_configured(const ExecutablePlan& plan, uint32_t shots, std::option
     return result;
 }
 
+template <typename Result>
+batch_detail::BatchTuningProbe make_ordinary_probe_for(const ExecutablePlan& plan,
+                                                       BatchExecutionPolicy policy,
+                                                       SamplingOutputs outputs,
+                                                       const PreparedBatchNoise* noise,
+                                                       const EarlyPostselection* checks) {
+    constexpr bool survivors = std::is_same_v<Result, SamplingSurvivorResult>;
+    const BatchOutputMode output_mode =
+        survivors && !outputs.rows() ? BatchOutputMode::AggregateSurvivors : BatchOutputMode::Rows;
+    const ThreadLayout layout{.shot_workers = policy.worker_count, .intra_shot_workers = 1};
+    using ScalarW = std::conditional_t<survivors, SurvivorWorker, SamplingWorker>;
+    using PackedW = std::conditional_t<survivors, BatchSurvivorWorker, BatchSamplingWorker>;
+    auto scalar_workers = std::make_shared<std::vector<std::unique_ptr<ScalarW>>>();
+    auto packed_workers = std::make_shared<std::vector<std::unique_ptr<PackedW>>>();
+    if constexpr (kPackedBatchExecutionAvailable) {
+        if (policy.lane_capacity > 1) {
+            packed_workers->reserve(policy.worker_count);
+            for (uint32_t i = 0; i < policy.worker_count; ++i) {
+                if constexpr (survivors) {
+                    packed_workers->push_back(
+                        std::make_unique<PackedW>(plan, policy.lane_capacity, output_mode, noise));
+                } else {
+                    packed_workers->push_back(
+                        std::make_unique<PackedW>(plan, policy.lane_capacity, noise));
+                }
+            }
+        }
+    }
+    if (policy.lane_capacity == 1) {
+        scalar_workers->reserve(policy.worker_count);
+        for (uint32_t i = 0; i < policy.worker_count; ++i) {
+            if constexpr (survivors) {
+                scalar_workers->push_back(
+                    std::make_unique<ScalarW>(plan, layout.intra_shot_workers,
+                                              layout.intra_shot_min_active_width, output_mode));
+            } else {
+                scalar_workers->push_back(std::make_unique<ScalarW>(
+                    plan, layout.intra_shot_workers, layout.intra_shot_min_active_width));
+            }
+        }
+    }
+    return [&plan, policy, layout, outputs, checks, scalar_workers = std::move(scalar_workers),
+            packed_workers = std::move(packed_workers)](uint32_t count, uint64_t trial_seed) {
+        if constexpr (kPackedBatchExecutionAvailable) {
+            if (policy.lane_capacity > 1) {
+                auto packed_factory = [&](uint32_t i) {
+                    return reset_probe_worker((*packed_workers)[i].get());
+                };
+                auto run_batch = [checks](PackedW& worker, const SeedRoot& root,
+                                          uint32_t first_shot, uint32_t batch) noexcept {
+                    worker.executor.run_batch(root, first_shot, batch, checks);
+                };
+                if constexpr (survivors) {
+                    (void)sample_surviving_batches(plan, count, trial_seed, outputs, policy,
+                                                   packed_factory, run_batch);
+                } else {
+                    (void)sample_fixed_batches(plan, count, trial_seed, policy, outputs,
+                                               packed_factory, run_batch);
+                }
+                return;
+            }
+        }
+        auto scalar_factory = [&](uint32_t i) {
+            return reset_probe_worker((*scalar_workers)[i].get());
+        };
+        auto run_shot = [](ScalarW& worker) noexcept { worker.executor.run_shot(); };
+        if constexpr (survivors) {
+            (void)sample_surviving_rows(plan, count, trial_seed, outputs, layout, scalar_factory,
+                                        run_shot);
+        } else {
+            (void)sample_fixed_rows(plan, count, trial_seed, layout, outputs, scalar_factory,
+                                    run_shot);
+        }
+    };
+}
+
 }  // namespace
+
+batch_detail::BatchTuningProbe batch_detail::make_ordinary_tuning_probe(
+    const ExecutablePlan& plan, BatchExecutionPolicy policy, SamplingOutputs outputs,
+    bool survivors, const PreparedBatchNoise* noise, const EarlyPostselection* checks) {
+    if (survivors) {
+        return make_ordinary_probe_for<SamplingSurvivorResult>(plan, policy, outputs, noise,
+                                                               checks);
+    }
+    return make_ordinary_probe_for<SamplingResult>(plan, policy, outputs, noise, nullptr);
+}
 
 SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<uint64_t> seed,
                       uint32_t threads, std::optional<ThreadLayout> thread_layout,
@@ -610,7 +696,8 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
                                         uint32_t threads, std::optional<ThreadLayout> thread_layout,
                                         std::optional<uint32_t> batch_size,
                                         std::optional<double> tuning_budget_seconds,
-                                        const PreparedBatchNoise* noise) {
+                                        const PreparedBatchNoise* noise,
+                                        const EarlyPostselection* checks) {
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "survivor sampling does not support instrument traps; use the trajectory driver");
@@ -635,8 +722,10 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
             return std::make_unique<BatchSurvivorWorker>(plan, capacity, output_mode, noise);
         },
         [](SurvivorWorker& worker) noexcept { worker.executor.run_shot(); },
-        [](BatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
-           uint32_t batch) noexcept { worker.executor.run_batch(root, first_shot, batch); });
+        [checks](BatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
+                 uint32_t batch) noexcept {
+            worker.executor.run_batch(root, first_shot, batch, checks);
+        });
 }
 
 SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,

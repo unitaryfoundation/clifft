@@ -32,6 +32,10 @@ struct ActiveWidthScheduleOptions {
     // Delay neutral rotations past independent non-expanding ops to reduce
     // dense work and expose rotation fusion opportunities.
     bool sink_neutral_rotations = true;
+
+    // Default-pipeline mode: bounds speculative search and probes, and keeps
+    // narrow equal-width schedules in their original order.
+    bool automatic = false;
 };
 
 class ActiveWidthSchedulePass : public HirPass {
@@ -40,6 +44,7 @@ class ActiveWidthSchedulePass : public HirPass {
 
     void run(HirModule& hir) override;
     bool preserves_sampling_distribution() const override { return true; }
+    [[nodiscard]] bool automatic() const noexcept { return options_.automatic; }
 
     // Statistics from the last run() call. All read as zero/false before
     // the first call.

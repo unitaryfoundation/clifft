@@ -187,7 +187,7 @@ After a run, `regions_examined` and `regions_capped` describe the attempted sear
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
 See [Compiling Circuits](../guide/compilation.md#active-width-scheduling) for
-setup and guidance on when to enable this pass.
+how the default pipeline bounds this pass and how to override or disable it.
 
 | Option | Default | Meaning |
 |---|---|---|

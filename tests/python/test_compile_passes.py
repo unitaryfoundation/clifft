@@ -22,7 +22,7 @@ def test_compile_default_matches_explicit_pipeline() -> None:
 
 def test_compile_explicit_none_skips_optimization() -> None:
     text = "H 0\nT 0\nCNOT 0 1\nM 0 1"
-    compiled = clifft.compile(text, hir_passes=None)
+    compiled = clifft.compile(text, hir_passes=None, reconstruction=False)
     manual = clifft.lower(clifft.trace(clifft.parse(text)))
 
     assert compiled.num_actions == manual.num_actions
@@ -135,9 +135,7 @@ def test_duplicate_overrides_are_rejected() -> None:
         )
 
 
-@pytest.mark.parametrize(
-    "pass_type", [clifft.ActiveWidthSchedulePass, clifft.RemoveNoisePass, clifft.DropNonUnitaryPass]
-)
+@pytest.mark.parametrize("pass_type", [clifft.RemoveNoisePass, clifft.DropNonUnitaryPass])
 def test_nondefault_overrides_are_rejected(pass_type: type) -> None:
     with pytest.raises(ValueError, match="is not a default HIR pass"):
         clifft.default_hir_pass_manager(overrides=[pass_type()])

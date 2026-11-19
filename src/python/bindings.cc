@@ -637,6 +637,7 @@ NB_MODULE(_clifft_core, m) {
         m, "BatchTuningTrial",
         "Timing for one batch-size candidate. The first probe is recorded as warmup; "
         "its throughput is used when no subsequent measurement is available.")
+        .def_ro("sharing", &clifft::sampling::BatchTuningTrial::sharing)
         .def_ro("batch_size", &clifft::sampling::BatchTuningTrial::batch_size)
         .def_ro("shot_workers", &clifft::sampling::BatchTuningTrial::shot_workers)
         .def_ro("warmup_shots", &clifft::sampling::BatchTuningTrial::warmup_shots)
@@ -649,7 +650,8 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("shots_per_second", &clifft::sampling::BatchTuningTrial::shots_per_second,
                      "Attempted-shot throughput used for selection, or zero without timing data.")
         .def("__repr__", [](const clifft::sampling::BatchTuningTrial& trial) {
-            return "BatchTuningTrial(batch_size=" + std::to_string(trial.batch_size) +
+            return "BatchTuningTrial(sharing=" + std::string(trial.sharing ? "True" : "False") +
+                   ", batch_size=" + std::to_string(trial.batch_size) +
                    ", shot_workers=" + std::to_string(trial.shot_workers) +
                    ", shots_per_second=" + std::to_string(trial.shots_per_second()) +
                    ", used_warmup=" + (trial.used_warmup() ? "True" : "False") + ")";
@@ -659,6 +661,7 @@ NB_MODULE(_clifft_core, m) {
         "Calibration outcome and reusable batch size. sufficient_measurements says whether "
         "the automatic choice and an alternative were compared; stop_reason records why "
         "calibration ended, including budget exhaustion even when falling back to auto.")
+        .def_ro("sharing", &clifft::sampling::BatchTuningReport::sharing)
         .def_ro("batch_size", &clifft::sampling::BatchTuningReport::batch_size)
         .def_ro("baseline_batch_size", &clifft::sampling::BatchTuningReport::baseline_batch_size)
         .def_ro("shot_workers", &clifft::sampling::BatchTuningReport::shot_workers)
@@ -670,7 +673,8 @@ NB_MODULE(_clifft_core, m) {
         .def_ro("stop_reason", &clifft::sampling::BatchTuningReport::stop_reason)
         .def_ro("trials", &clifft::sampling::BatchTuningReport::trials)
         .def("__repr__", [](const clifft::sampling::BatchTuningReport& report) {
-            return "BatchTuningReport(batch_size=" + std::to_string(report.batch_size) +
+            return "BatchTuningReport(sharing=" + std::string(report.sharing ? "True" : "False") +
+                   ", batch_size=" + std::to_string(report.batch_size) +
                    ", baseline_batch_size=" + std::to_string(report.baseline_batch_size) +
                    ", elapsed_seconds=" + std::to_string(report.elapsed_seconds) +
                    ", sufficient_measurements=" +
@@ -1441,19 +1445,7 @@ NB_MODULE(_clifft_core, m) {
         .def(nb::init<>())
         .def(
             "add",
-            [](clifft::HirPassManager& pm, clifft::HirPass& hir_pass) {
-                // HirPassManager needs unique_ptr ownership, but Python owns the pass.
-                // Use a thin non-owning wrapper that delegates to the Python-owned pass.
-                struct BorrowedPass : clifft::HirPass {
-                    clifft::HirPass& ref;
-                    explicit BorrowedPass(clifft::HirPass& r) : ref(r) {}
-                    void run(clifft::HirModule& hir) override { ref.run(hir); }
-                    bool preserves_sampling_distribution() const override {
-                        return ref.preserves_sampling_distribution();
-                    }
-                };
-                pm.add_pass(std::make_unique<BorrowedPass>(hir_pass));
-            },
+            [](clifft::HirPassManager& pm, clifft::HirPass& hir_pass) { pm.add_pass(hir_pass); },
             nb::arg("hir_pass"), nb::keep_alive<1, 2>(),
             "Add an optimization pass. Passes run in the order added.")
         .def(
@@ -1502,7 +1494,7 @@ NB_MODULE(_clifft_core, m) {
                     // add() retains each pass even if the caller clears the overrides list.
                     result.attr("add")(replacements[i]);
                 } else if (info.default_enabled) {
-                    manager.add_pass(info.make());
+                    manager.add_pass(info.make_default());
                 }
             }
             return result;
@@ -1745,21 +1737,29 @@ NB_MODULE(_clifft_core, m) {
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
-           bool normalize_syndromes, clifft::HirPassManager* hir_passes, bool reconstruction) {
+           bool normalize_syndromes, clifft::HirPassManager* hir_passes,
+           const BoolOrAutoOption& reconstruction_option, const std::string& input_format) {
+            const auto reconstruction =
+                parse_bool_or_auto_option(reconstruction_option, "reconstruction");
+            if (input_format != "stim" && input_format != "qasm2") {
+                throw std::invalid_argument("input_format must be 'stim' or 'qasm2'");
+            }
             nb::gil_scoped_release release;
-            const auto circuit = clifft::parse(stim_text);
+            const auto circuit = input_format == "stim" ? clifft::parse(stim_text)
+                                                        : clifft::parse_qasm2(stim_text).circuit;
             const bool preserves_sampling =
                 hir_passes == nullptr || hir_passes->preserves_sampling_distribution();
             const auto hir = prepare_circuit_for_lowering(
                 circuit, postselection_mask, normalize_syndromes, hir_passes, expected_detectors,
-                expected_observables, reconstruction && preserves_sampling);
+                expected_observables, reconstruction != false && preserves_sampling);
             return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling);
         },
         nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         nb::arg("expected_detectors") = std::vector<uint8_t>{},
         nb::arg("expected_observables") = std::vector<uint8_t>{},
         nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(), nb::kw_only(),
-        nb::arg("reconstruction") = false,
+        nb::arg("reconstruction") = BoolOrAutoOption(std::string("auto")),
+        nb::arg("input_format") = std::string("stim"),
         "Compile a quantum circuit string to an executable program.\n\n"
         "Compilation plans optimized HIR and prepares it for Clifft's sampler.\n"
         "\n"
@@ -1771,7 +1771,7 @@ NB_MODULE(_clifft_core, m) {
         "For coherent errors, supply expected parities from the ideal circuit.\n"
         "\n"
         "Args:\n"
-        "    stim_text: Circuit in .stim text format.\n"
+        "    stim_text: Circuit in .stim or OpenQASM 2 format.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
         "        Detectors where mask[i] != 0 become post-selection checks\n"
         "        that abort the shot early if their parity is non-zero.\n"
@@ -1780,29 +1780,12 @@ NB_MODULE(_clifft_core, m) {
         "    normalize_syndromes: If True, auto-compute reference parities from a\n"
         "        noiseless reference shot (mutually exclusive with explicit parities).\n"
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n"
-        "    reconstruction: Opt in to bounded output-specific CPU sampling plans.\n"
-        "        State queries and fixed-fault sampling retain the original plan.\n");
-
-    m.def(
-        "_compile_qasm2",
-        [](const std::string& qasm_text, std::vector<uint8_t> postselection_mask,
-           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
-           bool normalize_syndromes, clifft::HirPassManager* hir_passes, bool reconstruction) {
-            nb::gil_scoped_release release;
-            const auto circuit = clifft::parse_qasm2(qasm_text).circuit;
-            const bool preserves_sampling =
-                hir_passes == nullptr || hir_passes->preserves_sampling_distribution();
-            const auto hir = prepare_circuit_for_lowering(
-                circuit, postselection_mask, normalize_syndromes, hir_passes, expected_detectors,
-                expected_observables, reconstruction && preserves_sampling);
-            return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling);
-        },
-        nb::arg("qasm_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
-        nb::arg("expected_detectors") = std::vector<uint8_t>{},
-        nb::arg("expected_observables") = std::vector<uint8_t>{},
-        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(), nb::kw_only(),
-        nb::arg("reconstruction") = false,
-        "Compile a unitary OpenQASM 2 circuit string to an executable program.");
+        "    reconstruction: 'auto' (default), True, or False. 'auto' selects bounded\n"
+        "        output-specific CPU sampling plans when they reduce active width or\n"
+        "        estimated work without harming postselected rejection. True uses\n"
+        "        the full reconstruction budget for strictly narrower plans; False\n"
+        "        uses the original plan for all outputs.\n"
+        "    input_format: 'stim' (default) or 'qasm2'.\n");
 
     m.def(
         "sample",

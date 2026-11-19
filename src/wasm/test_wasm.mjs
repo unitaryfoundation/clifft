@@ -32,8 +32,8 @@ assert.ok(names.includes("PeepholeFusionPass"), "Missing PeepholeFusionPass");
 assert.ok(names.includes("StatevectorSqueezePass"), "Missing StatevectorSqueezePass");
 assert.ok(names.includes("RemoveNoisePass"), "Missing RemoveNoisePass");
 const scheduler = passes.find((p) => p.name === "ActiveWidthSchedulePass");
-assert.ok(scheduler, "Missing opt-in ActiveWidthSchedulePass");
-assert.equal(scheduler.default, false, "Scheduling must be opt-in in the playground");
+assert.ok(scheduler, "Missing ActiveWidthSchedulePass");
+assert.equal(scheduler.default, true, "Scheduling is enabled by default");
 // Check schema
 for (const p of passes) {
     assert.ok(typeof p.name === "string");
@@ -41,22 +41,22 @@ for (const p of passes) {
     assert.ok(typeof p.default === "boolean");
 }
 
-// Selecting the optional pass must reach both compilation and simulation.
+// The default schedule reduces width in both inspection and simulation.
 const schedulingWitness = `R_PAULI(0.3) X0*X1
 Z_ERROR(0.3) 0
 R_PAULI(0.3) Z0*Y1
 MPP Y0*Y1
 MPP Y0`;
-const withScheduling = JSON.stringify({
-    hir: [...passes.filter((p) => p.default).map((p) => p.name), scheduler.name],
+const withoutScheduling = JSON.stringify({
+    hir: passes.filter((p) => p.default && p !== scheduler).map((p) => p.name),
 });
-const unscheduled = JSON.parse(mod.compile_to_json(schedulingWitness, DEFAULTS));
-const scheduled = JSON.parse(mod.compile_to_json(schedulingWitness, withScheduling));
+const unscheduled = JSON.parse(mod.compile_to_json(schedulingWitness, withoutScheduling));
+const scheduled = JSON.parse(mod.compile_to_json(schedulingWitness, DEFAULTS));
 assert.equal(unscheduled.error, undefined);
 assert.equal(scheduled.error, undefined);
 assert.equal(unscheduled.peak_active_width, 2);
 assert.equal(scheduled.peak_active_width, 1);
-const scheduledSamples = JSON.parse(mod.simulate_wasm(schedulingWitness, 100, withScheduling));
+const scheduledSamples = JSON.parse(mod.simulate_wasm(schedulingWitness, 100, DEFAULTS));
 assert.equal(scheduledSamples.error, undefined);
 
 {

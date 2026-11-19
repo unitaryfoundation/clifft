@@ -73,7 +73,7 @@ def test_auto_packs_wider_classical_work_and_replays_without_calibration(
 
 @pytest.mark.parametrize(
     "width,depth,inputs,probability",
-    [(6, 128, 256, 0.3), (6, 0, 0, 0.3), (9, 0, 256, 0.3)],
+    [(9, 128, 256, 0.3), (9, 0, 0, 0.3), (9, 0, 256, 0.3)],
     ids=["sustained-quantum-work", "little-classical-work", "wider-state"],
 )
 def test_auto_preserves_conservative_fallbacks(width, depth, inputs, probability):

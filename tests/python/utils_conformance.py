@@ -23,7 +23,7 @@ class CompilerProfile:
 
     def compile(self, source: str) -> Any:
         # Pass instances may carry mutable state; never cache a pass manager.
-        return clifft.compile(source, hir_passes=self.make_passes())
+        return clifft.compile(source, hir_passes=self.make_passes(), reconstruction=False)
 
 
 def fusion_squeeze_passes() -> clifft.HirPassManager:
@@ -77,6 +77,8 @@ class CpuSamplingMode:
 
     @staticmethod
     def compile(source: str, **kwargs: Any) -> Any:
+        # Exercise each executor on the plan requested by the conformance case.
+        kwargs.setdefault("reconstruction", False)
         return clifft.compile(source, **kwargs)
 
     def sample(self, program: Any, shots: int, seed: int | None = None) -> Any:

@@ -64,7 +64,7 @@ opportunities.
 | Peephole fusion | Combine or cancel compatible rotations and remove phases consumed by measurements. |
 | Phase-polynomial and rotation simplification | Use algebra and known state constraints to remove non-Clifford work. |
 | Statevector squeezing | Move measurements earlier and expanding rotations later where dependencies allow, shortening active lifetimes. |
-| Active-width scheduling (opt-in) | Search legal operation orders, preferring lower peak width, then lower estimated dense work. |
+| Active-width scheduling | Search legal operation orders, preferring lower peak width, then lower estimated dense work. |
 
 These HIR rewrites run after Clifford tracing and before active-coordinate
 planning. They complement the planner's coordinate choices and the executable
@@ -77,9 +77,10 @@ cost, without guaranteeing an optimal result.
 ## Closed-Output Global Reconstruction
 
 Local HIR passes preserve the sequential structure of the traced circuit. When
-only the classical output distribution is needed, `clifft.compile(...,
-reconstruction=True)` can reformulate the entire sampling problem to reduce the
-number of active coordinates that must stay entangled at once.
+only the classical output distribution is needed, `clifft.compile()` (with its
+default `reconstruction="auto"`, or explicit `reconstruction=True`) can
+reformulate the entire sampling problem to reduce the number of active
+coordinates that must stay entangled at once.
 
 The reconstruction compiler splits a circuit at its last non-Clifford operation.
 In the prefix, it defers measurements onto fresh record ancillas and moves

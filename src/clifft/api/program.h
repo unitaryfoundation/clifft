@@ -12,6 +12,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace clifft {
@@ -31,7 +32,7 @@ class Program {
     explicit Program(sampling::ExecutablePlan original);
 
     [[nodiscard]] static Program compile(const Circuit& source, const HirModule& original_hir,
-                                         bool reconstruction = false,
+                                         std::optional<bool> reconstruction = std::nullopt,
                                          bool passes_preserve_sampling = true,
                                          const ReconstructionLimits& limits = {});
 

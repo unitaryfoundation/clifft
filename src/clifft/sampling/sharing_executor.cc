@@ -241,7 +241,7 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
         if (probe_shots <= output_limit) {
             const uint32_t maximum =
                 std::min(output_limit, std::max(kTargetProbeShots, probe_shots));
-            candidates.push_back({{capacity, used}, probe_shots, maximum});
+            candidates.push_back({{capacity, used, true}, probe_shots, maximum});
         }
     };
     append(resolve_shared_execution_policy(safe_capacity, shots, workers).lane_capacity);

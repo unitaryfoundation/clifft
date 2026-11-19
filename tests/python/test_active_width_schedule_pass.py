@@ -50,12 +50,26 @@ def test_active_width_trace_peak_matches_lowered_program() -> None:
         assert trace["final"] <= trace["peak"], fixture
 
 
-def test_scheduling_is_opt_in_and_coherent_d3_reaches_peak_four() -> None:
+def test_default_scheduling_reaches_peak_four_on_coherent_d3() -> None:
     circuit = (_FIXTURES / "coherent_d3_r3.stim").read_text()
-    baseline = clifft.compile(circuit)
-    program = clifft.compile(circuit, hir_passes=_schedule_pass_manager())
+    unscheduled = clifft.HirPassManager()
+    unscheduled.add(clifft.PeepholeFusionPass())
+    unscheduled.add(clifft.PhasePolynomialPass())
+    unscheduled.add(clifft.RotationSimplificationPass())
+    unscheduled.add(clifft.StatevectorSqueezePass())
+    baseline = clifft.compile(circuit, hir_passes=unscheduled, reconstruction=False)
+    program = clifft.compile(circuit, reconstruction=False)
     assert program.peak_active_width == 4
     assert baseline.peak_active_width > program.peak_active_width
+
+    # Appending an explicit scheduler replaces the default automatic scheduler.
+    explicit = clifft.ActiveWidthSchedulePass()
+    pm = clifft.default_hir_pass_manager()
+    pm.add(explicit)
+    hir = clifft.trace(clifft.parse(circuit))
+    pm.run(hir)
+    assert explicit.result_peak == 4
+    assert explicit.swept_ops > 0
 
 
 def test_coherent_d5_reaches_peak_at_most_thirteen() -> None:

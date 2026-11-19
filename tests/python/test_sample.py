@@ -31,7 +31,7 @@ class TestCompile:
 
     def test_compile_simple(self) -> None:
         """Compile a simple circuit."""
-        prog = clifft.compile("H 0\nT 0\nM 0", hir_passes=None)
+        prog = clifft.compile("H 0\nT 0\nM 0", hir_passes=None, reconstruction=False)
         assert prog.peak_active_width == 1
         assert prog.num_measurements == 1
         assert prog.num_actions >= 1
