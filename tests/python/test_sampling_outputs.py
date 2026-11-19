@@ -299,3 +299,187 @@ def test_packed_selective_tuning(api: str) -> None:
     assert result.measurements.shape == (0, 1)
     assert result.detectors.shape == (17, 1)
     assert result.batch_tuning.stop_reason == "zero_budget"
+
+
+def _unpack_little(packed: np.ndarray, width: int) -> np.ndarray:
+    return np.unpackbits(packed, axis=1, bitorder="little")[:, :width]
+
+
+def _assert_two_sample_columns_close(
+    counts_a: np.ndarray, shots_a: int, counts_b: np.ndarray, shots_b: int
+) -> None:
+    p_a = np.asarray(counts_a, dtype=np.float64) / shots_a
+    p_b = np.asarray(counts_b, dtype=np.float64) / shots_b
+    pooled = (np.asarray(counts_a, dtype=np.float64) + np.asarray(counts_b, dtype=np.float64)) / (
+        shots_a + shots_b
+    )
+    se = np.sqrt(pooled * np.maximum(1.0 - pooled, 0.0) * (1.0 / shots_a + 1.0 / shots_b))
+    tol = 7.0 * se + 12.0 / min(shots_a, shots_b)
+    np.testing.assert_array_less(np.abs(p_a - p_b), tol)
+
+
+def _width_zero_postselected_circuit(asymmetric_readout: bool) -> tuple[str, list[int]]:
+    lines = ["H 0 2 4", "CX 0 1 2 3 4 5"]
+    for round_idx in range(35):
+        if round_idx % 4 == 0:
+            lines.append("X_ERROR(0.02) 0")
+            lines.append("CORRELATED_ERROR(0.015) X1 Z2")
+        if round_idx % 4 == 2:
+            lines.append("DEPOLARIZE1(0.025) 3")
+        lines.append("CX 0 1 2 3")
+        if round_idx == 33 and asymmetric_readout:
+            lines.append("MR 1")
+            lines.append("CX rec[-1] 2")
+            lines.append("MR 3")
+            lines.append("CZ rec[-1] 4")
+            lines.append("DETECTOR rec[-2]")
+            lines.append("DETECTOR rec[-1]")
+            lines.append("READOUT_NOISE(0.15, 0.30) rec[-1]")
+        else:
+            lines.append("MR(0.02) 1")
+            lines.append("CX rec[-1] 2")
+            lines.append("MR(0.04) 3" if round_idx == 33 else "MR(0.015) 3")
+            lines.append("CZ rec[-1] 4")
+            lines.append("DETECTOR rec[-2]")
+            lines.append("DETECTOR rec[-1]")
+    lines.append("OBSERVABLE_INCLUDE(0) rec[-21] rec[-31] rec[-41] rec[-69]")
+    lines.append("OBSERVABLE_INCLUDE(1) rec[-3] rec[-19] rec[-35]")
+    # Postselect detectors in both words (0 and 4..13 in word 0; 64, 65, 68, 69 in word 1)
+    # while leaving the round-33 snapshot detectors (66, 67) and middle detectors unpostselected.
+    mask = [1 if (d == 0 or 4 <= d < 14 or d in (64, 65, 68, 69)) else 0 for d in range(70)]
+    return "\n".join(lines), mask
+
+
+def test_width_zero_postselected_multiword_matches_scalar() -> None:
+    source, mask = _width_zero_postselected_circuit(asymmetric_readout=True)
+    program = clifft.compile(source, postselection_mask=mask)
+    assert program.peak_active_width == 0
+    assert program.num_measurements > 64
+    assert program.num_detectors > 64
+    assert program.num_observables == 2
+
+    shots = 8192
+    scalar = clifft.sample_survivors(
+        program, shots, seed=51, batch_size=1, sharing=False, keep_records=True
+    )
+    assert scalar.execution.executor == "scalar"
+    assert 0 < scalar.passed_shots < shots
+
+    mask_bool = np.asarray(mask, dtype=bool)
+    assert not scalar.detectors[:, mask_bool].any()
+    scalar_det_counts = scalar.detectors[:, ~mask_bool].sum(axis=0)
+    scalar_summary = np.array(
+        [scalar.passed_shots, scalar.logical_errors, *scalar.observable_ones], dtype=np.int64
+    )
+    assert np.all(scalar.observable_ones > 0.05 * scalar.passed_shots)
+
+    configs: list[tuple[bool | str, bool | str, clifft.NoisePreparation, bool]] = [
+        (False, True, clifft.NoisePreparation.DENSE, False),
+        ("auto", False, clifft.NoisePreparation.SITE_SPARSE, False),
+        (False, "syndromes", clifft.NoisePreparation.SITE_ROWS, True),
+        (True, True, clifft.NoisePreparation.DENSE, True),
+        (True, "syndromes", clifft.NoisePreparation.SITE_SPARSE, True),
+        (True, False, clifft.NoisePreparation.SITE_ROWS, False),
+    ]
+    for offset, (sharing, keep_records, prep, bit_packed) in enumerate(configs):
+        result = clifft.sample_survivors(
+            program,
+            shots,
+            seed=101 + offset * 7,
+            keep_records=keep_records,
+            bit_packed=bit_packed,
+            sharing=sharing,
+            noise_preparation=prep,
+        )
+        assert result.execution.executor == "packed"
+        assert result.execution.sharing is (sharing is True)
+        if sharing is not True:
+            assert result.execution.batch_size == 2048
+        assert result.execution.noise_preparation == prep
+        assert result.execution.bit_packed is bit_packed
+
+        if bit_packed:
+            same_seed_unpacked = clifft.sample_survivors(
+                program,
+                shots,
+                seed=101 + offset * 7,
+                keep_records=keep_records,
+                bit_packed=False,
+                sharing=sharing,
+                noise_preparation=prep,
+            )
+            if keep_records is True:
+                np.testing.assert_array_equal(
+                    _unpack_little(result.measurements, program.num_measurements),
+                    same_seed_unpacked.measurements,
+                )
+            detectors = _unpack_little(result.detectors, program.num_detectors)
+            observables = _unpack_little(result.observables, program.num_observables)
+            np.testing.assert_array_equal(detectors, same_seed_unpacked.detectors)
+            np.testing.assert_array_equal(observables, same_seed_unpacked.observables)
+        else:
+            detectors = result.detectors
+            observables = result.observables
+
+        if keep_records in (True, "all", "syndromes"):
+            assert not detectors[:, mask_bool].any()
+            _assert_two_sample_columns_close(
+                detectors[:, ~mask_bool].sum(axis=0), shots, scalar_det_counts, shots
+            )
+            np.testing.assert_array_equal(observables.sum(axis=0), result.observable_ones)
+
+        summary = np.array(
+            [result.passed_shots, result.logical_errors, *result.observable_ones], dtype=np.int64
+        )
+        _assert_two_sample_columns_close(summary, shots, scalar_summary, shots)
+
+
+def test_width_zero_postselected_multiword_matches_stim() -> None:
+    source, mask = _width_zero_postselected_circuit(asymmetric_readout=False)
+    program = clifft.compile(source, postselection_mask=mask)
+    assert program.peak_active_width == 0
+    assert program.num_measurements > 64
+    assert program.num_detectors > 64
+
+    shots = 16384
+    mask_bool = np.asarray(mask, dtype=bool)
+    stim_dets, stim_obs = (
+        stim.Circuit(source)
+        .compile_detector_sampler(seed=61)
+        .sample(shots, separate_observables=True)
+    )
+    surviving = ~stim_dets[:, mask_bool].any(axis=1)
+    stim_det_counts = stim_dets[surviving][:, ~mask_bool].sum(axis=0)
+    stim_obs_surv = stim_obs[surviving]
+    stim_summary = np.array(
+        [
+            surviving.sum(),
+            stim_obs_surv.any(axis=1).sum(),
+            *stim_obs_surv.sum(axis=0),
+        ],
+        dtype=np.int64,
+    )
+
+    for sharing_opt, expected_sharing, expected_batch in (
+        ("auto", False, 2048),
+        (True, True, 8192),
+    ):
+        result = clifft.sample_survivors(
+            program,
+            shots,
+            seed=67 if not expected_sharing else 71,
+            keep_records="syndromes",
+            sharing=sharing_opt,
+        )
+        assert result.execution.executor == "packed"
+        assert result.execution.sharing is expected_sharing
+        assert result.execution.batch_size == expected_batch
+        assert not result.detectors[:, mask_bool].any()
+
+        summary = np.array(
+            [result.passed_shots, result.logical_errors, *result.observable_ones], dtype=np.int64
+        )
+        _assert_two_sample_columns_close(summary, shots, stim_summary, shots)
+        _assert_two_sample_columns_close(
+            result.detectors[:, ~mask_bool].sum(axis=0), shots, stim_det_counts, shots
+        )
