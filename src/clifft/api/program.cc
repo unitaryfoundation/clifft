@@ -171,7 +171,8 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         if (compare_cost && data->has_postselection && width != 0 && width < width_limit &&
             width_limit <= kSmallOriginalWidth &&
             width_limit - width < kMinPostselectedWidthReduction &&
-            uint64_t{executable.num_actions()} * 4 > uint64_t{data->original->num_actions()} * 5) {
+            uint64_t{executable.num_actions()} * 10 >
+                uint64_t{data->original->num_actions()} * 11) {
             variant.fallback_reason =
                 "postselected reconstruction saves at most two qubits while increasing actions";
             continue;

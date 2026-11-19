@@ -2666,6 +2666,124 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
     return prepared;
 }
 
+// Fuse commuting same-axis rotations that share a noise-sign parity and fold
+// any resulting Clifford rotations (I, Z, S, S_dag) into downstream operations.
+// Lowered HIR wraps each rotation in conditional Pauli sign brackets that hide
+// these cancellations from PeepholeFusionPass.
+void fuse_reconstruction_rotations(std::vector<ReconstructionOperation>& operations) {
+    const auto same_unsigned_axis = [](const PauliString& a, const PauliString& b) {
+        return a.x() == b.x() && a.z() == b.z();
+    };
+    const auto signed_half_turns = [](const ReconstructionOperation& op) {
+        return (op.sign.constant ^ op.axis.sign()) ? -op.half_turns : op.half_turns;
+    };
+    const auto normalize_mod2 = [](double alpha) { return alpha - 2.0 * std::floor(alpha / 2.0); };
+
+    SparseWords scratch;
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        const size_t n = operations.size();
+        std::vector<uint8_t> deleted(n, 0);
+
+        // 1. Merge commuting rotations with identical unsigned axis and sign mask.
+        for (size_t i = 0; i < n; ++i) {
+            if (deleted[i] || operations[i].half_turns == 0) {
+                continue;
+            }
+            for (size_t j = i + 1; j < n; ++j) {
+                if (deleted[j]) {
+                    continue;
+                }
+                if (operations[j].half_turns == 0) {
+                    break;
+                }
+                if (same_unsigned_axis(operations[i].axis, operations[j].axis) &&
+                    operations[i].sign.words == operations[j].sign.words) {
+                    const double a_mod2 = normalize_mod2(signed_half_turns(operations[i]) +
+                                                         signed_half_turns(operations[j]));
+                    deleted[j] = 1;
+                    changed = true;
+                    if (classify_clifford_rotation(a_mod2) == CliffordRotation::IDENTITY) {
+                        deleted[i] = 1;
+                        break;
+                    }
+                    operations[i].half_turns = a_mod2 > 1.0 ? a_mod2 - 2.0 : a_mod2;
+                    operations[i].sign.constant = false;
+                    operations[i].axis.set_sign(false);
+                    continue;
+                }
+                if (!operations[i].axis.view().commutes(operations[j].axis.view())) {
+                    break;
+                }
+            }
+        }
+
+        // 2. Absorb Clifford rotations into downstream operations.
+        for (size_t i = 0; i < n; ++i) {
+            if (deleted[i] || operations[i].half_turns == 0) {
+                continue;
+            }
+            if (operations[i].axis.x().is_zero() && operations[i].axis.z().is_zero()) {
+                deleted[i] = 1;
+                changed = true;
+                continue;
+            }
+            const double a_mod2 = normalize_mod2(signed_half_turns(operations[i]));
+            const auto clifford = classify_clifford_rotation(a_mod2);
+            if (!clifford) {
+                continue;
+            }
+            deleted[i] = 1;
+            changed = true;
+            const PauliString& p = operations[i].axis;
+            switch (*clifford) {
+                case CliffordRotation::IDENTITY:
+                    break;
+                case CliffordRotation::PAULI:
+                    for (size_t k = i + 1; k < n; ++k) {
+                        if (!deleted[k] && !p.view().commutes(operations[k].axis.view())) {
+                            operations[k].sign.constant ^= true;
+                        }
+                    }
+                    break;
+                case CliffordRotation::SQRT:
+                case CliffordRotation::SQRT_DAG: {
+                    const uint8_t phase_step = (*clifford == CliffordRotation::SQRT_DAG) ? 3U : 1U;
+                    for (size_t k = i + 1; k < n; ++k) {
+                        if (deleted[k] || p.view().commutes(operations[k].axis.view())) {
+                            continue;
+                        }
+                        PauliString prod(p.view());
+                        prod.right_multiply(operations[k].axis.view());
+                        prod.add_phase(phase_step);
+                        assert(prod.is_hermitian());
+                        operations[k].sign.constant ^= prod.sign();
+                        prod.set_sign(false);
+                        operations[k].axis = std::move(prod);
+                        xor_sparse_words(operations[k].sign.words, operations[i].sign.words,
+                                         scratch);
+                    }
+                    break;
+                }
+            }
+        }
+
+        if (changed) {
+            size_t out = 0;
+            for (size_t i = 0; i < n; ++i) {
+                if (!deleted[i]) {
+                    if (out != i) {
+                        operations[out] = std::move(operations[i]);
+                    }
+                    ++out;
+                }
+            }
+            operations.resize(out);
+        }
+    }
+}
+
 GlobalReconstruction reconstruct_variant(const PreparedDilation& prepared,
                                          ReconstructionOutputs outputs) {
     // Reduce all requested operations to a basis of their X supports,
@@ -2734,6 +2852,7 @@ GlobalReconstruction reconstruct_variant(const PreparedDilation& prepared,
         append_reduced(op, next_output++);
 
     result.noise_channels = prepared.channels;
+    fuse_reconstruction_rotations(result.operations);
     schedule_reconstruction(result, prepared.limits);
     return result;
 }
