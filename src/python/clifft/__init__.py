@@ -73,9 +73,6 @@ from clifft._clifft_core import (
     version,
 )
 from clifft._clifft_core import (
-    _compile_qasm2 as _compile_qasm2_core,
-)
-from clifft._clifft_core import (
     _prepare_hir_for_lowering as _prepare_hir_for_lowering,
 )
 from clifft._clifft_core import (
@@ -482,6 +479,8 @@ def compile(
     input_format: Literal["stim", "qasm2"] = "stim",
     *,
     reconstruction: bool | Literal["auto"] = "auto",
+    reconstruction_max_schedule_operations: int | None = None,
+    reconstruction_max_dilation_qubits: int | None = None,
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -518,16 +517,14 @@ def compile(
             is too wide, sampling can still use a reconstructed plan. State
             queries, exact probabilities, replay, and fixed-fault sampling
             then raise ``OverflowError``.
+        reconstruction_max_schedule_operations: Maximum number of quantum operations
+            plus qubits in the reconstructed schedule. Omit to use the compiler's budget.
+        reconstruction_max_dilation_qubits: Maximum number of qubits in the
+            intermediate circuit used for reconstruction, including ancillas.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
-    if input_format == "stim":
-        compile_core = _compile_core
-    elif input_format == "qasm2":
-        compile_core = _compile_qasm2_core
-    else:
-        raise ValueError("input_format must be 'stim' or 'qasm2'")
-    return compile_core(
+    return _compile_core(
         stim_text,
         postselection_mask if postselection_mask is not None else [],
         expected_detectors if expected_detectors is not None else [],
@@ -535,6 +532,9 @@ def compile(
         normalize_syndromes,
         hir_passes,
         reconstruction=reconstruction,
+        input_format=input_format,
+        reconstruction_max_schedule_operations=reconstruction_max_schedule_operations,
+        reconstruction_max_dilation_qubits=reconstruction_max_dilation_qubits,
     )
 
 

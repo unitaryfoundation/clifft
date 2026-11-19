@@ -155,6 +155,17 @@ It spends a smaller scheduling budget on narrower original plans. Use
 plans, or `False` to skip reconstruction. Both settings compose with
 `hir_passes`.
 
+If `program.sampling_plan(keep_records=...).fallback_reason` reports a
+reconstruction limit, you can raise that limit for the next compilation.
+Set `reconstruction_max_schedule_operations` to bound the scheduling problem
+(the number of quantum operations plus the qubits in the reconstructed
+circuit). Set `reconstruction_max_dilation_qubits` to bound the intermediate
+qubits used to represent rotations, measurements, and resets. Smaller values
+can save compilation time on short jobs. Larger values can find narrower plans
+when you expect to reuse the program. Either override works with
+`reconstruction="auto"` and `reconstruction=True`. Omitting either limit keeps
+its default, and auto still compares candidate plans for the requested outputs.
+
 This small example uses `hir_passes=None` to expose a width reduction from two
 to one. Keep the default passes for ordinary use; they already achieve width
 one on this example.

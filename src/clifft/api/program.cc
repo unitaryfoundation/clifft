@@ -97,9 +97,9 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
     auto budget = limits;
     constexpr uint32_t kSmallOriginalWidth = 16;
     constexpr uint32_t kSmallScheduleBudget = 2048;
-    if (!reconstruction.has_value() && width_limit <= kSmallOriginalWidth) {
-        budget.max_schedule_operations =
-            std::min(budget.max_schedule_operations, kSmallScheduleBudget);
+    if (!budget.max_schedule_operations && !reconstruction.has_value() &&
+        width_limit <= kSmallOriginalWidth) {
+        budget.max_schedule_operations = kSmallScheduleBudget;
     }
     const bool compare_cost = !reconstruction.has_value() && data->original.has_value();
     const bool has_syndrome_outputs = source.num_detectors != 0 || source.num_observables != 0;

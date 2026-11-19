@@ -271,13 +271,11 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
     return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
 }
 
-clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
-                                               std::span<const uint8_t> postselection_mask,
-                                               bool normalize_syndromes,
-                                               clifft::HirPassManager* hir_passes,
-                                               std::vector<uint8_t>& expected_detectors,
-                                               std::vector<uint8_t>& expected_observables,
-                                               bool allow_reconstruction = false) {
+clifft::HirModule prepare_circuit_for_lowering(
+    const clifft::Circuit& circuit, std::span<const uint8_t> postselection_mask,
+    bool normalize_syndromes, clifft::HirPassManager* hir_passes,
+    std::vector<uint8_t>& expected_detectors, std::vector<uint8_t>& expected_observables,
+    bool allow_reconstruction = false, const clifft::ReconstructionLimits& limits = {}) {
     if (normalize_syndromes && (!expected_detectors.empty() || !expected_observables.empty())) {
         throw std::invalid_argument(
             "Cannot provide expected parities when normalize_syndromes=True");
@@ -288,7 +286,7 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         std::ranges::any_of(postselection_mask, [](uint8_t flag) { return flag != 0; });
     const bool reference_before_passes = normalize_syndromes && has_postselection;
     if (reference_before_passes) {
-        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source);
+        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source, limits);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
     }
@@ -299,7 +297,7 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         hir_passes->run(hir);
     }
     if (normalize_syndromes && !reference_before_passes) {
-        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source);
+        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source, limits);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
         hir.postselection.expected_detectors = expected_detectors;
@@ -1736,23 +1734,38 @@ NB_MODULE(_clifft_core, m) {
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
            bool normalize_syndromes, clifft::HirPassManager* hir_passes,
-           const BoolOrAutoOption& reconstruction_option) {
+           const BoolOrAutoOption& reconstruction_option, const std::string& input_format,
+           std::optional<uint32_t> reconstruction_max_schedule_operations,
+           std::optional<uint32_t> reconstruction_max_dilation_qubits) {
             const auto reconstruction =
                 parse_bool_or_auto_option(reconstruction_option, "reconstruction");
             nb::gil_scoped_release release;
-            const auto circuit = clifft::parse(stim_text);
+            clifft::ReconstructionLimits limits;
+            limits.max_schedule_operations = reconstruction_max_schedule_operations;
+            if (reconstruction_max_dilation_qubits) {
+                limits.max_dilation_qubits = *reconstruction_max_dilation_qubits;
+            }
+            if (input_format != "stim" && input_format != "qasm2") {
+                throw std::invalid_argument("input_format must be 'stim' or 'qasm2'");
+            }
+            const auto circuit = input_format == "stim" ? clifft::parse(stim_text)
+                                                        : clifft::parse_qasm2(stim_text).circuit;
             const bool preserves_sampling =
                 hir_passes == nullptr || hir_passes->preserves_sampling_distribution();
             const auto hir = prepare_circuit_for_lowering(
                 circuit, postselection_mask, normalize_syndromes, hir_passes, expected_detectors,
-                expected_observables, reconstruction != false && preserves_sampling);
-            return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling);
+                expected_observables, reconstruction != false && preserves_sampling, limits);
+            return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling,
+                                            limits);
         },
         nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         nb::arg("expected_detectors") = std::vector<uint8_t>{},
         nb::arg("expected_observables") = std::vector<uint8_t>{},
         nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(), nb::kw_only(),
         nb::arg("reconstruction") = BoolOrAutoOption{std::string{"auto"}},
+        nb::arg("input_format") = "stim",
+        nb::arg("reconstruction_max_schedule_operations") = nb::none(),
+        nb::arg("reconstruction_max_dilation_qubits") = nb::none(),
         "Compile a quantum circuit string to an executable program.\n\n"
         "Compilation plans optimized HIR and prepares it for Clifft's sampler.\n"
         "\n"
@@ -1764,7 +1777,7 @@ NB_MODULE(_clifft_core, m) {
         "For coherent errors, supply expected parities from the ideal circuit.\n"
         "\n"
         "Args:\n"
-        "    stim_text: Circuit in .stim text format.\n"
+        "    stim_text: Circuit text in the selected input format.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
         "        Detectors where mask[i] != 0 become post-selection checks\n"
         "        that abort the shot early if their parity is non-zero.\n"
@@ -1773,32 +1786,11 @@ NB_MODULE(_clifft_core, m) {
         "    normalize_syndromes: If True, auto-compute reference parities from a\n"
         "        noiseless reference shot (mutually exclusive with explicit parities).\n"
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n"
+        "    input_format: Select stim or qasm2 circuit syntax.\n"
+        "    reconstruction_max_schedule_operations: Optional reconstruction schedule size limit.\n"
+        "    reconstruction_max_dilation_qubits: Optional intermediate qubit limit.\n"
         "    reconstruction: Use auto to select bounded output-specific CPU sampling plans.\n"
         "        State queries and fixed-fault sampling retain the original plan.\n");
-
-    m.def(
-        "_compile_qasm2",
-        [](const std::string& qasm_text, std::vector<uint8_t> postselection_mask,
-           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
-           bool normalize_syndromes, clifft::HirPassManager* hir_passes,
-           const BoolOrAutoOption& reconstruction_option) {
-            const auto reconstruction =
-                parse_bool_or_auto_option(reconstruction_option, "reconstruction");
-            nb::gil_scoped_release release;
-            const auto circuit = clifft::parse_qasm2(qasm_text).circuit;
-            const bool preserves_sampling =
-                hir_passes == nullptr || hir_passes->preserves_sampling_distribution();
-            const auto hir = prepare_circuit_for_lowering(
-                circuit, postselection_mask, normalize_syndromes, hir_passes, expected_detectors,
-                expected_observables, reconstruction != false && preserves_sampling);
-            return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling);
-        },
-        nb::arg("qasm_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
-        nb::arg("expected_detectors") = std::vector<uint8_t>{},
-        nb::arg("expected_observables") = std::vector<uint8_t>{},
-        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(), nb::kw_only(),
-        nb::arg("reconstruction") = BoolOrAutoOption{std::string{"auto"}},
-        "Compile a unitary OpenQASM 2 circuit string to an executable program.");
 
     m.def(
         "sample",

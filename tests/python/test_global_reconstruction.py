@@ -63,6 +63,36 @@ def test_plan_views_preserve_metadata_without_reconstruction(keep_records):
         )
 
 
+@pytest.mark.parametrize("policy", ["auto", True])
+def test_reconstruction_budgets_apply_to_each_output(policy):
+    source = "H 0 1 2\nT 0 1 2\nH 0 1 2\nM 0 1 2\nDETECTOR rec[-3]\nOBSERVABLE_INCLUDE(0) rec[-3]"
+    bounded = clifft.compile(
+        source, hir_passes=None, reconstruction=policy, reconstruction_max_schedule_operations=7
+    )
+    assert bounded.sampling_plan(keep_records=False).reconstruction_selected
+    assert not bounded.sampling_plan(keep_records=True).reconstruction_selected
+    default = clifft.compile(source, hir_passes=None, reconstruction=policy)
+    assert default.sampling_plan(keep_records=True).reconstruction_selected
+
+    smaller = clifft.compile(
+        source, hir_passes=None, reconstruction=policy, reconstruction_max_dilation_qubits=1
+    )
+    for keep in (False, True):
+        assert not smaller.sampling_plan(keep_records=keep).reconstruction_selected
+        assert smaller.sampling_plan(keep_records=keep).fallback_reason
+
+
+def test_explicit_schedule_budget_enlarges_auto_search_on_a_narrow_circuit():
+    # The repeated single-qubit rotations fill the automatic schedule budget.
+    source = "H 0 1\nT 1\n" + "T 0\n" * 2049 + "H 0 1\nM 0 1\nDETECTOR rec[-1]"
+    default = clifft.compile(source, hir_passes=None)
+    relaxed = clifft.compile(source, hir_passes=None, reconstruction_max_schedule_operations=4096)
+    for keep in (False, True):
+        assert default.sampling_plan(keep_records=keep).peak_active_width == 2
+        plan = relaxed.sampling_plan(keep_records=keep)
+        assert plan.reconstruction_selected and plan.peak_active_width == 1
+
+
 def test_sampling_plan_requires_explicit_output_mode():
     program = clifft.compile(SOURCE)
     with pytest.raises(TypeError):

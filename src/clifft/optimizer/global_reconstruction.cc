@@ -1375,7 +1375,7 @@ class Dilation {
                 [&](GateType g, std::span<const uint32_t> qs) { apply_clifford(g, qs); })) {
             return;
         }
-        require_supported(rotations_.size() < limits_.max_schedule_operations,
+        require_supported(rotations_.size() < limits_.schedule_operation_limit(),
                           "schedule operation limit exceeded");
         const uint32_t a = fresh();
         auto sign = noise_sign(term);
@@ -2211,7 +2211,7 @@ void schedule_reconstruction(GlobalReconstruction& result, const ReconstructionL
         }
     }
 
-    require_supported(quantum_ops.size() + n <= limits.max_schedule_operations,
+    require_supported(quantum_ops.size() + n <= limits.schedule_operation_limit(),
                       "schedule operation limit exceeded");
 
     // 1. Synthesize commuting hidden measurements from the nullspace of

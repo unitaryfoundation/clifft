@@ -40,11 +40,17 @@ struct ReconstructionLimits {
     uint32_t max_noise_bits = 262144;
     uint32_t max_outputs = 4096;
     size_t max_operations = 200000;
-    uint32_t max_schedule_operations = 4096;
+    // An explicit ceiling takes precedence over the compiler's width-based budget.
+    std::optional<uint32_t> max_schedule_operations;
     size_t max_planning_steps = 10000000;
     size_t max_channel_products = 1000000;
     size_t max_channel_support = 4096;
     size_t max_lowering_bytes = 128 * 1024 * 1024;
+
+    [[nodiscard]] uint32_t schedule_operation_limit() const noexcept {
+        constexpr uint32_t kDefaultScheduleOperations = 4096;
+        return max_schedule_operations.value_or(kDefaultScheduleOperations);
+    }
 };
 
 // One nonzero 64-bit word of a sparse affine sign mask over fault variables.
