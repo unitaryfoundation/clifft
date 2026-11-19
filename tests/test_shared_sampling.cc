@@ -747,6 +747,10 @@ TEST_CASE("Shared tuning bounds retained output allocations") {
 }
 
 TEST_CASE("SharingExecutor packs narrow states into contiguous slabs within budget") {
+    // Width-based State construction stays unambiguous for literal zero.
+    const State zero_width(0, 0);
+    REQUIRE(zero_width.max_active_width() == 0);
+
     const ExecutablePlan plan = parallel_t_plan(4);
     const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
     const EarlyPostselection checks(plan);

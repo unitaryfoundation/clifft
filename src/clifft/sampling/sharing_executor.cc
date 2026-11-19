@@ -255,7 +255,9 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
 }
 
 uint64_t SharingExecutor::state_pool_bytes() const noexcept {
-    uint64_t bytes = 0;
+    uint64_t bytes = saturating_add_u64(
+        saturating_multiply_u64(states_.capacity(), sizeof(State)),
+        saturating_multiply_u64(state_chunks_.capacity(), sizeof(PageAlignedAllocation)));
     for (const auto& chunk : state_chunks_) {
         bytes = saturating_add_u64(bytes, chunk.size());
     }
@@ -287,6 +289,9 @@ void SharingExecutor::grow_state_pool(uint32_t required) {
     const uint32_t width = plan_->peak_active_width();
     const size_t slot_bytes = State::slot_bytes(width);
     const uint32_t add = target - old_count;
+    if (add > std::numeric_limits<size_t>::max() / slot_bytes) {
+        throw std::length_error("shared state slab exceeds addressable memory");
+    }
     const auto alignment = slot_bytes >= PageAlignedAllocation::kHugePageSize
                                ? PageAlignedAllocation::Alignment::HugePageEligible
                                : PageAlignedAllocation::Alignment::BasePage;
@@ -298,7 +303,7 @@ void SharingExecutor::grow_state_pool(uint32_t required) {
     for (uint32_t i = 0; i < add; ++i) {
         const uint32_t slot = old_count + i;
         auto* storage = reinterpret_cast<double*>(base + size_t{i} * slot_bytes);
-        states_.emplace_back(storage, width, plan_->initial_active_width());
+        states_.push_back(State::borrowed(storage, width, plan_->initial_active_width()));
         free_[free_count_++] = slot;
     }
 }

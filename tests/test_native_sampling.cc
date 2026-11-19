@@ -755,6 +755,18 @@ TEST_CASE("Shared sampling reuses and bounds idle workers across repeated and co
     REQUIRE(prep.retained_shared_worker_count() == 1);
     REQUIRE(prep.retained_shared_worker_bytes() == retained_one);
 
+    // Borrowing with a mismatched configuration releases the old pool before dispatch.
+    const clifft::SharedWorkerKey dense_key{
+        .output_mode = BatchOutputMode::Rows,
+        .noise_mode = BatchNoiseMode::Dense,
+        .lane_capacity = 512,
+        .max_worker_state_bytes = kDefaultSharedWorkerStateBudget,
+        .group_by_noise = false,
+    };
+    REQUIRE(prep.borrow_shared_workers(dense_key, 1).empty());
+    REQUIRE(prep.retained_shared_worker_count() == 0);
+    REQUIRE(prep.retained_shared_worker_bytes() == 0);
+
     // Concurrent multi-threaded calls check out exclusive workers and stay within the byte cap.
     const SamplingOptions two_threads{.threads = 2, .batch_size = 512, .sharing = true};
     const auto expected_two = clifft::sample_survivors(program, 2048, 42, outputs, two_threads);
@@ -777,7 +789,13 @@ TEST_CASE("Shared sampling reuses and bounds idle workers across repeated and co
     REQUIRE(alt.execution.group_by_noise);
     REQUIRE(prep.retained_shared_worker_count() == 1);
 
-    // A tighter state budget must not reuse a cached worker built for a larger budget.
+    // Isolate max_worker_state_bytes in SharedWorkerKey: warm an identical
+    // ungrouped 65-lane worker at the default budget, then lower only the budget.
+    const SamplingOptions wide_budget{.threads = 1, .batch_size = 65, .sharing = true};
+    const auto grown = clifft::sample_survivors(program, 65, 1, outputs, wide_budget);
+    REQUIRE(grown.execution.batch_size == 65);
+    REQUIRE_FALSE(grown.execution.group_by_noise);
+    REQUIRE(prep.retained_shared_worker_count() == 1);
     const uint32_t width = program.sampling_plan(true).peak_active_width();
     REQUIRE_THROWS_AS(
         clifft::sample_survivors(program, 65, 1, outputs,
@@ -788,4 +806,44 @@ TEST_CASE("Shared sampling reuses and bounds idle workers across repeated and co
         std::runtime_error);
     require_same(cold, clifft::sample_survivors(program, 2048, 42, outputs, one_thread));
     REQUIRE(prep.retained_shared_worker_count() == 1);
+}
+
+TEST_CASE("Process-wide shared worker cache enforces its budget and LRU eviction") {
+    const SamplingOutputs outputs(true);
+    const SamplingOptions options{.threads = 1, .batch_size = 512, .sharing = true};
+    std::optional<Program> first = row_program(true);
+    const auto& first_prep = first->sampling_preparation(
+        outputs, {.early_postselection = true, .survivor_counts = true});
+    const auto ref = clifft::sample_survivors(*first, 2048, 7, outputs, options);
+    const uint64_t worker_bytes = first_prep.retained_shared_worker_bytes();
+    REQUIRE(worker_bytes > 0);
+
+    // A budget below one worker rejects retention completely.
+    {
+        const clifft::detail::ScopedSharedWorkerCacheBudget tiny(worker_bytes - 1);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
+        require_same(ref, clifft::sample_survivors(*first, 2048, 7, outputs, options));
+        REQUIRE(first_prep.retained_shared_worker_count() == 0);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
+    }
+
+    // A budget holding one worker evicts the least-recently-used Program when a second returns.
+    {
+        const clifft::detail::ScopedSharedWorkerCacheBudget single(worker_bytes + worker_bytes / 2);
+        std::optional<Program> second = row_program(true);
+        const auto& second_prep = second->sampling_preparation(
+            outputs, {.early_postselection = true, .survivor_counts = true});
+        require_same(ref, clifft::sample_survivors(*first, 2048, 7, outputs, options));
+        REQUIRE(first_prep.retained_shared_worker_count() == 1);
+        require_same(ref, clifft::sample_survivors(*second, 2048, 7, outputs, options));
+        REQUIRE(second_prep.retained_shared_worker_count() == 1);
+        REQUIRE(first_prep.retained_shared_worker_count() == 0);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() <= worker_bytes + worker_bytes / 2);
+
+        // Destroying the active Program releases its cached workers immediately.
+        second.reset();
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
+    }
+    first.reset();
+    REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
 }

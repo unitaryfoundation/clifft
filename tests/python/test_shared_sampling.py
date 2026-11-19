@@ -797,10 +797,10 @@ def test_shared_worker_reuse_across_repeated_and_concurrent_calls() -> None:
         np.testing.assert_array_equal(repeated.detectors, reference_ungrouped.detectors)
         np.testing.assert_array_equal(repeated.observables, reference_ungrouped.observables)
 
-    def run_task(index: int, target: clifft.Program = program) -> tuple[bool, clifft.SampleResult]:
+    def run_task(index: int) -> tuple[bool, clifft.SampleResult]:
         grouped = index % 2 == 1
         return grouped, clifft.sample(
-            target,
+            program,
             4096,
             seed=31,
             threads=2,
@@ -817,5 +817,3 @@ def test_shared_worker_reuse_across_repeated_and_concurrent_calls() -> None:
         expected = reference_grouped if grouped else reference_ungrouped
         np.testing.assert_array_equal(result.detectors, expected.detectors)
         np.testing.assert_array_equal(result.observables, expected.observables)
-    del run_task
-    del program

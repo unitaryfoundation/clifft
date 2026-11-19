@@ -24,9 +24,10 @@ class State {
     explicit State(uint32_t max_active_width, uint32_t initial_active_width = 0,
                    uint32_t initialization_workers = 1,
                    uint32_t intra_shot_min_active_width = kDefaultIntraShotMinActiveWidth);
-    // Borrows 64-byte-aligned storage of at least slot_bytes(max_active_width)
-    // bytes owned by the caller for the lifetime of this state.
-    State(double* storage, uint32_t max_active_width, uint32_t initial_active_width = 0);
+    // Creates a state borrowing 64-byte-aligned storage of at least
+    // slot_bytes(max_active_width) bytes owned by the caller for its lifetime.
+    [[nodiscard]] static State borrowed(double* storage, uint32_t max_active_width,
+                                        uint32_t initial_active_width = 0);
     ~State();
 
     State(const State&) = delete;
@@ -74,6 +75,10 @@ class State {
     void set_active_width(uint32_t width) noexcept;
 
   private:
+    struct BorrowedTag {};
+    State(BorrowedTag, double* storage, uint32_t max_active_width, uint32_t initial_active_width);
+    void initialize_views(double* storage, uint32_t max_active_width,
+                          uint32_t initial_active_width);
     void release() noexcept;
     void move_from(State&& other) noexcept;
 

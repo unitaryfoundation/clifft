@@ -4,7 +4,10 @@
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
+#include <cassert>
+#include <list>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace clifft {
 
@@ -39,9 +42,8 @@ SharedWorker::Executor make_shared_executor(const sampling::ExecutablePlan& plan
 uint64_t shared_worker_classical_bytes(const sampling::ExecutablePlan& plan,
                                        const sampling::PreparedBatchNoise& noise,
                                        const sampling::SharingKey* key,
-                                       const SharedWorkerKey& config) {
-    const uint64_t counter_bytes =
-        saturating_multiply_u64(plan.num_observables(), sizeof(uint64_t));
+                                       const SharedWorkerKey& config, size_t counter_capacity) {
+    const uint64_t counter_bytes = saturating_multiply_u64(counter_capacity, sizeof(uint64_t));
     const uint64_t executor_bytes =
         plan.peak_active_width() == 0
             ? sampling::batch_detail::batch_worker_storage_bytes(
@@ -49,7 +51,214 @@ uint64_t shared_worker_classical_bytes(const sampling::ExecutablePlan& plan,
                   sampling::BatchSamplingMode::Ordinary, &noise)
             : sampling::SharingExecutor::classical_storage_bytes(
                   plan, noise, key, config.lane_capacity, config.output_mode);
-    return saturating_add_u64(executor_bytes, counter_bytes);
+    return saturating_add_u64(sizeof(SharedWorker),
+                              saturating_add_u64(executor_bytes, counter_bytes));
+}
+
+// Process-wide LRU cache of idle shared workers keyed by owning
+// SamplingPreparation. Every node in lru_ holds at least one worker; front is
+// most recently used. Evicted and replaced workers destruct outside mutex_.
+class SharedWorkerCache {
+  public:
+    std::vector<std::unique_ptr<SharedWorker>> borrow(const SamplingPreparation* owner,
+                                                      const SharedWorkerKey& key, uint32_t count) {
+        std::vector<std::unique_ptr<SharedWorker>> out;
+        if (count == 0) {
+            return out;
+        }
+        std::vector<std::unique_ptr<SharedWorker>> discarded;
+        {
+            const std::lock_guard lock(mutex_);
+            const auto found = index_.find(owner);
+            if (found == index_.end()) {
+                return out;
+            }
+            auto it = found->second;
+            if (it->key != key) {
+                assert(it->bytes <= total_bytes_);
+                total_bytes_ -= it->bytes;
+                discarded = std::move(it->workers);
+                lru_.erase(it);
+                index_.erase(found);
+                return out;
+            }
+            const size_t take = std::min<size_t>(count, it->workers.size());
+            out.reserve(take);
+            for (size_t i = 0; i < take; ++i) {
+                auto worker = std::move(it->workers.back());
+                it->workers.pop_back();
+                const uint64_t bytes = worker->retained_bytes();
+                assert(bytes <= it->bytes && bytes <= total_bytes_);
+                it->bytes -= bytes;
+                total_bytes_ -= bytes;
+                out.push_back(std::move(worker));
+            }
+            if (it->workers.empty()) {
+                assert(it->bytes == 0);
+                lru_.erase(it);
+                index_.erase(found);
+            } else {
+                lru_.splice(lru_.begin(), lru_, it);
+            }
+        }
+        return out;
+    }
+
+    void return_workers(const SamplingPreparation* owner, const SharedWorkerKey& key,
+                        std::vector<std::unique_ptr<SharedWorker>> workers) {
+        std::vector<std::unique_ptr<SharedWorker>> evicted;
+        {
+            const std::lock_guard lock(mutex_);
+            auto found = index_.find(owner);
+            if (found != index_.end()) {
+                auto it = found->second;
+                if (it->key != key) {
+                    assert(it->bytes <= total_bytes_);
+                    total_bytes_ -= it->bytes;
+                    evicted = std::move(it->workers);
+                    lru_.erase(it);
+                    index_.erase(found);
+                    found = index_.end();
+                } else {
+                    lru_.splice(lru_.begin(), lru_, it);
+                }
+            }
+            for (auto& worker : workers) {
+                if (!worker) {
+                    continue;
+                }
+                const uint64_t bytes = worker->retained_bytes();
+                if (bytes > budget_bytes_) {
+                    continue;
+                }
+                while (total_bytes_ > budget_bytes_ - bytes && !lru_.empty() &&
+                       lru_.back().owner != owner) {
+                    auto& victim = lru_.back();
+                    assert(!victim.workers.empty());
+                    auto old = std::move(victim.workers.back());
+                    victim.workers.pop_back();
+                    const uint64_t old_bytes = old->retained_bytes();
+                    assert(old_bytes <= victim.bytes && old_bytes <= total_bytes_);
+                    victim.bytes -= old_bytes;
+                    total_bytes_ -= old_bytes;
+                    if (victim.workers.empty()) {
+                        assert(victim.bytes == 0);
+                        index_.erase(victim.owner);
+                        lru_.pop_back();
+                    }
+                    evicted.push_back(std::move(old));
+                }
+                if (total_bytes_ > budget_bytes_ - bytes) {
+                    continue;
+                }
+                if (found == index_.end()) {
+                    CacheEntry entry;
+                    entry.owner = owner;
+                    entry.key = key;
+                    entry.workers.reserve(1);
+                    entry.workers.push_back(std::move(worker));
+                    entry.bytes = bytes;
+                    lru_.push_front(std::move(entry));
+                    try {
+                        found = index_.emplace(owner, lru_.begin()).first;
+                    } catch (...) {
+                        evicted.push_back(std::move(lru_.front().workers.back()));
+                        lru_.pop_front();
+                        throw;
+                    }
+                    total_bytes_ += bytes;
+                } else {
+                    auto& entry = *found->second;
+                    entry.workers.push_back(std::move(worker));
+                    entry.bytes += bytes;
+                    total_bytes_ += bytes;
+                }
+            }
+        }
+        // Evicted and over-budget workers (remaining in workers) destruct outside mutex_.
+    }
+
+    void release(const SamplingPreparation* owner) noexcept {
+        std::vector<std::unique_ptr<SharedWorker>> discarded;
+        {
+            const std::lock_guard lock(mutex_);
+            const auto found = index_.find(owner);
+            if (found == index_.end()) {
+                return;
+            }
+            auto it = found->second;
+            assert(it->bytes <= total_bytes_);
+            total_bytes_ -= it->bytes;
+            discarded = std::move(it->workers);
+            lru_.erase(it);
+            index_.erase(found);
+        }
+    }
+
+    uint64_t retained_bytes(const SamplingPreparation* owner) const noexcept {
+        const std::lock_guard lock(mutex_);
+        const auto found = index_.find(owner);
+        return found == index_.end() ? 0 : found->second->bytes;
+    }
+
+    size_t retained_count(const SamplingPreparation* owner) const noexcept {
+        const std::lock_guard lock(mutex_);
+        const auto found = index_.find(owner);
+        return found == index_.end() ? 0 : found->second->workers.size();
+    }
+
+    uint64_t total_bytes() const noexcept {
+        const std::lock_guard lock(mutex_);
+        return total_bytes_;
+    }
+
+    uint64_t set_budget(uint64_t new_budget) {
+        std::vector<std::unique_ptr<SharedWorker>> evicted;
+        uint64_t previous = 0;
+        {
+            const std::lock_guard lock(mutex_);
+            previous = budget_bytes_;
+            budget_bytes_ = new_budget;
+            while (total_bytes_ > budget_bytes_ && !lru_.empty()) {
+                auto& victim = lru_.back();
+                assert(!victim.workers.empty());
+                auto old = std::move(victim.workers.back());
+                victim.workers.pop_back();
+                const uint64_t old_bytes = old->retained_bytes();
+                assert(old_bytes <= victim.bytes && old_bytes <= total_bytes_);
+                victim.bytes -= old_bytes;
+                total_bytes_ -= old_bytes;
+                if (victim.workers.empty()) {
+                    assert(victim.bytes == 0);
+                    index_.erase(victim.owner);
+                    lru_.pop_back();
+                }
+                evicted.push_back(std::move(old));
+            }
+        }
+        return previous;
+    }
+
+  private:
+    struct CacheEntry {
+        const SamplingPreparation* owner = nullptr;
+        SharedWorkerKey key;
+        std::vector<std::unique_ptr<SharedWorker>> workers;
+        uint64_t bytes = 0;
+    };
+
+    mutable std::mutex mutex_;
+    std::list<CacheEntry> lru_;
+    std::unordered_map<const SamplingPreparation*, std::list<CacheEntry>::iterator> index_;
+    uint64_t total_bytes_ = 0;
+    uint64_t budget_bytes_ = kMaxRetainedSharedWorkerBytes;
+};
+
+SharedWorkerCache& shared_worker_cache() {
+    // Immortal singleton avoids static-destruction-order hazards when Programs
+    // outlive function-local statics during process teardown.
+    static auto* cache = new SharedWorkerCache();
+    return *cache;
 }
 
 }  // namespace
@@ -59,13 +268,30 @@ SharedWorker::SharedWorker(const sampling::ExecutablePlan& plan,
                            const sampling::EarlyPostselection* checks,
                            const sampling::SharingKey* key, const SharedWorkerKey& config)
     : executor(make_shared_executor(plan, noise, checks, key, config)),
-      classical_bytes(shared_worker_classical_bytes(plan, noise, key, config)),
-      observable_ones(plan.num_observables()) {}
+      observable_ones(plan.num_observables()) {
+    classical_bytes =
+        shared_worker_classical_bytes(plan, noise, key, config, observable_ones.capacity());
+}
 
 uint64_t SharedWorker::retained_bytes() const noexcept {
     const auto* sharing = std::get_if<sampling::SharingExecutor>(&executor);
     return saturating_add_u64(classical_bytes, sharing ? sharing->state_pool_bytes() : 0);
 }
+
+uint64_t total_retained_shared_worker_bytes() noexcept {
+    return shared_worker_cache().total_bytes();
+}
+
+namespace detail {
+
+ScopedSharedWorkerCacheBudget::ScopedSharedWorkerCacheBudget(uint64_t budget_bytes)
+    : previous_budget_(shared_worker_cache().set_budget(budget_bytes)) {}
+
+ScopedSharedWorkerCacheBudget::~ScopedSharedWorkerCacheBudget() {
+    (void)shared_worker_cache().set_budget(previous_budget_);
+}
+
+}  // namespace detail
 
 SamplingPreparation::SamplingPreparation(const sampling::ExecutablePlan& compiled,
                                          sampling::SamplingOutputs outputs,
@@ -76,6 +302,12 @@ SamplingPreparation::SamplingPreparation(const sampling::ExecutablePlan& compile
                    : std::optional(
                          compiled.compact_outputs(outputs, early_postselection, survivor_counts))),
       plan_(compact_ ? &*compact_ : &compiled) {}
+
+SamplingPreparation::~SamplingPreparation() {
+    // Release any cached idle workers before compact_, checks_, noise, and
+    // sharing_key_ members are destroyed.
+    shared_worker_cache().release(this);
+}
 
 const sampling::EarlyPostselection& SamplingPreparation::checks() const {
     return checks_.get(*plan_, early_postselection_);
@@ -102,61 +334,20 @@ const sampling::SharingKey& SamplingPreparation::sharing_key() const {
 
 std::vector<std::unique_ptr<SharedWorker>> SamplingPreparation::borrow_shared_workers(
     const SharedWorkerKey& key, uint32_t count) const {
-    std::vector<std::unique_ptr<SharedWorker>> out;
-    if (count == 0) {
-        return out;
-    }
-    const std::lock_guard lock(worker_pool_mutex_);
-    if (worker_pool_key_ != key || idle_workers_.empty()) {
-        return out;
-    }
-    const size_t take = std::min<size_t>(count, idle_workers_.size());
-    out.reserve(take);
-    for (size_t i = 0; i < take; ++i) {
-        auto worker = std::move(idle_workers_.back());
-        idle_workers_.pop_back();
-        const uint64_t bytes = worker->retained_bytes();
-        retained_worker_bytes_ =
-            bytes <= retained_worker_bytes_ ? retained_worker_bytes_ - bytes : 0;
-        out.push_back(std::move(worker));
-    }
-    return out;
+    return shared_worker_cache().borrow(this, key, count);
 }
 
 void SamplingPreparation::return_shared_workers(
     const SharedWorkerKey& key, std::vector<std::unique_ptr<SharedWorker>> workers) const {
-    std::vector<std::unique_ptr<SharedWorker>> replaced;
-    {
-        const std::lock_guard lock(worker_pool_mutex_);
-        if (worker_pool_key_ != key) {
-            replaced = std::move(idle_workers_);
-            idle_workers_.clear();
-            retained_worker_bytes_ = 0;
-            worker_pool_key_ = key;
-        }
-        for (auto& worker : workers) {
-            if (!worker) {
-                continue;
-            }
-            const uint64_t bytes = worker->retained_bytes();
-            if (bytes <= kMaxRetainedSharedWorkerBytes &&
-                retained_worker_bytes_ <= kMaxRetainedSharedWorkerBytes - bytes) {
-                retained_worker_bytes_ += bytes;
-                idle_workers_.push_back(std::move(worker));
-            }
-        }
-    }
-    // Replaced and over-budget workers (remaining in workers) destruct outside the mutex.
+    shared_worker_cache().return_workers(this, key, std::move(workers));
 }
 
 uint64_t SamplingPreparation::retained_shared_worker_bytes() const noexcept {
-    const std::lock_guard lock(worker_pool_mutex_);
-    return retained_worker_bytes_;
+    return shared_worker_cache().retained_bytes(this);
 }
 
 size_t SamplingPreparation::retained_shared_worker_count() const noexcept {
-    const std::lock_guard lock(worker_pool_mutex_);
-    return idle_workers_.size();
+    return shared_worker_cache().retained_count(this);
 }
 
 }  // namespace clifft

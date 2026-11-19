@@ -42,24 +42,32 @@ size_t State::storage_bytes(uint32_t max_active_width) {
     return PageAlignedAllocation::allocation_size(slot_bytes(max_active_width));
 }
 
-State::State(uint32_t max_active_width, uint32_t initial_active_width,
-             uint32_t initialization_workers, uint32_t intra_shot_min_active_width)
-    : initial_active_width_(initial_active_width),
-      active_width_(initial_active_width),
-      max_active_width_(max_active_width) {
-    const size_t allocation_bytes = storage_bytes(max_active_width);
-    if (initial_active_width > max_active_width) {
-        throw std::invalid_argument("sampling state initial active width exceeds its maximum");
-    }
+void State::initialize_views(double* storage, uint32_t max_active_width,
+                             uint32_t initial_active_width) {
+    assert(storage != nullptr && reinterpret_cast<uintptr_t>(storage) % kStateAlignment == 0 &&
+           "state storage must be non-null and 64-byte aligned");
+    initial_active_width_ = initial_active_width;
+    active_width_ = initial_active_width;
+    max_active_width_ = max_active_width;
     capacity_ = uint64_t{1} << max_active_width;
     coefficient_stride_ = round_array_stride(capacity_);
     const uint64_t scratch_capacity = std::max(uint64_t{1}, capacity_ >> 1);
     scratch_stride_ = round_array_stride(scratch_capacity);
-    allocation_ = PageAlignedAllocation(allocation_bytes);
-    real_ = static_cast<double*>(allocation_.data());
+    real_ = storage;
     imag_ = real_ + coefficient_stride_;
     scratch_real_ = imag_ + coefficient_stride_;
     scratch_imag_ = scratch_real_ + scratch_stride_;
+}
+
+State::State(uint32_t max_active_width, uint32_t initial_active_width,
+             uint32_t initialization_workers, uint32_t intra_shot_min_active_width) {
+    const size_t allocation_bytes = storage_bytes(max_active_width);
+    if (initial_active_width > max_active_width) {
+        throw std::invalid_argument("sampling state initial active width exceeds its maximum");
+    }
+    allocation_ = PageAlignedAllocation(allocation_bytes);
+    initialize_views(static_cast<double*>(allocation_.data()), max_active_width,
+                     initial_active_width);
     if (should_parallelize_intra_shot(max_active_width_, initialization_workers,
                                       intra_shot_min_active_width)) {
         // Matching each worker's future coefficient range here lets the OS
@@ -75,25 +83,21 @@ State::State(uint32_t max_active_width, uint32_t initial_active_width,
     }
 }
 
-State::State(double* storage, uint32_t max_active_width, uint32_t initial_active_width)
-    : initial_active_width_(initial_active_width),
-      active_width_(initial_active_width),
-      max_active_width_(max_active_width) {
-    (void)slot_bytes(max_active_width);
+State::State(BorrowedTag, double* storage, uint32_t max_active_width,
+             uint32_t initial_active_width) {
+    if (max_active_width >= kDenseActiveWidthLimit) {
+        throw std::invalid_argument("sampling state maximum active width must be below " +
+                                    std::to_string(kDenseActiveWidthLimit));
+    }
     if (initial_active_width > max_active_width) {
         throw std::invalid_argument("sampling state initial active width exceeds its maximum");
     }
-    assert(storage != nullptr && reinterpret_cast<uintptr_t>(storage) % kStateAlignment == 0 &&
-           "borrowed state storage must be non-null and 64-byte aligned");
-    capacity_ = uint64_t{1} << max_active_width;
-    coefficient_stride_ = round_array_stride(capacity_);
-    const uint64_t scratch_capacity = std::max(uint64_t{1}, capacity_ >> 1);
-    scratch_stride_ = round_array_stride(scratch_capacity);
-    real_ = storage;
-    imag_ = real_ + coefficient_stride_;
-    scratch_real_ = imag_ + coefficient_stride_;
-    scratch_imag_ = scratch_real_ + scratch_stride_;
+    initialize_views(storage, max_active_width, initial_active_width);
     reset();
+}
+
+State State::borrowed(double* storage, uint32_t max_active_width, uint32_t initial_active_width) {
+    return State(BorrowedTag{}, storage, max_active_width, initial_active_width);
 }
 
 State::~State() {

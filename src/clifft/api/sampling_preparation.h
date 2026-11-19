@@ -3,9 +3,10 @@
 // Preparation for one requested-output choice of a compiled plan.
 // Record snapshots expand into affine expressions when their rows are omitted.
 // Early checks, noise metadata, and grouping keys are built on first request
-// and shared by concurrent readers. Idle shared workers are pooled per active
-// execution configuration up to a byte cap, checked out exclusively by each
-// call, and released with this object. The compiled plan outlives this object.
+// and shared by concurrent readers. Idle shared workers are cached in a
+// process-wide LRU pool up to kMaxRetainedSharedWorkerBytes, checked out
+// exclusively by each call, and released when this object is destroyed.
+// The compiled plan outlives this object.
 
 #include "clifft/sampling/batch/classical.h"
 #include "clifft/sampling/batch/executor.h"
@@ -23,7 +24,9 @@
 
 namespace clifft {
 
-// Upper bound on idle shared-worker storage retained per SamplingPreparation.
+// Process-wide upper bound on idle shared-worker storage retained across all
+// live Programs. Returning workers evicts the least-recently-used idle workers
+// of other preparations before exceeding this cap.
 inline constexpr uint64_t kMaxRetainedSharedWorkerBytes = 512 * 1024 * 1024;
 
 // Configuration that determines whether idle shared workers can serve a call.
@@ -55,7 +58,24 @@ struct SharedWorker {
     [[nodiscard]] uint64_t retained_bytes() const noexcept;
 };
 
+// Total idle shared-worker bytes currently cached across all live Programs.
+[[nodiscard]] uint64_t total_retained_shared_worker_bytes() noexcept;
+
 namespace detail {
+
+// Overrides the process-wide shared-worker retention budget within a scope and
+// restores the previous budget on destruction. Intended for unit tests.
+class ScopedSharedWorkerCacheBudget {
+  public:
+    explicit ScopedSharedWorkerCacheBudget(uint64_t budget_bytes);
+    ~ScopedSharedWorkerCacheBudget();
+
+    ScopedSharedWorkerCacheBudget(const ScopedSharedWorkerCacheBudget&) = delete;
+    ScopedSharedWorkerCacheBudget& operator=(const ScopedSharedWorkerCacheBudget&) = delete;
+
+  private:
+    uint64_t previous_budget_;
+};
 
 // Builds a value on first request and shares it afterwards. A failed build
 // leaves the slot empty, so a later request tries again.
@@ -82,6 +102,12 @@ class SamplingPreparation {
   public:
     SamplingPreparation(const sampling::ExecutablePlan& compiled, sampling::SamplingOutputs outputs,
                         bool early_postselection, bool survivor_counts);
+    ~SamplingPreparation();
+
+    SamplingPreparation(const SamplingPreparation&) = delete;
+    SamplingPreparation& operator=(const SamplingPreparation&) = delete;
+    SamplingPreparation(SamplingPreparation&&) = delete;
+    SamplingPreparation& operator=(SamplingPreparation&&) = delete;
 
     // The plan executors run, with unused output actions removed.
     [[nodiscard]] const sampling::ExecutablePlan& plan() const noexcept { return *plan_; }
@@ -90,9 +116,11 @@ class SamplingPreparation {
     [[nodiscard]] const sampling::SharingKey& sharing_key() const;
 
     // Checks out up to count matching idle workers (all returned entries are non-null).
+    // If cached workers belong to a different configuration, they are released
+    // immediately before returning empty so replacements do not overlap in memory.
     [[nodiscard]] std::vector<std::unique_ptr<SharedWorker>> borrow_shared_workers(
         const SharedWorkerKey& key, uint32_t count) const;
-    // Returns completed workers for reuse up to kMaxRetainedSharedWorkerBytes.
+    // Returns completed workers for reuse within the process-wide LRU budget.
     // Returning a different configuration replaces any previously cached pool.
     void return_shared_workers(const SharedWorkerKey& key,
                                std::vector<std::unique_ptr<SharedWorker>> workers) const;
@@ -109,13 +137,6 @@ class SamplingPreparation {
     detail::LazyPrepared<sampling::PreparedBatchNoise> site_sparse_noise_;
     detail::LazyPrepared<sampling::PreparedBatchNoise> site_rows_noise_;
     detail::LazyPrepared<sampling::SharingKey> sharing_key_;
-
-    // Declared last so idle workers destruct before the plans, checks, noise,
-    // and grouping keys they reference.
-    mutable std::mutex worker_pool_mutex_;
-    mutable std::optional<SharedWorkerKey> worker_pool_key_;
-    mutable std::vector<std::unique_ptr<SharedWorker>> idle_workers_;
-    mutable uint64_t retained_worker_bytes_ = 0;
 };
 
 }  // namespace clifft
