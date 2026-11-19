@@ -42,6 +42,9 @@ struct SharedWorkerKey {
 
 // Reusable per-thread execution state for shared sampling calls. A call borrows
 // exclusive ownership for its workers before dispatch and returns them on exit.
+// An evicted worker may destruct on another thread after its owning
+// SamplingPreparation, so member destructors must not dereference the plan,
+// noise, checks, or sharing key pointers captured at construction.
 struct SharedWorker {
     using Executor = std::variant<sampling::BatchExecutor, sampling::SharingExecutor>;
 
@@ -123,7 +126,7 @@ class SamplingPreparation {
     // Returns completed workers for reuse within the process-wide LRU budget.
     // Returning a different configuration replaces any previously cached pool.
     void return_shared_workers(const SharedWorkerKey& key,
-                               std::vector<std::unique_ptr<SharedWorker>> workers) const;
+                               std::vector<std::unique_ptr<SharedWorker>> workers) const noexcept;
     [[nodiscard]] uint64_t retained_shared_worker_bytes() const noexcept;
     [[nodiscard]] size_t retained_shared_worker_count() const noexcept;
 

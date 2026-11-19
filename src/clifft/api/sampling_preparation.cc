@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cassert>
 #include <list>
+#include <new>
 #include <stdexcept>
 #include <unordered_map>
 
@@ -75,11 +76,7 @@ class SharedWorkerCache {
             }
             auto it = found->second;
             if (it->key != key) {
-                assert(it->bytes <= total_bytes_);
-                total_bytes_ -= it->bytes;
-                discarded = std::move(it->workers);
-                lru_.erase(it);
-                index_.erase(found);
+                discarded = detach_entry(found);
                 return out;
             }
             const size_t take = std::min<size_t>(count, it->workers.size());
@@ -105,22 +102,17 @@ class SharedWorkerCache {
     }
 
     void return_workers(const SamplingPreparation* owner, const SharedWorkerKey& key,
-                        std::vector<std::unique_ptr<SharedWorker>> workers) {
+                        std::vector<std::unique_ptr<SharedWorker>> workers) noexcept {
         std::vector<std::unique_ptr<SharedWorker>> evicted;
         {
             const std::lock_guard lock(mutex_);
             auto found = index_.find(owner);
             if (found != index_.end()) {
-                auto it = found->second;
-                if (it->key != key) {
-                    assert(it->bytes <= total_bytes_);
-                    total_bytes_ -= it->bytes;
-                    evicted = std::move(it->workers);
-                    lru_.erase(it);
-                    index_.erase(found);
+                if (found->second->key != key) {
+                    evicted = detach_entry(found);
                     found = index_.end();
                 } else {
-                    lru_.splice(lru_.begin(), lru_, it);
+                    lru_.splice(lru_.begin(), lru_, found->second);
                 }
             }
             for (auto& worker : workers) {
@@ -128,54 +120,48 @@ class SharedWorkerCache {
                     continue;
                 }
                 const uint64_t bytes = worker->retained_bytes();
-                if (bytes > budget_bytes_) {
+                const uint64_t owner_bytes = found == index_.end() ? 0 : found->second->bytes;
+                if (bytes > budget_bytes_ || owner_bytes > budget_bytes_ - bytes) {
                     continue;
                 }
-                while (total_bytes_ > budget_bytes_ - bytes && !lru_.empty() &&
-                       lru_.back().owner != owner) {
-                    auto& victim = lru_.back();
-                    assert(!victim.workers.empty());
-                    auto old = std::move(victim.workers.back());
-                    victim.workers.pop_back();
-                    const uint64_t old_bytes = old->retained_bytes();
-                    assert(old_bytes <= victim.bytes && old_bytes <= total_bytes_);
-                    victim.bytes -= old_bytes;
-                    total_bytes_ -= old_bytes;
-                    if (victim.workers.empty()) {
-                        assert(victim.bytes == 0);
-                        index_.erase(victim.owner);
-                        lru_.pop_back();
+                try {
+                    while (total_bytes_ > budget_bytes_ - bytes && !lru_.empty() &&
+                           lru_.back().owner != owner) {
+                        evicted.reserve(evicted.size() + 1);
+                        evicted.push_back(pop_tail_worker());
                     }
-                    evicted.push_back(std::move(old));
-                }
-                if (total_bytes_ > budget_bytes_ - bytes) {
-                    continue;
-                }
-                if (found == index_.end()) {
-                    CacheEntry entry;
-                    entry.owner = owner;
-                    entry.key = key;
-                    entry.workers.reserve(1);
-                    entry.workers.push_back(std::move(worker));
-                    entry.bytes = bytes;
-                    lru_.push_front(std::move(entry));
-                    try {
-                        found = index_.emplace(owner, lru_.begin()).first;
-                    } catch (...) {
-                        evicted.push_back(std::move(lru_.front().workers.back()));
-                        lru_.pop_front();
-                        throw;
+                    assert(total_bytes_ <= budget_bytes_ - bytes);
+                    if (found == index_.end()) {
+                        CacheEntry entry;
+                        entry.owner = owner;
+                        entry.key = key;
+                        entry.workers.reserve(1);
+                        lru_.push_front(std::move(entry));
+                        try {
+                            found = index_.emplace(owner, lru_.begin()).first;
+                        } catch (...) {
+                            lru_.pop_front();
+                            throw;
+                        }
+                        auto& inserted = *found->second;
+                        inserted.workers.push_back(std::move(worker));
+                        inserted.bytes = bytes;
+                        total_bytes_ += bytes;
+                    } else {
+                        auto& entry = *found->second;
+                        entry.workers.reserve(entry.workers.size() + 1);
+                        entry.workers.push_back(std::move(worker));
+                        entry.bytes += bytes;
+                        total_bytes_ += bytes;
                     }
-                    total_bytes_ += bytes;
-                } else {
-                    auto& entry = *found->second;
-                    entry.workers.push_back(std::move(worker));
-                    entry.bytes += bytes;
-                    total_bytes_ += bytes;
+                } catch (const std::bad_alloc&) {
+                    // Best-effort retention: drop remaining workers on OOM
+                    // without discarding the completed sampling result.
+                    break;
                 }
             }
         }
-        // Evicted and over-budget workers (remaining in workers) destruct outside mutex_.
+        // Evicted and unretained workers (remaining in workers) destruct outside mutex_.
     }
 
     void release(const SamplingPreparation* owner) noexcept {
@@ -186,12 +172,7 @@ class SharedWorkerCache {
             if (found == index_.end()) {
                 return;
             }
-            auto it = found->second;
-            assert(it->bytes <= total_bytes_);
-            total_bytes_ -= it->bytes;
-            discarded = std::move(it->workers);
-            lru_.erase(it);
-            index_.erase(found);
+            discarded = detach_entry(found);
         }
     }
 
@@ -212,7 +193,7 @@ class SharedWorkerCache {
         return total_bytes_;
     }
 
-    uint64_t set_budget(uint64_t new_budget) {
+    uint64_t set_budget(uint64_t new_budget) noexcept {
         std::vector<std::unique_ptr<SharedWorker>> evicted;
         uint64_t previous = 0;
         {
@@ -220,20 +201,12 @@ class SharedWorkerCache {
             previous = budget_bytes_;
             budget_bytes_ = new_budget;
             while (total_bytes_ > budget_bytes_ && !lru_.empty()) {
-                auto& victim = lru_.back();
-                assert(!victim.workers.empty());
-                auto old = std::move(victim.workers.back());
-                victim.workers.pop_back();
-                const uint64_t old_bytes = old->retained_bytes();
-                assert(old_bytes <= victim.bytes && old_bytes <= total_bytes_);
-                victim.bytes -= old_bytes;
-                total_bytes_ -= old_bytes;
-                if (victim.workers.empty()) {
-                    assert(victim.bytes == 0);
-                    index_.erase(victim.owner);
-                    lru_.pop_back();
+                auto old = pop_tail_worker();
+                try {
+                    evicted.push_back(std::move(old));
+                } catch (const std::bad_alloc&) {
+                    // Best-effort deferred destruction when bookkeeping hits OOM.
                 }
-                evicted.push_back(std::move(old));
             }
         }
         return previous;
@@ -247,9 +220,38 @@ class SharedWorkerCache {
         uint64_t bytes = 0;
     };
 
+    using Index = std::unordered_map<const SamplingPreparation*, std::list<CacheEntry>::iterator>;
+
+    std::vector<std::unique_ptr<SharedWorker>> detach_entry(Index::iterator found) noexcept {
+        auto it = found->second;
+        assert(it->bytes <= total_bytes_);
+        total_bytes_ -= it->bytes;
+        auto workers = std::move(it->workers);
+        lru_.erase(it);
+        index_.erase(found);
+        return workers;
+    }
+
+    std::unique_ptr<SharedWorker> pop_tail_worker() noexcept {
+        auto& victim = lru_.back();
+        assert(!victim.workers.empty());
+        auto old = std::move(victim.workers.back());
+        victim.workers.pop_back();
+        const uint64_t old_bytes = old->retained_bytes();
+        assert(old_bytes <= victim.bytes && old_bytes <= total_bytes_);
+        victim.bytes -= old_bytes;
+        total_bytes_ -= old_bytes;
+        if (victim.workers.empty()) {
+            assert(victim.bytes == 0);
+            index_.erase(victim.owner);
+            lru_.pop_back();
+        }
+        return old;
+    }
+
     mutable std::mutex mutex_;
     std::list<CacheEntry> lru_;
-    std::unordered_map<const SamplingPreparation*, std::list<CacheEntry>::iterator> index_;
+    Index index_;
     uint64_t total_bytes_ = 0;
     uint64_t budget_bytes_ = kMaxRetainedSharedWorkerBytes;
 };
@@ -338,7 +340,7 @@ std::vector<std::unique_ptr<SharedWorker>> SamplingPreparation::borrow_shared_wo
 }
 
 void SamplingPreparation::return_shared_workers(
-    const SharedWorkerKey& key, std::vector<std::unique_ptr<SharedWorker>> workers) const {
+    const SharedWorkerKey& key, std::vector<std::unique_ptr<SharedWorker>> workers) const noexcept {
     shared_worker_cache().return_workers(this, key, std::move(workers));
 }
 

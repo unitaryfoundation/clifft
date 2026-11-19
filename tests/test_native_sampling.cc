@@ -827,22 +827,58 @@ TEST_CASE("Process-wide shared worker cache enforces its budget and LRU eviction
         REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
     }
 
-    // A budget holding one worker evicts the least-recently-used Program when a second returns.
+    // A budget holding two workers evicts the least-recently-used Program when a third returns.
     {
-        const clifft::detail::ScopedSharedWorkerCacheBudget single(worker_bytes + worker_bytes / 2);
+        const uint64_t two_budget = 2 * worker_bytes + worker_bytes / 2;
+        const clifft::detail::ScopedSharedWorkerCacheBudget two_workers(two_budget);
         std::optional<Program> second = row_program(true);
+        std::optional<Program> third = row_program(true);
         const auto& second_prep = second->sampling_preparation(
             outputs, {.early_postselection = true, .survivor_counts = true});
+        const auto& third_prep = third->sampling_preparation(
+            outputs, {.early_postselection = true, .survivor_counts = true});
+        require_same(ref, clifft::sample_survivors(*first, 2048, 7, outputs, options));
+        require_same(ref, clifft::sample_survivors(*second, 2048, 7, outputs, options));
+        // Touch first so second becomes the least-recently-used entry.
         require_same(ref, clifft::sample_survivors(*first, 2048, 7, outputs, options));
         REQUIRE(first_prep.retained_shared_worker_count() == 1);
-        require_same(ref, clifft::sample_survivors(*second, 2048, 7, outputs, options));
         REQUIRE(second_prep.retained_shared_worker_count() == 1);
-        REQUIRE(first_prep.retained_shared_worker_count() == 0);
-        REQUIRE(clifft::total_retained_shared_worker_bytes() <= worker_bytes + worker_bytes / 2);
 
-        // Destroying the active Program releases its cached workers immediately.
-        second.reset();
-        REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
+        require_same(ref, clifft::sample_survivors(*third, 2048, 7, outputs, options));
+        REQUIRE(first_prep.retained_shared_worker_count() == 1);
+        REQUIRE(second_prep.retained_shared_worker_count() == 0);
+        REQUIRE(third_prep.retained_shared_worker_count() == 1);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() <= two_budget);
+
+        // Destroying cached Programs releases their workers immediately.
+        third.reset();
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == worker_bytes);
+    }
+
+    // Returning an extra worker that cannot fit alongside the caller's own
+    // retained worker must not evict another Program's cached worker.
+    {
+        const SamplingOptions small_options{.threads = 1, .batch_size = 64, .sharing = true};
+        const SamplingOptions two_threads{.threads = 2, .batch_size = 512, .sharing = true};
+        std::optional<Program> small = row_program(true);
+        const auto& small_prep = small->sampling_preparation(
+            outputs, {.early_postselection = true, .survivor_counts = true});
+        (void)clifft::sample_survivors(*small, 2048, 7, outputs, small_options);
+        const uint64_t small_bytes = small_prep.retained_shared_worker_bytes();
+        REQUIRE(small_bytes > 0);
+        REQUIRE(small_bytes < worker_bytes);
+
+        const uint64_t pair_budget = worker_bytes + small_bytes;
+        const clifft::detail::ScopedSharedWorkerCacheBudget pair(pair_budget);
+        REQUIRE(first_prep.retained_shared_worker_count() == 1);
+        REQUIRE(small_prep.retained_shared_worker_count() == 1);
+        (void)clifft::sample_survivors(*first, 2048, 7, outputs, two_threads);
+        REQUIRE(first_prep.retained_shared_worker_count() == 1);
+        REQUIRE(small_prep.retained_shared_worker_count() == 1);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == pair_budget);
+
+        small.reset();
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == worker_bytes);
     }
     first.reset();
     REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
