@@ -346,6 +346,21 @@ TEST_CASE("Postselected state evolution amortizes sharing on smaller calls") {
                                         State::storage_bytes(plan.peak_active_width())));
 }
 
+TEST_CASE("Short wide batches with partial masks benefit from early checks") {
+    const auto source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d5_r5.stim");
+    auto hir = trace(source);
+    const bool select_first = GENERATE(false, true);
+    hir.postselection.mask.assign(hir.num_detectors, 0);
+    auto begin = select_first ? hir.postselection.mask.begin() : hir.postselection.mask.end() - 32;
+    std::fill_n(begin, 32, 1);
+    default_hir_pass_manager().run(hir);
+    const auto program = Program::compile(source, hir, std::nullopt);
+    const auto& plan = program.sampling_plan(false);
+    REQUIRE(plan.has_early_postselection(BatchOutputMode::Rows) == select_first);
+    REQUIRE(should_share_sampling(plan, 4096, RecordOutputs::Syndromes, {1, 1},
+                                  kDefaultSharedWorkerStateBudget) == select_first);
+}
+
 TEST_CASE("Native shared calibration replays with the selected settings") {
     const Program program = row_program(true);
     const SamplingOptions options{.threads = 2, .tuning_budget_seconds = 0.01, .sharing = true};

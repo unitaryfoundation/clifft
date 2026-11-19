@@ -30,7 +30,9 @@ evolution between shots that follow the same quantum trajectory. For
 postselected workloads and noiseless circuits with a shared unitary prefix,
 Clifft considers how much coefficient and noise-sampling work each worker
 would repeat across its shots. A costly circuit can benefit from sharing
-even on a short call. Requested expectation-value rows use ordinary execution so
+even on a short call. For a wide circuit with a partial postselection mask,
+early checks can save enough evolution to make sharing worthwhile.
+Requested expectation-value rows use ordinary execution so
 every probe is retained.
 
 Calls can run concurrently on the same `Program` and reuse its preparation.

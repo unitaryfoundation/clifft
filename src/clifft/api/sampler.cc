@@ -416,14 +416,17 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
         shots_per_worker >= kDefaultMinAutoBatchShots &&
         saturating_multiply_u64(work_per_shot, shots_per_worker) >= kMinWorkPerWorker;
     constexpr uint32_t kBulkPostselectionShots = 8192;
+    const bool bulk = shots_per_worker >= kBulkPostselectionShots;
     const uint32_t selected = compiled.num_postselected_detectors();
+    // On shorter calls, a partial mask on a wide plan should reject shots
+    // before coefficient work finishes to amortize trajectory splits.
     const bool enough_checks =
-        selected >= 8 && (compiled.peak_active_width() < 8 || selected >= 32 ||
-                          selected == compiled.num_detectors());
+        selected >= 8 &&
+        (compiled.peak_active_width() < 8 || selected == compiled.num_detectors() ||
+         (selected >= 32 && (bulk || compiled.has_early_postselection(mode))));
     const uint32_t noise_symbols = compiled.num_presampled_symbols();
     const bool rejection_workload =
-        (shots_per_worker >= kBulkPostselectionShots || expensive_batch) && noise_symbols != 0 &&
-        enough_checks;
+        (bulk || expensive_batch) && noise_symbols != 0 && enough_checks;
     constexpr uint32_t kMinUnitaryPrefixShots = 256;
     // Measurement branches can share the preceding unitary evolution when width
     // shrinks monotonically after measurement and prefix work dominates.
