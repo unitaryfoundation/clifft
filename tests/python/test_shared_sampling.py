@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
+from utils_conformance import unpack_bits
 
 import clifft
 
@@ -34,12 +35,6 @@ def counts(result: clifft.SampleResult) -> tuple[int, int, int, tuple[int, ...]]
         result.logical_errors,
         tuple(int(x) for x in result.observable_ones),
     )
-
-
-def unpack_bits(packed: np.ndarray, columns: int) -> np.ndarray:
-    if columns == 0:
-        return np.empty((packed.shape[0], 0), dtype=np.uint8)
-    return np.unpackbits(packed, axis=1, bitorder="little")[:, :columns]
 
 
 @pytest.mark.parametrize("group_by_noise", [False, True])
