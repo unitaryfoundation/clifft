@@ -143,8 +143,10 @@ backends. The Release smoke job also runs the full Python suite against an
 optimized build with internal assertions enabled.
 
 Separate jobs cover Linux arm64, macOS, Windows, and WebAssembly. Nightly
-sanitizer jobs check for memory errors, undefined behavior, and data races,
-while a weekly job records combined C++ and Python coverage.
+sanitizer jobs check for memory errors, undefined behavior, and data races, a
+separate nightly multi-ISA Release job runs full C++ and Python suites across
+forced `scalar` and `avx2` plus targeted Intel SDE `avx512` checks with internal
+assertions enabled, and a weekly job records combined C++ and Python coverage.
 
 ## Shared Sampling Behavior
 
@@ -230,8 +232,8 @@ Windows C++ stays in Debug to retain MSVC library and runtime checks.
 Small deterministic cases and squeezed sampling boundaries remain in Debug.
 On pushes to `main`, the package smoke job also runs the full Python suite
 against the installed wheel.
-Local test runs include expensive cases by default, as do the nightly C++
-sanitizer and weekly coverage jobs.
+Local test runs include expensive cases by default, as do the nightly multi-ISA
+Release verification, nightly C++ sanitizer, and weekly coverage jobs.
 
 To reproduce the CI Debug selection locally, use
 `ctest --test-dir build --output-on-failure --label-exclude expensive` and

@@ -1,0 +1,229 @@
+name: Nightly ISA Verification
+
+on:
+  workflow_dispatch:  # Manual pre-release verification trigger
+  schedule:
+    - cron: '0 5 * * *'  # Nightly: 5am UTC
+  pull_request:
+    paths:
+      - '.github/workflows/nightly-isa-verification.yml'
+
+permissions:
+  contents: read
+
+env:
+  CLIFFT_LINUX_WHEEL_CLANG_VERSION: "22.1.8.1"
+  # setup-uv omits the uv version from its cache key; keep one constant for
+  # both version and cache-suffix so uv cache-format bumps rotate the key.
+  CLIFFT_UV_VERSION: "0.13.4"
+
+concurrency:
+  group: nightly-isa-verification-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  native-isa-release:
+    name: Native Release (${{ matrix.isa }})
+    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        isa: [scalar, avx2]
+    env:
+      CMAKE_BUILD_TYPE: Release
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_INTERPROCEDURAL_OPTIMIZATION: "ON"
+      CLIFFT_OPENMP: "ON"
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pinned build tools
+        uses: ./.github/actions/setup-native-tools
+
+      - name: Install pinned Clang and OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libomp-18-dev
+          .github/scripts/install_ubuntu_clang.sh \
+            "${CLIFFT_LINUX_WHEEL_CLANG_VERSION}" \
+            "${RUNNER_TEMP}/clifft-clang"
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-clang-${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
+          # Reuse main's warm release-cpp-smoke cache read-only without evicting it.
+          save: false
+          evict-old-files: job
+
+      - name: Configure C++ build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION="${CLIFFT_INTERPROCEDURAL_OPTIMIZATION}" \
+            -DCLIFFT_OPENMP="${CLIFFT_OPENMP}" \
+            -DCLIFFT_FORCE_ASSERTS=ON \
+            -DCLIFFT_CPU_BASELINE="${CLIFFT_CPU_BASELINE}"
+
+      - name: Build C++ tests
+        run: cmake --build build --target clifft_tests --parallel
+
+      - name: Run full C++ test suite (forced ISA)
+        env:
+          CLIFFT_FORCE_ISA: ${{ matrix.isa }}
+        run: |
+          ctest --test-dir build \
+            --build-config "${CMAKE_BUILD_TYPE}" \
+            --output-on-failure \
+            --parallel \
+            --timeout 600
+        shell: bash
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.CLIFFT_UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
+          python-version: "3.12"
+
+      - name: Install Python package (release baseline, asserts on)
+        env:
+          SKBUILD_CMAKE_BUILD_TYPE: Release
+          SKBUILD_CMAKE_ARGS: "-DCLIFFT_FORCE_ASSERTS=ON"
+        run: |
+          uv venv .smoke-venv
+          # shellcheck source=/dev/null
+          . .smoke-venv/bin/activate
+          uv sync --locked --active
+
+      - name: Verify forced ISA selection
+        env:
+          CLIFFT_FORCE_ISA: ${{ matrix.isa }}
+          EXPECTED_ISA: ${{ matrix.isa }}
+        run: |
+          .smoke-venv/bin/python - <<'PY'
+          import os
+          import clifft
+
+          actual = clifft.runtime_isa()
+          expected = os.environ["EXPECTED_ISA"]
+          assert actual == expected, f"Expected {expected}, got {actual}"
+          PY
+
+      - name: Run full Python test suite (forced ISA)
+        env:
+          CLIFFT_FORCE_ISA: ${{ matrix.isa }}
+        run: .smoke-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 --dist=worksteal -v --durations=20
+
+  avx512-sde-release:
+    name: AVX-512 SDE Release
+    timeout-minutes: 45
+    runs-on: ubuntu-24.04
+    env:
+      CMAKE_BUILD_TYPE: Release
+      CLIFFT_CPU_BASELINE: x86-64-v2
+      CLIFFT_INTERPROCEDURAL_OPTIMIZATION: "ON"
+      CLIFFT_OPENMP: "ON"
+      CMAKE_GENERATOR: Ninja
+      CMAKE_C_COMPILER_LAUNCHER: ccache
+      CMAKE_CXX_COMPILER_LAUNCHER: ccache
+      CCACHE_COMPILERCHECK: content
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install pinned build tools
+        uses: ./.github/actions/setup-native-tools
+
+      - name: Install pinned Clang and OpenMP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libomp-18-dev
+          .github/scripts/install_ubuntu_clang.sh \
+            "${CLIFFT_LINUX_WHEEL_CLANG_VERSION}" \
+            "${RUNNER_TEMP}/clifft-clang"
+
+      - name: Install Intel SDE
+        run: |
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-delay 2 --retry-all-errors \
+            --connect-timeout 15 --max-time 180 \
+            --output /tmp/sde.tar.xz \
+            https://downloadmirror.intel.com/924984/sde-external-10.13.1-2026-07-28-lin.tar.xz
+          echo "94e97d623fec54385686e1e7ba65ebc9941748c05ee451423948334892bf2b50  /tmp/sde.tar.xz" | sha256sum --check
+          tar -C "${RUNNER_TEMP}" -xf /tmp/sde.tar.xz
+          echo "SDE64=${RUNNER_TEMP}/sde-external-10.13.1-2026-07-28-lin/sde64" >> "${GITHUB_ENV}"
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1.2
+        with:
+          key: ${{ runner.os }}-ccache-clang-${{ env.CLIFFT_LINUX_WHEEL_CLANG_VERSION }}-${{ env.CMAKE_BUILD_TYPE }}-${{ env.CLIFFT_CPU_BASELINE }}
+          save: false
+          evict-old-files: job
+
+      - name: Configure C++ build
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE="${CMAKE_BUILD_TYPE}" \
+            -DCMAKE_INTERPROCEDURAL_OPTIMIZATION="${CLIFFT_INTERPROCEDURAL_OPTIMIZATION}" \
+            -DCLIFFT_OPENMP="${CLIFFT_OPENMP}" \
+            -DCLIFFT_FORCE_ASSERTS=ON \
+            -DCLIFFT_CPU_BASELINE="${CLIFFT_CPU_BASELINE}"
+
+      - name: Build C++ tests
+        run: cmake --build build --target clifft_tests --parallel
+
+      - name: Setup uv and Python
+        uses: astral-sh/setup-uv@v6
+        with:
+          version: ${{ env.CLIFFT_UV_VERSION }}
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: ${{ env.CLIFFT_UV_VERSION }}
+          python-version: "3.12"
+
+      - name: Install Python package (release baseline, asserts on)
+        env:
+          SKBUILD_CMAKE_BUILD_TYPE: Release
+          SKBUILD_CMAKE_ARGS: "-DCLIFFT_FORCE_ASSERTS=ON"
+        run: |
+          uv venv .smoke-venv
+          # shellcheck source=/dev/null
+          . .smoke-venv/bin/activate
+          uv sync --locked --active
+
+      - name: Verify AVX-512 dispatch under SDE
+        env:
+          CLIFFT_FORCE_ISA: avx512
+        run: |
+          "${SDE64}" -skx -- .smoke-venv/bin/python - <<'PY'
+          import clifft
+
+          actual = clifft.runtime_isa()
+          assert actual == "avx512", f"Expected avx512, got {actual}"
+          PY
+
+      - name: Run targeted C++ SIMD and batch tests under SDE
+        env:
+          CLIFFT_FORCE_ISA: avx512
+        run: |
+          "${SDE64}" -skx -- ./build/tests/clifft_tests \
+            "Sampling *,Direct rotation *,Active measurement *,Diagonal active *,New X *,Fused rotation *,Dynamic fused *,Interleaved*,Packed *,Noisy width*,Site noise*,Direct sparse*,Sharing*,Shared *,Runtime ISA*"
+
+      - name: Run targeted Python SIMD and shared sampling tests under SDE
+        env:
+          CLIFFT_FORCE_ISA: avx512
+        run: |
+          "${SDE64}" -skx -- .smoke-venv/bin/python -m pytest \
+            tests/python/test_shared_sampling.py \
+            tests/python/test_sampling_outputs.py \
+            tests/python/test_wide_phase.py \
+            -m "not expensive" -k "not tuning" -v --durations=20
