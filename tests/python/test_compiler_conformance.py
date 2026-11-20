@@ -718,3 +718,86 @@ def test_reusable_sharing_preserves_noisy_aggregate_masses(
         group_by_noise=group,
     )
     _assert_noisy_survivors(result, expected, 8193, keep_records=False)
+
+
+def test_bare_default_postselected_pipeline_matches_aer_oracle(
+    noisy_joint_probabilities: np.ndarray,
+) -> None:
+    source = (
+        NOISY_INTERFERENCE_SOURCE
+        + "\nR_PAULI(0.19) X6*X7\nR_PAULI(0.31) Z6*Y7\nMPP Y6*Y7\nMY 6\nM 7\n"
+        + "DETECTOR rec[-3]\nOBSERVABLE_INCLUDE(2) rec[-2]"
+    )
+    mask = [1, 1, 1]
+    expected_det = [1, 1, 0]
+    expected_obs = [1, 0, 0]
+
+    # Verify ActiveWidthSchedulePass strictly lowers peak active width within the
+    # default pipeline before optional reconstruction.
+    schedule = clifft.ActiveWidthSchedulePass()
+    scheduled_only = clifft.compile(
+        source,
+        hir_passes=clifft.default_hir_pass_manager(overrides=[schedule]),
+        reconstruction=False,
+        postselection_mask=mask,
+        expected_detectors=expected_det,
+        expected_observables=expected_obs,
+    )
+    assert schedule.applied
+    assert schedule.incumbent_peak == 2
+    assert schedule.result_peak == 1
+    assert scheduled_only.sampling_plan(keep_records=False).peak_active_width == 1
+
+    program = clifft.compile(
+        source,
+        postselection_mask=mask,
+        expected_detectors=expected_det,
+        expected_observables=expected_obs,
+    )
+    plan = program.sampling_plan(keep_records=False)
+    assert plan.reconstruction_selected
+    assert plan.peak_active_width == 1
+
+    shots = 32768
+    result = clifft.sample_survivors(program, shots, seed=803)
+    assert result.execution is not None
+    assert result.execution.executor == "shared"
+    assert result.execution.sharing is True
+
+    # S_DAG 0 1; H 0 1; CX 1 0 maps Y0*Y1 -> Z0 (det2) and MY0 -> Z0 ^ Z1 (obs2).
+    p_sched = (
+        np.abs(
+            unitary_reference("R_PAULI(0.19) X0*X1\nR_PAULI(0.31) Z0*Y1\nS_DAG 0 1\nH 0 1\nCX 1 0")
+        )
+        ** 2
+    )
+    p_d2_0_o2_0 = float(p_sched[0])
+    p_d2_0_o2_1 = float(p_sched[2])
+
+    keys = np.arange(1024)
+    base_expected = noisy_joint_probabilities.copy()
+    base_expected[((keys >> 6) & 3) != 0] = 0
+    base_obs_probs = np.bincount(
+        ((keys >> 8) & 1) + 2 * ((keys >> 9) & 1), weights=base_expected, minlength=4
+    )
+    obs_probs_8 = np.concatenate([base_obs_probs * p_d2_0_o2_0, base_obs_probs * p_d2_0_o2_1])
+    p_pass = float(obs_probs_8.sum())
+    masses = [
+        p_pass,
+        float(obs_probs_8[1:].sum()),
+        float(obs_probs_8[[1, 3, 5, 7]].sum()),
+        float(obs_probs_8[[2, 3, 6, 7]].sum()),
+        float(obs_probs_8[4:].sum()),
+    ]
+    assert result.passed_shots is not None and result.logical_errors is not None
+    assert result.observable_ones is not None
+    counts = [result.passed_shots, result.logical_errors, *result.observable_ones]
+    for count, mass in zip(counts, masses, strict=True):
+        assert abs(count / shots - mass) < binomial_tolerance(mass, shots) + 1e-14
+
+    syndromes = clifft.sample_survivors(program, shots, seed=809, keep_records="syndromes")
+    assert syndromes.execution is not None
+    assert syndromes.execution.executor == "shared"
+    assert syndromes.execution.sharing is True
+    assert not syndromes.detectors.any()
+    assert_joint_distribution(syndromes.observables, obs_probs_8 / p_pass)

@@ -7,6 +7,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 import stim
+from conftest import binomial_tolerance
 from utils_conformance import assert_joint_distribution, unitary_reference
 
 import clifft
@@ -274,3 +275,78 @@ def test_auto_sharing_tuning_compares_ordinary_and_shared_candidates() -> None:
     assert replay.passed_shots == result.passed_shots
     assert replay.logical_errors == result.logical_errors
     np.testing.assert_array_equal(replay.observable_ones, result.observable_ones)
+
+
+def _build_auto_sharing_tune_circuit(z0: bool, x1: bool, *, noisy: bool) -> str:
+    lines = [
+        "H 0 1",
+        "R_Z(0.19) 0",
+        "CX 0 1",
+        "R_Z(0.27) 1",
+        "H 1",
+        "R_Z(0.15) 1",
+        "CX 1 2",
+    ]
+    if noisy:
+        lines += ["Z_ERROR(0.15) 0", "X_ERROR(0.25) 1"]
+    else:
+        if z0:
+            lines.append("Z 0")
+        if x1:
+            lines.append("X 1")
+    lines += ["CX 1 2", "H 0 1"]
+    if noisy:
+        lines += ["M 0 1 2", "DETECTOR rec[-1]", "OBSERVABLE_INCLUDE(0) rec[-3] rec[-2]"]
+    return "\n".join(lines)
+
+
+def test_auto_sharing_tuning_matches_exact_oracle() -> None:
+    probs = np.zeros(8, dtype=np.float64)
+    for b0, p0 in ((False, 0.85), (True, 0.15)):
+        for b1, p1 in ((False, 0.75), (True, 0.25)):
+            probs += (
+                p0
+                * p1
+                * (
+                    np.abs(unitary_reference(_build_auto_sharing_tune_circuit(b0, b1, noisy=False)))
+                    ** 2
+                )
+            )
+
+    idx = np.arange(8)
+    keep_mask = ((idx >> 2) & 1) == 0
+    obs0 = ((idx >> 0) & 1) ^ ((idx >> 1) & 1)
+    p_pass = float(probs[keep_mask].sum())
+    p_obs = float(probs[keep_mask & (obs0 == 1)].sum())
+
+    shots = 16384
+    program = clifft.compile(
+        _build_auto_sharing_tune_circuit(False, False, noisy=True), postselection_mask=[1]
+    )
+    result = clifft.sample_survivors(
+        program,
+        shots,
+        seed=97,
+        threads=1,
+        keep_records=True,
+        batch_size="tune",
+        tuning_budget_seconds=0.5,
+    )
+    report = result.batch_tuning
+    assert report is not None
+    assert report.sufficient_measurements
+    assert {trial.sharing for trial in report.trials} == {False, True}
+    assert result.execution is not None
+    assert report.sharing == result.execution.sharing
+
+    assert result.passed_shots is not None and result.logical_errors is not None
+    assert result.observable_ones is not None
+    assert abs(result.passed_shots / shots - p_pass) < binomial_tolerance(p_pass, shots) + 1e-14
+    assert result.logical_errors == int(result.observable_ones[0])
+    assert abs(result.observable_ones[0] / shots - p_obs) < binomial_tolerance(p_obs, shots) + 1e-14
+
+    assert not result.detectors.any()
+    np.testing.assert_array_equal(
+        result.observables[:, 0], result.measurements[:, 0] ^ result.measurements[:, 1]
+    )
+    assert_joint_distribution(result.measurements, np.where(keep_mask, probs, 0.0) / p_pass)
