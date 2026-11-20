@@ -146,6 +146,11 @@ contribution is.
   the entry reads as an ordinary feature.
 - Run `uv run --frozen --only-group dev pre-commit run --all-files --show-diff-on-failure`
   before every commit, in addition to the tests appropriate for the change.
+- Follow `.github/PULL_REQUEST_TEMPLATE.md` when creating or updating pull
+  requests: keep `Summary` to 1-3 plain sentences, put longer walkthroughs,
+  tables, and command output inside `<details><summary>...</summary>`, check
+  only the `Test plan` items actually run (listing exact commands when a subset
+  was run), and leave `Contributor agreement` unchecked for the human reviewer.
 - Include an `Assisted-by:` trailer identifying the agent that actually
   assisted. Each agent must use its own name, model, and provider address; do
   not copy a named example literally. Format:
