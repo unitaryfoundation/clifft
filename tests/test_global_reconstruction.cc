@@ -1624,6 +1624,113 @@ TEST_CASE("Global reconstruction fuses same-sign rotations and folds Clifford an
         OBSERVABLE_INCLUDE(0) rec[-1]
     )",
                2);
+
+    // Seeded randomized circuits drawing repeated rotations from a small set of
+    // axes with intervening noise exercise PAULI folds, merged-angle sign flips,
+    // and SQRT/SQRT_DAG conjugation into both rotations and measurements.
+    Xoshiro256PlusPlus rng(745001);
+    const std::array<std::string_view, 27> rot{"T 0",
+                                               "T 0",
+                                               "T_DAG 0",
+                                               "T 1",
+                                               "T_DAG 1",
+                                               "T 1",
+                                               "R_Z(0.125) 0",
+                                               "R_Z(0.375) 0",
+                                               "R_Z(-0.125) 1",
+                                               "R_Z(0.75) 1",
+                                               "TPP X0*Z1",
+                                               "TPP_DAG X0*Z1",
+                                               "TPP X0*Z1",
+                                               "TPP Z0*Z1",
+                                               "TPP Z0*Z1",
+                                               "TPP !Z1*Y2",
+                                               "TPP Z1*Y2",
+                                               "R_PAULI(0.125) Z0*Z1",
+                                               "R_PAULI(0.375) Z0*Z1",
+                                               "T 2",
+                                               "T 2",
+                                               "R_X(0.25) 2",
+                                               "R_X(-0.25) 2",
+                                               "R_X(0.25) 0",
+                                               "R_X(0.25) 0",
+                                               "R_Y(0.25) 1",
+                                               "R_Y(0.25) 1"};
+    const std::array<std::string_view, 10> noise{
+        "X_ERROR(0.07) 0", "X_ERROR(0.05) 1", "Z_ERROR(0.06) 0",     "Y_ERROR(0.04) 2",
+        "X_ERROR(0.09) 2", "Z_ERROR(0.03) 1", "DEPOLARIZE1(0.06) 0", "E(0.05) X0 X1",
+        "Z_ERROR(0.08) 2", "Y_ERROR(0.05) 0"};
+    const std::array<std::string_view, 8> cliff{"H 0",    "H 1", "H 2",     "CX 0 1",
+                                                "CX 1 2", "S 0", "S_DAG 1", "CZ 0 2"};
+    const std::array<std::string_view, 3> finals{"M 0 1 2\n", "MX 0 1 2\n", "M 0\nMX 1\nMY 2\n"};
+
+    constexpr uint32_t kTrials = 150;
+    size_t law_checks = 0;
+    size_t fused_trials = 0;
+    for (uint32_t trial = 0; trial < kTrials; ++trial) {
+        std::string text = "H 0 1 2\n";
+        uint32_t noise_count = 0;
+        uint32_t source_rotations = 0;
+        uint32_t records = 0;
+        const uint32_t steps = 8 + static_cast<uint32_t>(rng() % 12);
+        for (uint32_t step = 0; step < steps; ++step) {
+            const uint64_t choice = rng() % 20;
+            if (choice < 11) {
+                text += rot[rng() % rot.size()];
+                text += '\n';
+                ++source_rotations;
+            } else if (choice < 16 && noise_count < 6) {
+                text += noise[rng() % noise.size()];
+                text += '\n';
+                ++noise_count;
+            } else if (choice < 18) {
+                text += cliff[rng() % cliff.size()];
+                text += '\n';
+            } else if (choice == 18 && records < 2) {
+                text += (rng() % 2 != 0 ? "M " : "MX ");
+                text += std::to_string(rng() % 3);
+                text += '\n';
+                ++records;
+            } else if (records != 0) {
+                text += "CZ rec[-1] ";
+                text += std::to_string(rng() % 3);
+                text += '\n';
+            }
+        }
+        text += finals[rng() % finals.size()];
+        text += "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]\n";
+        CAPTURE(trial);
+        INFO(text);
+        const auto circuit = parse(text);
+        const auto expected = compute_dense_circuit_distribution(circuit);
+        bool fused = false;
+        for (auto mode : {ReconstructionOutputs::Records, ReconstructionOutputs::Detectors}) {
+            const auto res = reconstruct_global_sampling(circuit, mode);
+            if (!res.reconstruction) {
+                continue;
+            }
+            const auto& r = *res.reconstruction;
+            const auto rotation_count = static_cast<uint32_t>(std::ranges::count_if(
+                r.operations,
+                [](const ReconstructionOperation& op) { return op.half_turns != 0.0; }));
+            fused = fused || rotation_count < source_rotations;
+            if (r.num_qubits <= 10 && r.num_noise_bits <= 14) {
+                require_same_law(reconstructed_law(r), output_law(expected, r.outputs));
+                ++law_checks;
+            }
+            auto lowered = lower_global_reconstruction(r);
+            REQUIRE(lowered.hir.has_value());
+            default_hir_pass_manager(/*include_schedule=*/false).run(*lowered.hir);
+            if (lowered.hir->num_measurements + lowered.hir->num_hidden_measurements <= 12) {
+                const auto actual =
+                    compute_exact_plan_distribution(sampling::plan_sampling(*lowered.hir));
+                require_same_law(output_law(actual, r.outputs), output_law(expected, r.outputs));
+            }
+        }
+        fused_trials += fused ? 1 : 0;
+    }
+    REQUIRE(law_checks > kTrials);
+    REQUIRE(fused_trials > kTrials / 2);
 }
 
 }  // namespace clifft::test

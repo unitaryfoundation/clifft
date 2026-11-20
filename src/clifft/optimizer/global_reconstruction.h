@@ -9,8 +9,9 @@
 //      the last non-Clifford operation, dress non-Clifford rotation gadgets
 //      with input stabilizers, fold the coupled gadget projections into the
 //      input state, evolve the trailing pure-Clifford suffix in a stabilizer
-//      frame, reduce to the X-support basis, and schedule commuting
-//      measurements and rotations.
+//      frame, reduce to the X-support basis, fuse commuting same-sign
+//      rotations and fold Clifford angles, and schedule commuting measurements
+//      and rotations.
 //   2. compress_reconstruction_noise: project categorical noise channels onto
 //      the basis of operation sign masks and convolve channels with identical
 //      image support.

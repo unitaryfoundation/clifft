@@ -2666,16 +2666,23 @@ PreparedDilation prepare_dilation(const Circuit& circuit, const ReconstructionLi
     return prepared;
 }
 
+bool same_unsigned_axis(const PauliString& a, const PauliString& b) {
+    return a.num_qubits() == b.num_qubits() && a.x() == b.x() && a.z() == b.z();
+}
+
 // Fuse commuting same-axis rotations that share a noise-sign parity and fold
-// any resulting Clifford rotations (I, Z, S, S_dag) into downstream operations.
-// Lowered HIR wraps each rotation in conditional Pauli sign brackets that hide
-// these cancellations from PeepholeFusionPass.
+// any resulting Clifford rotations about Pauli axis P (identity, P, and the
+// two square roots of P) into downstream operations. Lowered HIR wraps each
+// rotation in conditional Pauli sign brackets that hide these cancellations
+// from PeepholeFusionPass.
 void fuse_reconstruction_rotations(std::vector<ReconstructionOperation>& operations) {
-    const auto same_unsigned_axis = [](const PauliString& a, const PauliString& b) {
-        return a.x() == b.x() && a.z() == b.z();
-    };
+#ifndef NDEBUG
+    for (const auto& op : operations) {
+        assert(!op.axis.sign() && "reconstruction operations must carry unsigned Pauli axes");
+    }
+#endif
     const auto signed_half_turns = [](const ReconstructionOperation& op) {
-        return (op.sign.constant ^ op.axis.sign()) ? -op.half_turns : op.half_turns;
+        return op.sign.constant ? -op.half_turns : op.half_turns;
     };
     const auto normalize_mod2 = [](double alpha) { return alpha - 2.0 * std::floor(alpha / 2.0); };
 
@@ -3041,9 +3048,6 @@ HirModule lower_reconstruction(const GlobalReconstruction& r, const Reconstructi
             words += (axis.x().words[w] | axis.z().words[w]) != 0;
         }
         return words;
-    };
-    const auto same_unsigned_axis = [](const PauliString& a, const PauliString& b) {
-        return a.num_qubits() == b.num_qubits() && a.x() == b.x() && a.z() == b.z();
     };
 
     bool need_one = false;
