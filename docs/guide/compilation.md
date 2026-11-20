@@ -156,9 +156,9 @@ output-specific reconstruction for both full-record and syndrome-only sampling:
 
 - Takes a reconstructed plan when it lowers peak active width, except on
   postselected circuits of original width at most 16 where a nonzero
-  reconstructed width saves at most two qubits while increasing plan actions by
-  more than 25% (such as multi-round coherent-noise memory circuits, where extra
-  rotations and trajectory splits outweigh the smaller state).
+  reconstructed width saves at most two qubits and the syndrome plan increases
+  actions by more than 10% (such as multi-round coherent-noise memory circuits,
+  where extra trajectory splits outweigh the smaller state).
 - Breaks equal-width ties by requiring no increase in plan actions and lower
   estimated plan work.
 - Uses a smaller scheduling budget when the original plan is already at most

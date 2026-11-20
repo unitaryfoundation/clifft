@@ -104,6 +104,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
     const bool compare_cost = !reconstruction.has_value() && data->original.has_value();
     const bool has_syndrome_outputs = source.num_detectors != 0 || source.num_observables != 0;
     std::optional<GlobalSamplingReconstructor> reconstructor;
+    std::optional<bool> syndrome_actions_inflated;
     for (bool keep_records : {false, true}) {
         auto& variant = data->variants[keep_records];
         if (!passes_preserve_sampling) {
@@ -164,14 +165,21 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         }
         sampling::ExecutablePlan executable(sampling::plan_sampling(*lowered.hir));
         lowered.hir.reset();
-        // Under postselection on narrow originals, small width drops that
-        // substantially increase plan actions add more trajectory splits than
-        // the narrower state saves.
+        const bool actions_inflated =
+            compare_cost &&
+            uint64_t{executable.num_actions()} * 10 > uint64_t{data->original->num_actions()} * 11;
+        if (!keep_records) {
+            syndrome_actions_inflated = actions_inflated;
+        }
+        // Under postselection on narrow originals, small width drops whose
+        // syndrome plan inflates actions add more trajectory splits than the
+        // narrower state saves. Reuse the syndrome verdict for full records so
+        // record-materialization actions do not trip the guard.
         constexpr uint32_t kMinPostselectedWidthReduction = 3;
         if (compare_cost && data->has_postselection && width != 0 && width < width_limit &&
             width_limit <= kSmallOriginalWidth &&
             width_limit - width < kMinPostselectedWidthReduction &&
-            uint64_t{executable.num_actions()} * 4 > uint64_t{data->original->num_actions()} * 5) {
+            syndrome_actions_inflated.value_or(actions_inflated)) {
             variant.fallback_reason =
                 "postselected reconstruction saves at most two qubits while increasing actions";
             continue;
