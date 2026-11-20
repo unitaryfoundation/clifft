@@ -279,12 +279,22 @@ std::optional<PreparedFusedRotation> prepare_fused_rotation(std::span<const Plan
     return result;
 }
 
+#if defined(__GNUC__) || defined(__clang__)
+#define CLIFFT_FUSED_RANGE_NOINLINE [[gnu::noinline]]
+#elif defined(_MSC_VER)
+#define CLIFFT_FUSED_RANGE_NOINLINE __declspec(noinline)
+#else
+#define CLIFFT_FUSED_RANGE_NOINLINE
+#endif
+
 // Each orbit is a one-, two-, or four-dimensional coefficient subspace. Gather
 // its coefficients, apply the selected dense unitary, and scatter them back.
+// Serial and OpenMP paths share one out-of-line range loop so -ffast-math
+// emits identical floating-point reduction order across worker counts.
 template <size_t Dimension>
-void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rotation) noexcept {
+CLIFFT_FUSED_RANGE_NOINLINE void apply_fused_rotation_orbits_range(
+    State& state, const PreparedFusedRotation& rotation, uint64_t begin, uint64_t end) noexcept {
     static_assert(Dimension == 1 || Dimension == 2 || Dimension == 4);
-    const uint64_t orbit_count = state.size() / Dimension;
     const size_t matrix_size = Dimension * Dimension;
     assert(rotation.matrices.size() ==
                (size_t{1} << rotation.selector_masks.size()) * matrix_size &&
@@ -292,7 +302,7 @@ void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rota
 
     double* const real = state.real_data();
     double* const imag = state.imag_data();
-    for (uint64_t packed = 0; packed < orbit_count; ++packed) {
+    for (uint64_t packed = begin; packed < end; ++packed) {
         // Reinserting zero pivot bits enumerates exactly one representative
         // from every orbit.
         uint64_t representative = packed;
@@ -345,70 +355,14 @@ void apply_fused_rotation_orbits(State& state, const PreparedFusedRotation& rota
     }
 }
 
+#undef CLIFFT_FUSED_RANGE_NOINLINE
+
 template <size_t Dimension>
 void apply_fused_rotation_orbits_parallel(State& state, const PreparedFusedRotation& rotation,
                                           uint32_t workers) noexcept {
-    static_assert(Dimension == 1 || Dimension == 2 || Dimension == 4);
     const uint64_t orbit_count = state.size() / Dimension;
-    const size_t matrix_size = Dimension * Dimension;
-    assert(rotation.matrices.size() ==
-               (size_t{1} << rotation.selector_masks.size()) * matrix_size &&
-           "fused rotation matrix table must cover every selector value");
-
-    double* const real = state.real_data();
-    double* const imag = state.imag_data();
     intra_shot_parallel_ranges(orbit_count, workers, [&](uint64_t begin, uint64_t end) noexcept {
-        for (uint64_t packed = begin; packed < end; ++packed) {
-            // Reinserting zero pivot bits enumerates exactly one representative
-            // from every orbit.
-            uint64_t representative = packed;
-            if constexpr (Dimension >= 2) {
-                representative = insert_zero_bit(representative, rotation.orbit_pivots[0]);
-            }
-            if constexpr (Dimension == 4) {
-                representative = insert_zero_bit(representative, rotation.orbit_pivots[1]);
-            }
-
-            const size_t selector = selector_index(representative, rotation.selector_masks);
-            const std::complex<double>* const matrix =
-                rotation.matrices.data() + selector * matrix_size;
-
-            // XOR combinations of the orbit basis enumerate every coefficient in
-            // this representative's subspace.
-            std::array<uint64_t, Dimension> indices{};
-            std::array<double, Dimension> input_real{};
-            std::array<double, Dimension> input_imag{};
-            for (size_t column = 0; column < Dimension; ++column) {
-                uint64_t index = representative;
-                if constexpr (Dimension >= 2) {
-                    if ((column & 1U) != 0) {
-                        index ^= rotation.orbit_masks[0];
-                    }
-                }
-                if constexpr (Dimension == 4) {
-                    if ((column & 2U) != 0) {
-                        index ^= rotation.orbit_masks[1];
-                    }
-                }
-                indices[column] = index;
-                input_real[column] = real[index];
-                input_imag[column] = imag[index];
-            }
-
-            for (size_t row = 0; row < Dimension; ++row) {
-                double output_real = 0.0;
-                double output_imag = 0.0;
-                for (size_t column = 0; column < Dimension; ++column) {
-                    const std::complex<double> weight = matrix[row * Dimension + column];
-                    output_real +=
-                        weight.real() * input_real[column] - weight.imag() * input_imag[column];
-                    output_imag +=
-                        weight.real() * input_imag[column] + weight.imag() * input_real[column];
-                }
-                real[indices[row]] = output_real;
-                imag[indices[row]] = output_imag;
-            }
-        }
+        apply_fused_rotation_orbits_range<Dimension>(state, rotation, begin, end);
     });
 }
 
@@ -557,13 +511,13 @@ void apply_fused_rotation(State& state, const PreparedFusedRotation& rotation) n
            "fused rotation width must match the active state");
     switch (rotation.orbit_rank) {
         case 0:
-            apply_fused_rotation_orbits<1>(state, rotation);
+            apply_fused_rotation_orbits_range<1>(state, rotation, 0, state.size());
             return;
         case 1:
-            apply_fused_rotation_orbits<2>(state, rotation);
+            apply_fused_rotation_orbits_range<2>(state, rotation, 0, state.size() / 2);
             return;
         case 2:
-            apply_fused_rotation_orbits<4>(state, rotation);
+            apply_fused_rotation_orbits_range<4>(state, rotation, 0, state.size() / 4);
             return;
         default:
             assert(false && "fused rotation orbit rank must be at most two");
