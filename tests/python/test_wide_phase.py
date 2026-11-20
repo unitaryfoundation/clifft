@@ -3,10 +3,18 @@
 import re
 from functools import lru_cache
 from itertools import combinations
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
-from utils_conformance import SamplingMode, assert_joint_distribution
+import stim
+from utils_conformance import (
+    SamplingMode,
+    assert_joint_distribution,
+    assert_two_sample_close,
+    unpack_bits,
+)
 
 import clifft
 
@@ -243,8 +251,6 @@ def test_wide_phase_preserves_noisy_feedback_records(
 
 @pytest.mark.expensive
 def test_wide_phase_reduces_direct_readout_preparation() -> None:
-    from pathlib import Path
-
     source = (Path(__file__).parents[1] / "fixtures/merlin_bt81_direct_x.stim").read_text()
     phase = clifft.PhasePolynomialPass(max_variables=128)
     manager = clifft.default_hir_pass_manager(overrides=[phase])
@@ -259,6 +265,51 @@ def test_wide_phase_reduces_direct_readout_preparation() -> None:
     preparation = clifft.compile("\n".join(lines[:first_readout]), hir_passes=manager)
     assert preparation.num_measurements == 162
     assert preparation.original_plan.peak_active_width == 9
+
+    shots = 8192
+    result = clifft.sample(program, shots, seed=17)
+    assert not result.detectors.any()
+    block_law = [11 / 32] + [3 / 32] * 7
+    for block in range(3):
+        assert_joint_distribution(result.observables[:, 3 * block : 3 * (block + 1)], block_law)
+
+    # Verify the full scheduled-and-squeezed program matches an unscheduled
+    # wide-phase-only baseline and both scalar and shared execution paths.
+    phase_only = clifft.PhasePolynomialPass(max_variables=128)
+    phase_only_mgr = clifft.HirPassManager()
+    phase_only_mgr.add(phase_only)
+    baseline = clifft.compile(source, hir_passes=phase_only_mgr)
+    assert phase_only.wide_rewrites == 1
+    assert baseline.peak_active_width == 9
+
+    projections = np.random.default_rng(173).integers(0, 2, size=(9, 24), dtype=np.uint8)
+    ref = clifft.sample(baseline, shots, seed=19, batch_size=1, sharing=False)
+    assert ref.execution is not None and ref.execution.executor == "scalar"
+    assert not ref.detectors.any()
+    ref_features = np.concatenate((ref.observables, (ref.observables @ projections) % 2), axis=1)
+
+    for candidate in (
+        result,
+        clifft.sample(program, shots, seed=23, sharing=True),
+    ):
+        assert not candidate.detectors.any()
+        cand_features = np.concatenate(
+            (candidate.observables, (candidate.observables @ projections) % 2), axis=1
+        )
+        assert_two_sample_close(ref_features.sum(axis=0), shots, cand_features.sum(axis=0), shots)
+
+    idx_mx = len(lines) - 18
+    exp_source = "\n".join(
+        lines[:idx_mx] + [f"EXP_VAL X{q}" for q in (0, 1, 2, 81, 82, 83, 162, 163, 164)]
+    )
+    exp_phase = clifft.PhasePolynomialPass(max_variables=128)
+    exp_prog = clifft.compile(
+        exp_source, hir_passes=clifft.default_hir_pass_manager(overrides=[exp_phase])
+    )
+    assert exp_phase.wide_rewrites == 1
+    np.testing.assert_allclose(
+        clifft.sample(exp_prog, 1, seed=7).exp_vals[0], np.full(9, 0.25), rtol=0, atol=1e-12
+    )
 
 
 def _cube_rotation(start: int, mask: int) -> str:
@@ -532,4 +583,214 @@ def test_wide_phase_extends_a_reduced_prefix_within_its_limits(limit: str | None
     assert program.peak_active_width <= 2
     np.testing.assert_allclose(
         clifft.sample(program, 1, seed=7).exp_vals[0], expected, rtol=0, atol=2e-12
+    )
+
+
+def _assert_wide_program_matches_stim(
+    program: clifft.Program,
+    stim_source: str,
+    *,
+    shots: int,
+    seed: int,
+    postselection_mask: list[int] | None = None,
+) -> None:
+    circuit = stim.Circuit(stim_source)
+    stim_meas = circuit.compile_sampler(seed=seed).sample(shots).astype(np.uint8)
+    stim_det, stim_obs = circuit.compile_m2d_converter().convert(
+        measurements=stim_meas.astype(bool), separate_observables=True
+    )
+    stim_det = stim_det.astype(np.uint8)
+    stim_obs = stim_obs.astype(np.uint8)
+
+    if postselection_mask is not None:
+        keep = ~stim_det[:, np.asarray(postselection_mask, dtype=bool)].any(axis=1)
+        stim_meas = stim_meas[keep]
+        stim_det = stim_det[keep]
+        stim_obs = stim_obs[keep]
+    stim_passed = stim_det.shape[0]
+    assert stim_passed > 0
+
+    projections = np.random.default_rng(seed + 101).integers(
+        0,
+        2,
+        size=(program.num_measurements + program.num_detectors + program.num_observables, 32),
+        dtype=np.uint8,
+    )
+    syn_projections = projections[program.num_measurements :]
+
+    record_modes: tuple[Any, ...] = (True, "syndromes", False)
+    for keep_records in record_modes:
+        if postselection_mask is None and keep_records is False:
+            continue
+        unpacked = (
+            clifft.sample_survivors(program, shots, seed=seed + 1, keep_records=keep_records)
+            if postselection_mask is not None
+            else clifft.sample(program, shots, seed=seed + 1, keep_records=keep_records)
+        )
+        packed = (
+            clifft.sample_survivors(
+                program, shots, seed=seed + 1, keep_records=keep_records, bit_packed=True
+            )
+            if postselection_mask is not None
+            else clifft.sample(
+                program, shots, seed=seed + 1, keep_records=keep_records, bit_packed=True
+            )
+        )
+
+        if postselection_mask is not None:
+            assert unpacked.total_shots == shots
+            assert unpacked.passed_shots is not None
+            assert unpacked.logical_errors is not None
+            assert unpacked.observable_ones is not None
+            assert_two_sample_close(
+                np.array([unpacked.passed_shots, unpacked.logical_errors]),
+                shots,
+                np.array([stim_passed, int(stim_obs.any(axis=1).sum())]),
+                shots,
+            )
+            np.testing.assert_array_equal(packed.observable_ones, unpacked.observable_ones)
+            assert_two_sample_close(
+                unpacked.observable_ones,
+                unpacked.passed_shots,
+                stim_obs.sum(axis=0),
+                stim_passed,
+            )
+
+        for field, cols, should_have_rows in (
+            ("measurements", program.num_measurements, keep_records is True),
+            ("detectors", program.num_detectors, keep_records is not False),
+            ("observables", program.num_observables, keep_records is not False),
+        ):
+            u_arr = getattr(unpacked, field)
+            p_arr = getattr(packed, field)
+            expected_rows = (
+                (unpacked.passed_shots if postselection_mask is not None else shots)
+                if should_have_rows
+                else 0
+            )
+            assert u_arr.shape == (expected_rows, cols)
+            assert p_arr.shape == (expected_rows, (cols + 7) // 8)
+            if should_have_rows:
+                np.testing.assert_array_equal(unpack_bits(p_arr, cols), u_arr)
+
+        if keep_records is True:
+            clifft_full = np.concatenate(
+                (unpacked.measurements, unpacked.detectors, unpacked.observables), axis=1
+            )
+            stim_full = np.concatenate((stim_meas, stim_det, stim_obs), axis=1)
+            clifft_feat = np.concatenate((clifft_full, (clifft_full @ projections) % 2), axis=1)
+            stim_feat = np.concatenate((stim_full, (stim_full @ projections) % 2), axis=1)
+            assert_two_sample_close(
+                clifft_feat.sum(axis=0),
+                clifft_full.shape[0],
+                stim_feat.sum(axis=0),
+                stim_full.shape[0],
+            )
+        elif keep_records == "syndromes":
+            clifft_syn = np.concatenate((unpacked.detectors, unpacked.observables), axis=1)
+            stim_syn = np.concatenate((stim_det, stim_obs), axis=1)
+            clifft_feat = np.concatenate((clifft_syn, (clifft_syn @ syn_projections) % 2), axis=1)
+            stim_feat = np.concatenate((stim_syn, (stim_syn @ syn_projections) % 2), axis=1)
+            assert_two_sample_close(
+                clifft_feat.sum(axis=0),
+                clifft_syn.shape[0],
+                stim_feat.sum(axis=0),
+                stim_syn.shape[0],
+            )
+
+
+def test_wide_clifford_substitution_matches_stim() -> None:
+    fixtures = Path(__file__).parents[1] / "fixtures"
+
+    coherent_raw = (fixtures / "coherent_d7_r3.stim").read_text()
+    coherent_cliff = re.sub(r"(?m)^(\s*)R_Z\([^)]*\)", r"\1S", coherent_raw).replace(
+        "X_ERROR(0.001)", "X_ERROR(0.02)"
+    )
+    for mask in (None, [1] * 24 + [0] * 120):
+        prog = clifft.compile(coherent_cliff, postselection_mask=mask)
+        assert prog.num_qubits > 64
+        assert prog.num_measurements > 64
+        assert prog.num_detectors > 64
+        assert prog.peak_active_width == 0
+        _assert_wide_program_matches_stim(
+            prog, coherent_cliff, shots=4096, seed=611, postselection_mask=mask
+        )
+
+    bt81_lines = (fixtures / "merlin_bt81_direct_x.stim").read_text().splitlines()
+    for idx, line in enumerate(bt81_lines):
+        if line.startswith("T "):
+            bt81_lines[idx] = "S " + line[2:]
+        elif line.startswith("T_DAG "):
+            bt81_lines[idx] = "S_DAG " + line[6:]
+    rx_indices = [i for i, line in enumerate(bt81_lines) if line.startswith("RX ")]
+    for idx in rx_indices[::10]:
+        qubit = bt81_lines[idx].split()[1]
+        bt81_lines[idx] = f"RX {qubit}\nZ_ERROR(0.03) {qubit}\nX_ERROR(0.02) {qubit}"
+    m_indices = [i for i, line in enumerate(bt81_lines) if line.startswith(("M ", "MX "))]
+    for idx in m_indices[::10]:
+        op, qubit = bt81_lines[idx].split()
+        bt81_lines[idx] = f"{op}(0.02) {qubit}"
+    bt81_noisy_cliff = "\n".join(bt81_lines)
+    for mask in (None, [1] * 48 + [0] * 186):
+        bt81_prog = clifft.compile(bt81_noisy_cliff, postselection_mask=mask)
+        assert bt81_prog.num_qubits > 64
+        assert bt81_prog.num_measurements > 64
+        assert bt81_prog.num_detectors > 64
+        assert bt81_prog.peak_active_width == 0
+        _assert_wide_program_matches_stim(
+            bt81_prog, bt81_noisy_cliff, shots=4096, seed=617, postselection_mask=mask
+        )
+
+
+def test_wide_postselected_pure_clifford_suffix_matches_stim() -> None:
+    lines = ["H 0 65", "T 0 65", "T_DAG 0 65", "H 0 65"]
+    for _ in range(2):
+        for i in range(36):
+            ancilla = 36 + i
+            lines.extend(
+                [
+                    f"H {i}",
+                    f"CX {i} {ancilla}",
+                    f"DEPOLARIZE2(0.008) {i} {ancilla}",
+                    f"CX {i} {ancilla}",
+                    f"H {i}",
+                    f"DEPOLARIZE1(0.01) {i} {ancilla} 63 64 71",
+                    f"M(0.008) {ancilla}",
+                    "DETECTOR rec[-1]",
+                    f"R {ancilla}",
+                ]
+            )
+    lines.extend(
+        [
+            "CX 0 64",
+            "CZ 63 71",
+            "DEPOLARIZE1(0.08) 0 64 71",
+            "M(0.02) 0 64 65 71",
+            "DETECTOR rec[-4]",
+            "DETECTOR rec[-1]",
+            "OBSERVABLE_INCLUDE(0) rec[-3] rec[-2] rec[-1]",
+        ]
+    )
+    source = "\n".join(lines)
+    num_detectors = sum(
+        node.gate == clifft.GateType.DETECTOR for node in clifft.parse(source).nodes
+    )
+    mask = [int(i in (0, 1, 2, 3, 63, 64, 65, 72, 73)) for i in range(num_detectors)]
+
+    # Keep the canceling prefix unoptimized so global reconstruction dilates it
+    # and hands the trailing 72-qubit noisy suffix to SuffixTracker.
+    program = clifft.compile(source, hir_passes=None, reconstruction=True, postselection_mask=mask)
+    assert program.num_qubits == 72 > 64
+    assert program.num_measurements > 64
+    assert program.num_detectors > 64
+    assert program.original_plan.peak_active_width == 2
+    assert program.peak_active_width == 0
+    for keep_records in (True, False):
+        plan = program.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected
+        assert plan.peak_active_width == 0
+
+    stim_source = source.replace("T ", "S ").replace("T_DAG ", "S_DAG ")
+    _assert_wide_program_matches_stim(
+        program, stim_source, shots=4096, seed=629, postselection_mask=mask
     )

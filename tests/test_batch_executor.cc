@@ -3,6 +3,7 @@
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/batch/policy.h"
+#include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/shot_seed.h"
@@ -934,6 +935,179 @@ TEST_CASE("Site noise preserves the categorical joint law and normalized rejecti
             const double tolerance = 7 * std::sqrt(expected * (1 - probability[bin])) + 10;
             REQUIRE_THAT(static_cast<double>(observed[bin]),
                          Catch::Matchers::WithinAbs(expected, tolerance));
+        }
+    }
+}
+
+TEST_CASE("Noisy width six through eight packed execution matches scalar execution") {
+    constexpr uint32_t kSeedCheckShots = 65;
+    constexpr uint32_t kStatShots = 8192;
+
+    const auto two_sample_close = [&](uint64_t count_a, uint64_t count_b) {
+        const double p_hat =
+            static_cast<double>(count_a + count_b) / (2.0 * static_cast<double>(kStatShots));
+        const double tolerance =
+            7.0 * std::sqrt(2.0 * static_cast<double>(kStatShots) * p_hat * (1.0 - p_hat)) + 12.0;
+        const double diff = std::abs(static_cast<double>(count_a) - static_cast<double>(count_b));
+        REQUIRE(diff <= tolerance);
+    };
+
+    const auto build_wide_noisy_hir = [](uint32_t width) {
+        std::string qubits;
+        std::string tail_qubits;
+        for (uint32_t q = 0; q < width; ++q) {
+            if (q > 0) {
+                qubits += ' ';
+                if (q > 1) {
+                    tail_qubits += ' ';
+                }
+            }
+            const std::string q_str = std::to_string(q);
+            qubits += q_str;
+            if (q > 1) {
+                tail_qubits += q_str;
+            }
+        }
+        std::string source;
+        source += "H " + qubits + "\n";
+        source += "R_Z(0.19) " + qubits + "\n";
+        for (uint32_t q = 0; q + 1 < width; ++q) {
+            source += "CX " + std::to_string(q) + " " + std::to_string(q + 1) + "\n";
+        }
+        source += "H " + qubits + "\n";
+        source += "R_Z(0.27) " + qubits + "\n";
+        source += "X_ERROR(0.05) 0\n";
+        source += "DEPOLARIZE1(0.04) 1\n";
+        source += "CORRELATED_ERROR(0.06) X2 Z3\n";
+        source += "M(0.04) 0\n";
+        source += "CX rec[-1] 1\n";
+        source += "CZ rec[-1] " + std::to_string(width - 1) + "\n";
+        source += "R_Z(0.13) 1\n";
+        source += "H 1\n";
+        source += "M 1\n";
+        source += "DETECTOR rec[-2] rec[-1]\n";
+        source += "H " + tail_qubits + "\n";
+        source += "M " + tail_qubits + "\n";
+        source += "DETECTOR rec[-1] rec[-2]\n";
+        source += "OBSERVABLE_INCLUDE(0) rec[-" + std::to_string(width) + "] rec[-1]\n";
+        return clifft::trace(clifft::parse(source));
+    };
+
+    const auto run_packed_hist = [](const ExecutablePlan& plan, uint32_t batch_capacity,
+                                    const clifft::sampling::PreparedBatchNoise* noise,
+                                    uint64_t seed, bool postselected) {
+        std::array<uint64_t, 8> hist{};
+        uint64_t rejected = 0;
+        BatchExecutor worker(plan, batch_capacity, BatchOutputMode::Rows,
+                             BatchSamplingMode::Ordinary, noise);
+        const SeedRoot root = make_seed_root(kStatShots, seed);
+        for (uint32_t first = 0; first < kStatShots; first += batch_capacity) {
+            const uint32_t count = std::min(batch_capacity, kStatShots - first);
+            worker.run_batch(root, first, count);
+            rejected += count - worker.surviving_shots();
+            for (uint32_t lane = 0; lane < worker.surviving_shots(); ++lane) {
+                const uint32_t det0 = worker.detector(lane, 0);
+                const uint32_t det1 = worker.detector(lane, 1);
+                const uint32_t obs0 = worker.observable(lane, 0);
+                if (postselected) {
+                    REQUIRE(det0 == 0);
+                    ++hist[(det1 << 1U) | obs0];
+                } else {
+                    ++hist[(det0 << 2U) | (det1 << 1U) | obs0];
+                }
+            }
+        }
+        return std::pair{hist, rejected};
+    };
+
+    for (uint32_t width : {6U, 7U, 8U}) {
+        CAPTURE(width);
+        clifft::HirModule hir = build_wide_noisy_hir(width);
+        const ExecutablePlan plan(clifft::sampling::plan_sampling(hir));
+        REQUIRE(plan.peak_active_width() == width);
+
+        const auto auto_policy = clifft::sampling::resolve_batch_execution_policy(
+            plan, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt);
+        REQUIRE(auto_policy.lane_capacity > 1);
+
+        hir.postselection.mask = {1, 0};
+        hir.postselection.expected_detectors = {0, 0};
+        const ExecutablePlan post_plan(clifft::sampling::plan_sampling(hir));
+        REQUIRE(post_plan.peak_active_width() == width);
+        REQUIRE(post_plan.has_postselection());
+
+        for (bool postselected : {false, true}) {
+            const ExecutablePlan& active_plan = postselected ? post_plan : plan;
+            const clifft::sampling::PreparedBatchNoise direct(
+                active_plan, clifft::sampling::BatchNoiseMode::Sparse);
+            const clifft::sampling::PreparedBatchNoise site_sparse(
+                active_plan, clifft::sampling::BatchNoiseMode::SiteSparse);
+            const clifft::sampling::PreparedBatchNoise site_rows(
+                active_plan, clifft::sampling::BatchNoiseMode::SiteRows);
+
+            BatchExecutor dense_check(active_plan, kSeedCheckShots);
+            BatchExecutor sparse_check(active_plan, kSeedCheckShots, BatchOutputMode::Rows,
+                                       BatchSamplingMode::Ordinary, &direct);
+            BatchExecutor col_check(active_plan, kSeedCheckShots, BatchOutputMode::Rows,
+                                    BatchSamplingMode::Ordinary, &site_sparse);
+            BatchExecutor row_check(active_plan, kSeedCheckShots, BatchOutputMode::Rows,
+                                    BatchSamplingMode::Ordinary, &site_rows);
+            const SeedRoot check_root = make_seed_root(kSeedCheckShots, 710 + width);
+            dense_check.run_batch(check_root, 0, kSeedCheckShots);
+            sparse_check.run_batch(check_root, 0, kSeedCheckShots);
+            col_check.run_batch(check_root, 0, kSeedCheckShots);
+            row_check.run_batch(check_root, 0, kSeedCheckShots);
+            REQUIRE(dense_check.surviving_shots() == sparse_check.surviving_shots());
+            REQUIRE(col_check.surviving_shots() == row_check.surviving_shots());
+            for (uint32_t lane = 0; lane < dense_check.surviving_shots(); ++lane) {
+                REQUIRE(dense_check.shot_index(lane) == sparse_check.shot_index(lane));
+                compare_lane_outputs(sparse_check, dense_check, lane, lane, active_plan);
+            }
+            for (uint32_t lane = 0; lane < col_check.surviving_shots(); ++lane) {
+                REQUIRE(col_check.shot_index(lane) == row_check.shot_index(lane));
+                compare_lane_outputs(row_check, col_check, lane, lane, active_plan);
+            }
+
+            std::array<uint64_t, 8> scalar_hist{};
+            uint64_t scalar_rejected = 0;
+            clifft::sampling::Executor scalar(active_plan, 910 + width);
+            for (uint32_t shot = 0; shot < kStatShots; ++shot) {
+                scalar.run_shot();
+                if (scalar.discarded()) {
+                    ++scalar_rejected;
+                    continue;
+                }
+                const uint32_t det0 = scalar.detectors()[0];
+                const uint32_t det1 = scalar.detectors()[1];
+                const uint32_t obs0 = scalar.observables()[0];
+                if (postselected) {
+                    REQUIRE(det0 == 0);
+                    ++scalar_hist[(det1 << 1U) | obs0];
+                } else {
+                    ++scalar_hist[(det0 << 2U) | (det1 << 1U) | obs0];
+                }
+            }
+
+            const uint32_t capacity =
+                postselected ? uint32_t{65} : std::min(auto_policy.lane_capacity, uint32_t{129});
+            const size_t bins = postselected ? 4 : 8;
+            if (postselected) {
+                REQUIRE(scalar_rejected > 0);
+                REQUIRE(scalar_rejected < kStatShots);
+            }
+
+            uint64_t seed_offset = 1000;
+            for (const clifft::sampling::PreparedBatchNoise* mode :
+                 std::array<const clifft::sampling::PreparedBatchNoise*, 3>{nullptr, &site_sparse,
+                                                                            &site_rows}) {
+                seed_offset += 17;
+                const auto [packed_hist, packed_rejected] = run_packed_hist(
+                    active_plan, capacity, mode, 1200 + width + seed_offset, postselected);
+                two_sample_close(scalar_rejected, packed_rejected);
+                for (size_t bin = 0; bin < bins; ++bin) {
+                    two_sample_close(scalar_hist[bin], packed_hist[bin]);
+                }
+            }
         }
     }
 }

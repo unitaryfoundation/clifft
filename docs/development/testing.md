@@ -139,8 +139,12 @@ CI exercises the scalar, AVX2, and AVX-512 execution paths. Native runners
 cover the instruction sets available on their hosts, while emulation provides
 deterministic coverage of older x86 CPUs and AVX-512. These tests verify both
 automatic backend selection and clean rejection of forced, unsupported
-backends. The Release smoke job also runs the full Python suite against an
-optimized build with internal assertions enabled.
+backends. The Release smoke job runs the full C++ and Python suites against an
+optimized build with internal assertions enabled, re-runs the C++ suite and
+targeted SIMD and shared Python tests under `CLIFFT_FORCE_ISA=scalar`
+(expanding to all non-expensive Python tests on `main` pushes), and runs
+non-expensive C++ tests and those targeted Python tests under Intel SDE with
+`CLIFFT_FORCE_ISA=avx512`.
 
 Separate jobs cover Linux arm64, macOS, Windows, and WebAssembly. Nightly
 sanitizer jobs check for memory errors, undefined behavior, and data races,

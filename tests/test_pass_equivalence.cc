@@ -2539,3 +2539,169 @@ TEST_CASE("Multiword postselected circuits preserve survivor distributions acros
                                     compute_exact_hir_distribution(blocked_full, options));
     }
 }
+
+namespace {
+
+// Remap physical qubit tokens in a Stim circuit while preserving opcodes,
+// parenthesized parameter blocks, and classical rec/sweep references.
+std::vector<std::string> remap_stim_circuit_qubits(const std::vector<std::string>& lines,
+                                                   const std::vector<uint32_t>& qubit_map) {
+    std::vector<std::string> remapped;
+    remapped.reserve(lines.size());
+    for (const std::string& line : lines) {
+        size_t pos = 0;
+        while (pos < line.size() && line[pos] == ' ') {
+            ++pos;
+        }
+        while (pos < line.size() && line[pos] != ' ' && line[pos] != '(') {
+            ++pos;
+        }
+        if (pos < line.size() && line[pos] == '(') {
+            const size_t close = line.find(')', pos);
+            pos = (close == std::string::npos) ? line.size() : close + 1;
+        }
+
+        std::string out = line.substr(0, pos);
+        while (pos < line.size()) {
+            if (line.compare(pos, 4, "rec[") == 0 || line.compare(pos, 6, "sweep[") == 0) {
+                const size_t close = line.find(']', pos);
+                const size_t end = (close == std::string::npos) ? line.size() : close + 1;
+                out.append(line, pos, end - pos);
+                pos = end;
+                continue;
+            }
+            if (line[pos] >= '0' && line[pos] <= '9') {
+                size_t end = pos;
+                uint32_t logical = 0;
+                while (end < line.size() && line[end] >= '0' && line[end] <= '9') {
+                    logical = logical * 10 + static_cast<uint32_t>(line[end] - '0');
+                    ++end;
+                }
+                REQUIRE(logical < qubit_map.size());
+                out += std::to_string(qubit_map[logical]);
+                pos = end;
+                continue;
+            }
+            out.push_back(line[pos]);
+            ++pos;
+        }
+        remapped.push_back(std::move(out));
+    }
+    return remapped;
+}
+
+bool hir_op_sequence_changed(const HirModule& before, const HirModule& after) {
+    if (before.ops.size() != after.ops.size()) {
+        return true;
+    }
+    for (size_t i = 0; i < before.ops.size(); ++i) {
+        if (before.ops[i].op_type() != after.ops[i].op_type()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE(
+    "Multiword squeeze and schedule passes preserve exact distributions across word boundaries",
+    "[pass_equivalence][schedule_pass]") {
+    clifft::Xoshiro256PlusPlus rng(0x578091);
+    clifft::Xoshiro256PlusPlus control_rng(0x578092);
+
+    const std::vector<std::vector<uint32_t>> layouts = {
+        {0, 1, 63, 64},
+        {0, 63, 64, 129},
+    };
+    const PlantedScaffoldKind scaffolds[] = {
+        PlantedScaffoldKind::MultiRoundSchedule,
+        PlantedScaffoldKind::FeedbackAndReset,
+    };
+    const HazardConfig hazard_configs[] = {
+        {},
+        {.pauli_noise = true},
+        {.correlated_noise = true},
+        {.readout_noise = true},
+        {.resets = true, .exp_val = true},
+        {.pauli_noise = true, .readout_noise = true, .postselect_check_detectors = true},
+    };
+
+    for (const auto& layout : layouts) {
+        size_t squeeze_rewrites = 0;
+        size_t schedule_applied = 0;
+        size_t noise_crossed = 0;
+        size_t width_reductions = 0;
+
+        for (PlantedScaffoldKind scaffold : scaffolds) {
+            for (size_t h_idx = 0; h_idx < std::size(hazard_configs); ++h_idx) {
+                const HazardConfig& hazards = hazard_configs[h_idx];
+                for (int trial = 0; trial < 2; ++trial) {
+                    const PlantedCircuit planted = generate_planted_scaffold(scaffold, rng, 4);
+                    const std::vector<std::string> base_lines =
+                        inject_boundary_hazards(planted, hazards, rng, 4);
+                    const std::string dense_source = join_lines(base_lines);
+                    const std::string wide_source =
+                        join_lines(remap_stim_circuit_qubits(base_lines, layout));
+                    CAPTURE(layout.back(), static_cast<int>(scaffold), h_idx, trial, wide_source);
+
+                    const Circuit dense_circuit = clifft::parse(dense_source);
+                    const Circuit circuit = clifft::parse(wide_source);
+                    REQUIRE(circuit.num_qubits > 64);
+
+                    HirModule original = clifft::trace(circuit);
+                    assert_requested_hazards_present(planted, hazards, original);
+                    const OwnedPlanOptions owned =
+                        build_plan_options(original, planted, hazards.postselect_check_detectors);
+                    const auto options = owned.as_span_options();
+                    const ExactPlanDistribution dense_dist =
+                        compute_dense_circuit_distribution(dense_circuit, options);
+                    if (h_idx == 0) {
+                        assert_noiseless_scaffold_polarization(dense_dist, planted);
+                    }
+                    require_distributions_equal(dense_dist,
+                                                compute_exact_hir_distribution(original, options));
+
+                    const uint32_t unscheduled_peak =
+                        clifft::sampling::plan_sampling(original, options).peak_active_width;
+
+                    HirModule squeezed = original;
+                    StatevectorSqueezePass squeeze;
+                    squeeze.run(squeezed);
+                    const uint32_t squeezed_peak =
+                        clifft::sampling::plan_sampling(squeezed, options).peak_active_width;
+                    squeeze_rewrites += (squeezed_peak < unscheduled_peak ||
+                                         hir_op_sequence_changed(original, squeezed))
+                                            ? 1
+                                            : 0;
+                    check_exact_equivalent(original, squeezed, control_rng, 16, options);
+                    require_distributions_equal(dense_dist,
+                                                compute_exact_hir_distribution(squeezed, options));
+
+                    HirModule scheduled = squeezed;
+                    ActiveWidthSchedulePass scheduler;
+                    scheduler.run(scheduled);
+                    const uint32_t scheduled_peak =
+                        clifft::sampling::plan_sampling(scheduled, options).peak_active_width;
+                    schedule_applied += scheduler.applied() ? 1 : 0;
+                    noise_crossed += crossed_noise(scheduled) ? 1 : 0;
+                    width_reductions += (scheduled_peak < unscheduled_peak) ? 1 : 0;
+                    check_exact_equivalent(original, scheduled, control_rng, 16, options);
+                    require_distributions_equal(dense_dist,
+                                                compute_exact_hir_distribution(scheduled, options));
+
+                    HirModule full_opt = original;
+                    run_full_hir_pipeline(full_opt);
+                    check_exact_equivalent(original, full_opt, control_rng, 16, options);
+                    require_distributions_equal(dense_dist,
+                                                compute_exact_hir_distribution(full_opt, options));
+                }
+            }
+        }
+
+        REQUIRE(squeeze_rewrites >= 8);
+        REQUIRE(schedule_applied >= 10);
+        REQUIRE(noise_crossed >= 6);
+        REQUIRE(width_reductions >= 10);
+    }
+}
