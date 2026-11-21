@@ -17,20 +17,14 @@
 
 using clifft::sampling::ActivePauli;
 using clifft::sampling::apply_fused_rotation;
-using clifft::sampling::apply_interleaved_dynamic_fused_rotation;
-using clifft::sampling::apply_interleaved_fused_rotation;
-using clifft::sampling::apply_interleaved_promotion;
-using clifft::sampling::apply_interleaved_rotation;
 using clifft::sampling::apply_promotion;
 using clifft::sampling::apply_rotation;
-using clifft::sampling::collapse_interleaved_measurement;
 using clifft::sampling::collapse_measurement;
-using clifft::sampling::interleaved_expectation_values;
-using clifft::sampling::interleaved_measurement_probabilities;
+using clifft::sampling::interleaved_kernels;
 using clifft::sampling::InterleavedBatchState;
+using clifft::sampling::InterleavedKernels;
 using clifft::sampling::measurement_probabilities;
 using clifft::sampling::PackedBitColumns;
-using clifft::sampling::prepare_interleaved_rotation_sines;
 using clifft::sampling::prepare_promotion;
 using clifft::sampling::prepare_rotation;
 using clifft::sampling::PreparedFusedRotation;
@@ -40,6 +34,14 @@ using clifft::test::check_complex;
 namespace {
 
 constexpr double kTolerance = 2e-11;
+
+// Kernels of the process backend, as BatchExecutor selects them for a plan.
+// CLIFFT_FORCE_ISA switches the build these tests compare with the scalar
+// State kernels.
+const InterleavedKernels& kernels() {
+    return interleaved_kernels(
+        clifft::sampling::resolve_executor_backend(clifft::internal::runtime_isa()));
+}
 
 std::vector<std::complex<double>> lane_state(uint32_t active_width, uint32_t lane) {
     const uint64_t size = uint64_t{1} << active_width;
@@ -188,8 +190,8 @@ TEST_CASE("Interleaved batch rotations match independent scalar lanes") {
             InterleavedBatchState batch(active_width, active_width, kLanes);
             load_batch(batch, inputs);
             const auto rotation = prepare_rotation(pauli, active_width, kHalfTurns);
-            prepare_interleaved_rotation_sines(signed_sines, rotation.sine, packed_signs.column(0));
-            apply_interleaved_rotation(batch, rotation, signed_sines);
+            kernels().prepare_rotation_sines(signed_sines, rotation.sine, packed_signs.column(0));
+            kernels().apply_rotation(batch, rotation, signed_sines);
 
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
                 State expected(active_width, active_width);
@@ -214,7 +216,7 @@ TEST_CASE("Interleaved batch promotion matches independent scalar lanes") {
     }
 
     const auto promotion = prepare_promotion(-0.283);
-    prepare_interleaved_rotation_sines(signed_sines, promotion.sine, packed_signs.column(0));
+    kernels().prepare_rotation_sines(signed_sines, promotion.sine, packed_signs.column(0));
 
     for (uint32_t start_width : {4U, 5U, 6U, 7U}) {
         CAPTURE(start_width);
@@ -226,7 +228,7 @@ TEST_CASE("Interleaved batch promotion matches independent scalar lanes") {
 
         InterleavedBatchState batch(start_width + 1, start_width, kLanes);
         load_batch(batch, inputs);
-        apply_interleaved_promotion(batch, promotion, signed_sines);
+        kernels().apply_promotion(batch, promotion, signed_sines);
         REQUIRE(batch.active_width() == start_width + 1);
 
         for (uint32_t lane = 0; lane < kLanes; ++lane) {
@@ -257,13 +259,13 @@ TEST_CASE("Packed rotation signs prepare only the requested lanes") {
                 for (uint32_t lane = 0; lane < lanes; ++lane) {
                     expected[lane] = unpacked[lane] != 0 ? -sine : sine;
                 }
-                prepare_interleaved_rotation_sines(std::span<double>(actual).first(lanes), sine,
-                                                   packed.column(0));
+                kernels().prepare_rotation_sines(std::span<double>(actual).first(lanes), sine,
+                                                 packed.column(0));
                 REQUIRE(actual == expected);
             }
         }
     }
-    prepare_interleaved_rotation_sines(std::span<double>{}, 0.137, std::span<const uint64_t>{});
+    kernels().prepare_rotation_sines(std::span<double>{}, 0.137, std::span<const uint64_t>{});
 }
 
 TEST_CASE("Interleaved fused rotations match independent scalar lanes") {
@@ -280,7 +282,7 @@ TEST_CASE("Interleaved fused rotations match independent scalar lanes") {
             const PreparedFusedRotation rotation = fused_rotation(active_width, orbit_rank);
             InterleavedBatchState batch(active_width, active_width, kLanes);
             load_batch(batch, inputs);
-            apply_interleaved_fused_rotation(batch, rotation);
+            kernels().apply_fused_rotation(batch, rotation);
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
                 State expected(active_width, active_width);
                 load_state(expected, inputs[lane]);
@@ -323,7 +325,7 @@ TEST_CASE("Interleaved dynamic fused rotations match independent scalar lanes") 
 
             InterleavedBatchState batch(active_width, active_width, kLanes);
             load_batch(batch, inputs);
-            apply_interleaved_dynamic_fused_rotation(batch, variant_pointers, lane_variants);
+            kernels().apply_dynamic_fused_rotation(batch, variant_pointers, lane_variants);
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
                 State expected(active_width, active_width);
                 load_state(expected, inputs[lane]);
@@ -357,8 +359,8 @@ TEST_CASE("Interleaved measurements match independent scalar lanes") {
             load_batch(batch, inputs);
             std::vector<double> probability_zero(kLanes);
             std::vector<double> probability_one(kLanes);
-            interleaved_measurement_probabilities(batch, measurement, probability_zero,
-                                                  probability_one);
+            kernels().measurement_probabilities(batch, measurement, probability_zero,
+                                                probability_one);
             std::vector<uint8_t> branches(kLanes);
             std::vector<double> selected_probabilities(kLanes);
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
@@ -374,7 +376,7 @@ TEST_CASE("Interleaved measurements match independent scalar lanes") {
                     branches[lane] != 0 ? probabilities.one : probabilities.zero;
             }
 
-            collapse_interleaved_measurement(batch, measurement, branches, selected_probabilities);
+            kernels().collapse_measurement(batch, measurement, branches, selected_probabilities);
             REQUIRE(batch.active_width() == active_width - 1);
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
                 State expected(active_width, active_width);
@@ -408,7 +410,7 @@ TEST_CASE("Interleaved expectations match independent scalar lanes") {
         for (ActivePauli pauli : paulis) {
             CAPTURE(pauli.x, pauli.z);
             const auto prepared = clifft::sampling::prepare_pauli(pauli, width);
-            interleaved_expectation_values(batch, prepared, output);
+            kernels().expectation_values(batch, prepared, output);
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
                 State expected(width, width);
                 load_state(expected, inputs[lane]);
@@ -441,4 +443,20 @@ TEST_CASE("Interleaved state compaction preserves selected lanes") {
             require_lane_matches(batch, lane, expected);
         }
     }
+}
+
+TEST_CASE("Interleaved kernel lookup matches each backend to its build") {
+    using clifft::sampling::ExecutorBackend;
+    const InterleavedKernels& portable = interleaved_kernels(ExecutorBackend::Scalar);
+    REQUIRE(&interleaved_kernels(ExecutorBackend::Neon) == &portable);
+#if defined(CLIFFT_TESTS_HAVE_X86_KERNELS)
+    const InterleavedKernels& avx2 = interleaved_kernels(ExecutorBackend::Avx2);
+    const InterleavedKernels& avx512 = interleaved_kernels(ExecutorBackend::Avx512);
+    REQUIRE(avx2.apply_rotation != portable.apply_rotation);
+    REQUIRE(avx512.apply_rotation != portable.apply_rotation);
+    REQUIRE(avx512.apply_rotation != avx2.apply_rotation);
+#else
+    REQUIRE(&interleaved_kernels(ExecutorBackend::Avx2) == &portable);
+    REQUIRE(&interleaved_kernels(ExecutorBackend::Avx512) == &portable);
+#endif
 }
