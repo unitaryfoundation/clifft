@@ -77,6 +77,8 @@ class BatchExecutor : public BatchClassicalState {
     void compact_live_lanes(CompactionMode mode) noexcept;
     void finalize_live_lanes() noexcept;
 
+    // Coefficient kernels compiled for the plan's executor backend.
+    const InterleavedKernels* kernels_;
     InterleavedBatchState state_;
     std::vector<double> exp_vals_;
     std::vector<uint32_t> compaction_sources_;

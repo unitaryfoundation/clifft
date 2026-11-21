@@ -83,11 +83,17 @@ if(CLIFFT_X86_RUNTIME_DISPATCH)
     target_sources(clifft_core PRIVATE
         sampling/kernels_avx2.cc
         sampling/kernels_avx512.cc
+        sampling/batch/interleaved_kernels_avx2.cc
+        sampling/batch/interleaved_kernels_avx512.cc
     )
-    set_source_files_properties(sampling/kernels_avx2.cc
+    set_source_files_properties(
+        sampling/kernels_avx2.cc
+        sampling/batch/interleaved_kernels_avx2.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma"
     )
-    set_source_files_properties(sampling/kernels_avx512.cc
+    set_source_files_properties(
+        sampling/kernels_avx512.cc
+        sampling/batch/interleaved_kernels_avx512.cc
         PROPERTIES COMPILE_OPTIONS "-mavx2;-mbmi2;-mfma;-mavx512f;-mavx512dq"
     )
     target_compile_definitions(clifft_core PRIVATE CLIFFT_ENABLE_X86_RUNTIME_DISPATCH)
