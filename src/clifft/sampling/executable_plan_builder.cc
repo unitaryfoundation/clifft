@@ -516,6 +516,7 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::compile() {
     output_.estimated_batch_lane_work_ = estimated_batch_lane_work_;
     prepare_batch_compaction_costs(output_, action_batch_lane_work_);
     build_expression_dependencies();
+    output_.trajectory_divergence_ = output_.measure_trajectory_divergence();
     prepare_noise_schedule(output_, symbol_first_actions_);
     output_.batch_presampled_program_ = BatchPresampledProgram::build(output_);
     validate_executable_plan();

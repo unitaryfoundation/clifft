@@ -412,8 +412,11 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
         return shots >= kDefaultMinAutoBatchShots;
     }
     constexpr uint32_t kMinUnitaryPrefixShots = 16;
-    return compiled.num_presampled_symbols() == 0 && !compiled.has_readout_noise() && width >= 8 &&
-           shots >= kMinUnitaryPrefixShots && compiled.has_reusable_unitary_prefix();
+    if (compiled.num_presampled_symbols() == 0 && !compiled.has_readout_noise() && width >= 8 &&
+        shots >= kMinUnitaryPrefixShots && compiled.has_reusable_unitary_prefix()) {
+        return true;
+    }
+    return shots >= kDefaultMinAutoBatchShots && compiled.has_bounded_trajectory_divergence();
 }
 
 sampling::SamplingResult sample(const Program& program, uint32_t shots,

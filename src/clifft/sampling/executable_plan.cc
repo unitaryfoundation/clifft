@@ -148,6 +148,84 @@ std::vector<AffineBool> ExecutablePlan::affine_registers() const {
     return expressions;
 }
 
+std::vector<uint8_t> ExecutablePlan::rotation_sign_registers() const {
+    std::vector<uint8_t> required(num_expression_registers());
+    for (const auto& action : actions_) {
+        std::visit(
+            [&](const auto& typed) {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, ExecuteRotation> ||
+                              std::is_same_v<T, ExecutePromotion>) {
+                    required[typed.sign.register_id] = 1;
+                } else if constexpr (std::is_same_v<T, ExecuteDynamicFusedRotation>) {
+                    for (const auto& sign :
+                         dynamic_fused_rotations_[typed.rotation_index].sign_basis) {
+                        required[sign.register_id] = 1;
+                    }
+                }
+            },
+            action);
+    }
+    // A derived sign input is uniform only when its defining expression is
+    // uniform. Definitions are ordered, so one reverse pass closes this set.
+    for (auto it = actions_.rbegin(); it != actions_.rend(); ++it) {
+        if (const auto* definition = std::get_if<ExecuteSymbolDefinition>(&*it)) {
+            for (auto reg : expression_dependencies_.dependent_registers(definition->symbol)) {
+                if (required[reg]) {
+                    required[definition->value.register_id] = 1;
+                    break;
+                }
+            }
+        }
+    }
+    return required;
+}
+
+ExecutablePlan::TrajectoryDivergence ExecutablePlan::measure_trajectory_divergence() const {
+    const auto sign_registers = rotation_sign_registers();
+    const auto feeds_sign = [&](uint32_t symbol) {
+        return std::ranges::any_of(expression_dependencies_.dependent_registers(symbol),
+                                   [&](uint32_t reg) { return sign_registers[reg] != 0; });
+    };
+    TrajectoryDivergence divergence;
+    for (const PreparedNoiseSite& site : noise_sites_) {
+        double previous = 0.0;
+        for (uint32_t k = 0; k < site.outcome_count; ++k) {
+            const PreparedNoiseOutcome& outcome = noise_outcomes_[site.outcome_begin + k];
+            if (feeds_sign(outcome.symbol)) {
+                divergence.expected_sign_faults += outcome.cumulative_probability - previous;
+            }
+            previous = outcome.cumulative_probability;
+        }
+    }
+    for (const auto& action : actions_) {
+        if (const auto* dormant = std::get_if<ExecuteDormantMeasurement>(&action)) {
+            divergence.sign_dormant_measurements += feeds_sign(dormant->branch) ? 1 : 0;
+        } else if (std::holds_alternative<ExecuteActiveMeasurement>(action)) {
+            ++divergence.active_measurements;
+        }
+    }
+    return divergence;
+}
+
+bool ExecutablePlan::has_bounded_trajectory_divergence() const noexcept {
+    // Narrower plans have too little coefficient work to share.
+    constexpr uint32_t kMinWidth = 3;
+    // At one expected sign fault per shot about 63% of a batch leaves the
+    // fault-free trajectory. Sharing then breaks even with AVX-512 packed
+    // batches and is ahead at narrower vector widths.
+    constexpr double kMaxExpectedSignFaults = 1.0;
+    // 2^8 trajectories stay well below the lanes of a shared batch.
+    constexpr uint32_t kMaxSignDormantMeasurements = 8;
+    // When every outcome is random, the trajectories of a batch reach its lane
+    // count after 13 measurements, and sharing still breaks even at 16.
+    constexpr uint32_t kMaxActiveMeasurements = 16;
+    return peak_active_width_ >= kMinWidth &&
+           trajectory_divergence_.expected_sign_faults <= kMaxExpectedSignFaults &&
+           trajectory_divergence_.sign_dormant_measurements <= kMaxSignDormantMeasurements &&
+           trajectory_divergence_.active_measurements <= kMaxActiveMeasurements;
+}
+
 void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,
                                                       size_t num_registers) const noexcept {
 #ifndef NDEBUG
