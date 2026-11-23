@@ -86,6 +86,12 @@ def main() -> None:
             assert serial_values.tobytes() == threaded_values.tobytes()
         print("intra-shot=ok", flush=True)
 
+    # Packed batches run the coefficient kernels compiled for the resolved ISA.
+    packed_program = clifft.compile("H 0 1 2\nT 0 1 2\nCX 0 1 1 2\nH 0 1 2\nT 0 1 2\nM 0 1 2")
+    packed = clifft.sample(packed_program, shots=256, seed=280, sharing=False)
+    assert packed.execution.executor == "packed", packed.execution.executor
+    assert packed.measurements.shape == (256, 3), packed.measurements.shape
+
     prog = clifft.compile("H 0\nCX 0 1\nM 0 1")
     ps = clifft.record_probabilities(prog, ["00", "11"])
     assert abs(float(ps[0]) - 0.5) < 1e-12 and abs(float(ps[1]) - 0.5) < 1e-12, ps
