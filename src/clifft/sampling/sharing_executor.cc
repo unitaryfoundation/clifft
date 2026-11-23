@@ -57,8 +57,12 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
       share_(share),
       key_(share ? key : nullptr),
       shot_rng_(lane_capacity),
-      heads_(lane_capacity, kNoShot),
-      next_(lane_capacity, kNoShot),
+      order_(lane_capacity),
+      position_(lane_capacity),
+      group_of_(lane_capacity),
+      begin_(lane_capacity),
+      end_(lane_capacity),
+      departing_(lane_capacity),
       groups_(lane_capacity),
       free_(lane_capacity),
       choices_(lane_capacity) {
@@ -123,9 +127,9 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
                                                   const PreparedBatchNoise& noise,
                                                   const SharingKey* key, uint32_t lane_capacity,
                                                   BatchOutputMode output_mode) {
-    // Per-lane RNG streams, group links, and branch choices.
+    // Per-lane RNG streams, group ranges, and branch choices.
     constexpr uint64_t kLaneBytes =
-        sizeof(Xoshiro256PlusPlus) + 4 * sizeof(uint32_t) + sizeof(uint8_t);
+        sizeof(Xoshiro256PlusPlus) + 8 * sizeof(uint32_t) + sizeof(uint8_t);
     uint64_t bytes = saturating_add_u64(
         batch_detail::batch_worker_classical_bytes(plan, lane_capacity, output_mode,
                                                    BatchSamplingMode::Ordinary, &noise),
@@ -365,9 +369,11 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
             }
         }
     }
+    // Assign every live lane a group. Until the ranges are laid out, end_
+    // counts a group's lanes and begin_ holds the lane whose key represents it.
     if (share_ && key_stride_ == 0) {
         group_count_ = 1;
-        heads_[0] = kNoShot;
+        end_[0] = 0;
     }
     for (uint32_t shot = 0; shot < shots; ++shot) {
         if (!is_live(shot))
@@ -386,23 +392,38 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
                 if (group == kNoShot) {
                     group = group_count_++;
                     key_hash_[bucket] = group;
-                    heads_[group] = kNoShot;
+                    end_[group] = 0;
+                    begin_[group] = shot;
                     break;
                 }
-                const auto* other = key_rows_.data() + size_t{heads_[group]} * key_stride_;
+                const auto* other = key_rows_.data() + size_t{begin_[group]} * key_stride_;
                 if (std::equal(key, key + key_stride_, other))
                     break;
                 bucket = (bucket + 1) & (key_hash_.size() - 1);
             }
         } else if (!share_) {
             group = group_count_++;
-            heads_[group] = kNoShot;
+            end_[group] = 0;
         }
-        next_[shot] = heads_[group];
-        heads_[group] = shot;
+        group_of_[shot] = group;
+        ++end_[group];
         const auto words =
             derive_state(root, uint64_t{first_shot} + shot, kSharedSamplingExecutorDomain);
         shot_rng_[shot].seed_full(words[0], words[1], words[2], words[3]);
+    }
+    // Lay the groups out as consecutive ranges and fill them in lane order.
+    uint32_t placed = 0;
+    for (uint32_t group = 0; group < group_count_; ++group) {
+        begin_[group] = placed;
+        placed += end_[group];
+        end_[group] = begin_[group];
+    }
+    for (uint32_t shot = 0; shot < shots; ++shot) {
+        if (!is_live(shot))
+            continue;
+        const uint32_t group = group_of_[shot];
+        position_[shot] = end_[group];
+        order_[end_[group]++] = shot;
     }
     free_count_ = 0;
     if (group_count_ > states_.size()) {
@@ -466,72 +487,98 @@ void SharingExecutor::copy_state(uint32_t to, uint32_t from) noexcept {
     std::ranges::copy(states_[from].imag(), states_[to].imag().begin());
 }
 
-uint32_t SharingExecutor::split(uint32_t group) noexcept {
-    uint32_t heads[2] = {kNoShot, kNoShot}, count[2] = {0, 0};
-    for (uint32_t shot = heads_[group]; shot != kNoShot;) {
-        const uint32_t next = next_[shot], value = choices_[shot];
-        next_[shot] = heads[value];
-        heads[value] = shot;
-        ++count[value];
-        shot = next;
-    }
-    if (count[0] == 0 || count[1] == 0) {
-        heads_[group] = heads[count[1] != 0];
+void SharingExecutor::swap_lanes(uint32_t first, uint32_t second) noexcept {
+    std::swap(order_[first], order_[second]);
+    position_[order_[first]] = first;
+    position_[order_[second]] = second;
+}
+
+uint32_t SharingExecutor::detach_tail(uint32_t group, uint32_t tail) noexcept {
+    const uint32_t end = end_[group];
+    if (tail == begin_[group] || tail == end) {
         return kNoShot;
     }
     assert(free_count_ != 0 && "state split must fit the preflight capacity");
     const uint32_t other = free_[--free_count_];
     copy_state(other, group);
-    heads_[group] = heads[0];
-    heads_[other] = heads[1];
+    end_[group] = tail;
+    begin_[other] = tail;
+    end_[other] = end;
+    for (uint32_t shot : lanes(other)) {
+        group_of_[shot] = other;
+    }
     groups_[group_count_++] = other;
     ++num_splits_;
     peak_groups_ = std::max(peak_groups_, group_count_);
     return other;
 }
 
-uint32_t SharingExecutor::split_by_sign(uint32_t group, std::span<const uint64_t> values) noexcept {
-    const auto bit = [&](uint32_t shot) { return ((values[shot >> 6] >> (shot & 63)) & 1) != 0; };
+uint32_t SharingExecutor::split(uint32_t group) noexcept {
+    uint32_t tail = end_[group];
+    for (uint32_t index = begin_[group]; index < tail;) {
+        if (choices_[order_[index]] != 0) {
+            swap_lanes(index, --tail);
+        } else {
+            ++index;
+        }
+    }
+    return detach_tail(group, tail);
+}
+
+void SharingExecutor::split_by_sign(std::span<const uint64_t> values) noexcept {
     if (key_) {
 #ifndef NDEBUG
-        const bool first = bit(heads_[group]);
-        for (auto shot = next_[heads_[group]]; shot != kNoShot; shot = next_[shot]) {
-            assert(bit(shot) == first && "prepared sharing signs must be uniform within a group");
+        for (uint32_t index = 0; index < group_count_; ++index) {
+            const auto members = lanes(groups_[index]);
+            for (uint32_t shot : members) {
+                assert(lane_bit(values, shot) == lane_bit(values, members.front()) &&
+                       "prepared sharing signs must be uniform within a group");
+            }
         }
 #endif
-        return kNoShot;
+        return;
     }
-    const bool first = bit(heads_[group]);
-    uint32_t shot = next_[heads_[group]];
-    while (shot != kNoShot && bit(shot) == first) {
-        shot = next_[shot];
+    // A group separates exactly when some, but not all, of its lanes carry the
+    // less common sign. Visiting only those lanes keeps the work proportional
+    // to the lanes that disagree with the batch, which is few when most shots
+    // share a trajectory.
+    uint32_t ones = 0;
+    for (size_t word = 0; word < live_words_.size(); ++word) {
+        ones += static_cast<uint32_t>(std::popcount(values[word] & live_words_[word]));
     }
-    // Most signs agree throughout a group. Preserve its list without writing
-    // choices or relinking members unless the sign actually separates them.
-    if (shot == kNoShot) {
-        return kNoShot;
+    const uint64_t majority = 2 * uint64_t{ones} > live_count_ ? ~uint64_t{0} : 0;
+    for (size_t word = 0; word < live_words_.size(); ++word) {
+        uint64_t bits = (values[word] ^ majority) & live_words_[word];
+        while (bits) {
+            const uint32_t shot = static_cast<uint32_t>(word * 64 + std::countr_zero(bits));
+            bits &= bits - 1;
+            const uint32_t group = group_of_[shot];
+            swap_lanes(position_[shot], end_[group] - ++departing_[group]);
+        }
     }
-    for (shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
-        choices_[shot] = bit(shot);
+    const uint32_t original_group_count = group_count_;
+    for (uint32_t index = 0; index < original_group_count; ++index) {
+        const uint32_t group = groups_[index];
+        if (departing_[group] != 0) {
+            const uint32_t tail = end_[group] - departing_[group];
+            departing_[group] = 0;
+            detach_tail(group, tail);
+        }
     }
-    return split(group);
 }
 
 void SharingExecutor::prune() noexcept {
     uint32_t kept = 0;
     for (uint32_t index = 0; index < group_count_; ++index) {
         const auto group = groups_[index];
-        uint32_t head = kNoShot;
-        for (uint32_t shot = heads_[group]; shot != kNoShot;) {
-            const uint32_t next = next_[shot];
-            if (lane_bit(live_words_, shot)) {
-                next_[shot] = head;
-                head = shot;
+        uint32_t tail = begin_[group];
+        for (uint32_t position = begin_[group]; position < end_[group]; ++position) {
+            if (lane_bit(live_words_, order_[position])) {
+                swap_lanes(position, tail++);
             }
-            shot = next;
         }
-        heads_[group] = head;
-        if (head != kNoShot) {
+        end_[group] = tail;
+        if (tail != begin_[group]) {
             groups_[kept++] = group;
         } else {
             free_[free_count_++] = group;
@@ -550,14 +597,10 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteRotation& acti
 
 template <class F>
 void SharingExecutor::sign_action(std::span<const uint64_t> values, F&& apply) noexcept {
-    const uint32_t original_group_count = group_count_;
-    for (uint32_t index = 0; index < original_group_count; ++index) {
+    split_by_sign(values);
+    for (uint32_t index = 0; index < group_count_; ++index) {
         const uint32_t group = groups_[index];
-        const auto other = split_by_sign(group, values);
-        apply(group, lane_bit(values, heads_[group]));
-        if (other != kNoShot) {
-            apply(other, true);
-        }
+        apply(group, lane_bit(values, lanes(group).front()));
     }
 }
 
@@ -578,19 +621,15 @@ void SharingExecutor::execute_action(
     const ExecutablePlan::ExecuteDynamicFusedRotation& action) noexcept {
     const auto& rotation = plan_->dynamic_fused_rotations_[action.rotation_index];
     for (const auto& sign : rotation.sign_basis) {
-        auto values = evaluate(sign);
-        const uint32_t original_group_count = group_count_;
-        for (uint32_t index = 0; index < original_group_count; ++index) {
-            auto group = groups_[index];
-            (void)split_by_sign(group, values);
-        }
+        split_by_sign(evaluate(sign));
     }
     for (uint32_t index = 0; index < group_count_; ++index) {
         auto group = groups_[index];
         uint32_t value = 0;
         for (size_t sign_index = 0; sign_index < rotation.sign_basis.size(); ++sign_index) {
-            value |= uint32_t(lane_bit(evaluate(rotation.sign_basis[sign_index]), heads_[group]))
-                     << sign_index;
+            value |=
+                uint32_t(lane_bit(evaluate(rotation.sign_basis[sign_index]), lanes(group).front()))
+                << sign_index;
         }
         rotation.variants[value].apply(states_[group]);
     }
@@ -613,14 +652,14 @@ void SharingExecutor::execute_action(
         if (kind != MeasurementBranchKind::Random) {
             const bool branch = kind == MeasurementBranchKind::DeterministicOne;
             if (branch) {
-                for (uint32_t shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
+                for (uint32_t shot : lanes(group)) {
                     scratch_words_[shot >> 6] |= uint64_t{1} << (shot & 63);
                 }
             }
             collapse(group, branch, probabilities.for_branch(branch));
             continue;
         }
-        for (uint32_t shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
+        for (uint32_t shot : lanes(group)) {
             const bool branch =
                 shot_rng_[shot].next_double() * probabilities.total() >= probabilities.zero;
             choices_[shot] = branch;
@@ -629,7 +668,7 @@ void SharingExecutor::execute_action(
             }
         }
         const auto other = split(group);
-        const bool branch = choices_[heads_[group]];
+        const bool branch = choices_[lanes(group).front()];
         collapse(group, branch, probabilities.for_branch(branch));
         if (other != kNoShot) {
             collapse(other, true, probabilities.one);
@@ -656,7 +695,7 @@ void SharingExecutor::split_on_symbol(uint32_t symbol) noexcept {
     const auto original_groups = group_count_;
     for (uint32_t i = 0; i < original_groups; ++i) {
         const auto group = groups_[i];
-        for (auto shot = heads_[group]; shot != kNoShot; shot = next_[shot]) {
+        for (uint32_t shot : lanes(group)) {
             choices_[shot] = lane_bit(scratch_words_, shot);
         }
         (void)split(group);
@@ -692,7 +731,7 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteReadoutNoise& 
     const auto values = evaluate(action.source);
     std::ranges::fill(scratch_words_, uint64_t{0});
     for (uint32_t index = 0; index < group_count_; ++index) {
-        for (uint32_t shot = heads_[groups_[index]]; shot != kNoShot; shot = next_[shot]) {
+        for (uint32_t shot : lanes(groups_[index])) {
             const double probability =
                 lane_bit(values, shot) ? action.prob_one_to_zero : action.prob_zero_to_one;
             const bool flip = probability >= 1 ||

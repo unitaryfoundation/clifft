@@ -181,6 +181,52 @@ TEST_CASE("Sharing storage boundaries preserve per-shot branches and classical c
     REQUIRE(largest_shared_group_count < 129);
 }
 
+TEST_CASE("Shared sign splits match independent lanes for either majority sign") {
+    // An X error before T flips that rotation's sign. A low rate leaves most
+    // lanes unflipped, a high rate leaves most flipped, and one half separates
+    // nearly every lane, so the split visits either sign and uncut groups.
+    const double flip_probability = GENERATE(0.03, 0.5, 0.97);
+    std::string source = "H 0 1 2\n";
+    for (int layer = 0; layer < 4; ++layer) {
+        source += "X_ERROR(" + std::to_string(flip_probability) + ") 0 1 2\n";
+        source += "T 0 1 2\nH 0 1 2\nCX 0 1 1 2\n";
+    }
+    source += "M 0 1 2\nOBSERVABLE_INCLUDE(0) rec[-1]\n";
+    const ExecutablePlan plan(plan_sampling(trace(parse(source))));
+    REQUIRE(plan.peak_active_width() == 3);
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::Sparse);
+    const EarlyPostselection checks(plan);
+    constexpr uint32_t kLanes = 257;
+    SharingExecutor shared(plan, noise, checks, kLanes, 1);
+    SharingExecutor independent(plan, noise, checks, kLanes, kLanes, false);
+    uint64_t splits = 0;
+    uint32_t peak_groups = 0;
+    for (uint64_t seed = 0; seed < 8; ++seed) {
+        const auto root = seed_root_from_seed(seed);
+        shared.run_batch(root, 5, kLanes);
+        independent.run_batch(root, 5, kLanes);
+        splits += shared.num_splits();
+        peak_groups = std::max(peak_groups, shared.peak_groups());
+        const auto compare = [&](const PackedBitColumns& actual, const PackedBitColumns& expected) {
+            REQUIRE(actual.num_columns() == expected.num_columns());
+            for (size_t column = 0; column < actual.num_columns(); ++column) {
+                for (size_t word = 0; word < shared.survivor_mask().size(); ++word) {
+                    const uint64_t difference =
+                        actual.column(column)[word] ^ expected.column(column)[word];
+                    REQUIRE((difference & shared.survivor_mask()[word]) == 0);
+                }
+            }
+        };
+        compare(shared.record_columns(), independent.record_columns());
+        compare(shared.observable_columns(), independent.observable_columns());
+    }
+    REQUIRE(splits > 0);
+    if (flip_probability != 0.5) {
+        // Lanes with the same flips keep sharing a state.
+        REQUIRE(peak_groups < kLanes / 2);
+    }
+}
+
 TEST_CASE("Selected detector scheduling preserves record snapshots and later readout") {
     const bool select_second = GENERATE(false, true);
     const SymbolId first_flip{0}, second_flip{1};
