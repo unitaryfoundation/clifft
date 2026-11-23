@@ -6,6 +6,7 @@
 #include <array>
 #include <bit>
 #include <cassert>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -182,7 +183,8 @@ void BatchExecutor::execute_action(
         if (branch) {
             scratch_words_[lane >> 6] |= uint64_t{1} << (lane & 63);
         }
-        lane_values_[lane] = probabilities.for_branch(branch);
+        // The collapse scale is the same for every basis state of a lane.
+        lane_values_[lane] = 1.0 / std::sqrt(probabilities.for_branch(branch));
     }
     kernels_->collapse_measurement(state_, action.measurement,
                                    std::span<const uint8_t>(lane_bytes_).first(active_lanes()),

@@ -41,10 +41,14 @@ struct InterleavedKernels {
                                       const PreparedMeasurement& measurement,
                                       std::span<double> probability_zero,
                                       std::span<double> probability_one) noexcept;
+    // Each lane's collapsed state is scaled by branch_scales[lane], the
+    // inverse square root of its selected branch probability. The caller
+    // computes it once per lane, which keeps the coefficient loops free of
+    // library calls.
     void (*collapse_measurement)(InterleavedBatchState& state,
                                  const PreparedMeasurement& measurement,
                                  std::span<const uint8_t> branches,
-                                 std::span<const double> branch_probabilities) noexcept;
+                                 std::span<const double> branch_scales) noexcept;
     void (*expectation_values)(const InterleavedBatchState& state, const PreparedPauli& pauli,
                                std::span<double> output) noexcept;
 };
