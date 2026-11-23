@@ -17,7 +17,6 @@
 #include <array>
 #include <bit>
 #include <cassert>
-#include <cmath>
 #include <complex>
 #include <cstddef>
 
@@ -403,10 +402,10 @@ void interleaved_measurement_probabilities(const InterleavedBatchState& state,
 void collapse_interleaved_measurement(InterleavedBatchState& state,
                                       const PreparedMeasurement& measurement,
                                       std::span<const uint8_t> branches,
-                                      std::span<const double> branch_probabilities) noexcept {
+                                      std::span<const double> branch_scales) noexcept {
     assert(state.active_width() == measurement.pauli.active_width &&
            branches.size() >= state.active_lanes() &&
-           branch_probabilities.size() >= state.active_lanes() &&
+           branch_scales.size() >= state.active_lanes() &&
            "measurement collapse inputs must match interleaved state");
     const size_t lanes = state.active_lanes();
     if (measurement.pauli.is_diagonal()) {
@@ -419,11 +418,10 @@ void collapse_interleaved_measurement(InterleavedBatchState& state,
             double* output_imag = state.imag_basis(packed);
             CLIFFT_OMP_SIMD
             for (size_t lane = 0; lane < lanes; ++lane) {
-                const double inv_norm = 1.0 / std::sqrt(branch_probabilities[lane]);
                 output_real[lane] =
-                    (branches[lane] != 0 ? one_real[lane] : zero_real[lane]) * inv_norm;
+                    (branches[lane] != 0 ? one_real[lane] : zero_real[lane]) * branch_scales[lane];
                 output_imag[lane] =
-                    (branches[lane] != 0 ? one_imag[lane] : zero_imag[lane]) * inv_norm;
+                    (branches[lane] != 0 ? one_imag[lane] : zero_imag[lane]) * branch_scales[lane];
             }
         }
     } else {
@@ -442,7 +440,7 @@ void collapse_interleaved_measurement(InterleavedBatchState& state,
             CLIFFT_OMP_SIMD
             for (size_t lane = 0; lane < lanes; ++lane) {
                 const double eigenvalue = branches[lane] != 0 ? -1.0 : 1.0;
-                const double scale = kInvSqrt2 / std::sqrt(branch_probabilities[lane]);
+                const double scale = kInvSqrt2 * branch_scales[lane];
                 const double transformed_real =
                     phase.real() * right_real[lane] - phase.imag() * right_imag[lane];
                 const double transformed_imag =

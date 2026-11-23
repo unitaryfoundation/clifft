@@ -363,6 +363,7 @@ TEST_CASE("Interleaved measurements match independent scalar lanes") {
                                                 probability_one);
             std::vector<uint8_t> branches(kLanes);
             std::vector<double> selected_probabilities(kLanes);
+            std::vector<double> selected_scales(kLanes);
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
                 State expected(active_width, active_width);
                 load_state(expected, inputs[lane]);
@@ -374,9 +375,10 @@ TEST_CASE("Interleaved measurements match independent scalar lanes") {
                 branches[lane] = static_cast<uint8_t>((lane & 1U) != 0);
                 selected_probabilities[lane] =
                     branches[lane] != 0 ? probabilities.one : probabilities.zero;
+                selected_scales[lane] = 1.0 / std::sqrt(selected_probabilities[lane]);
             }
 
-            kernels().collapse_measurement(batch, measurement, branches, selected_probabilities);
+            kernels().collapse_measurement(batch, measurement, branches, selected_scales);
             REQUIRE(batch.active_width() == active_width - 1);
             for (uint32_t lane = 0; lane < kLanes; ++lane) {
                 State expected(active_width, active_width);
