@@ -571,10 +571,14 @@ void SharingExecutor::prune() noexcept {
     uint32_t kept = 0;
     for (uint32_t index = 0; index < group_count_; ++index) {
         const auto group = groups_[index];
+        // Compact the live lanes toward the front. Dropped lanes belong to no
+        // group afterwards, so their slots need not be preserved.
         uint32_t tail = begin_[group];
         for (uint32_t position = begin_[group]; position < end_[group]; ++position) {
-            if (lane_bit(live_words_, order_[position])) {
-                swap_lanes(position, tail++);
+            const uint32_t shot = order_[position];
+            if (lane_bit(live_words_, shot)) {
+                order_[tail] = shot;
+                position_[shot] = tail++;
             }
         }
         end_[group] = tail;
