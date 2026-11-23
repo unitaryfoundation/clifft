@@ -467,8 +467,9 @@ TEST_CASE("Native automatic sharing without postselection bounds trajectory dive
     const auto compile = [](const std::string& source) {
         return ExecutablePlan(plan_sampling(trace(parse(source))));
     };
-    const auto shares = [](const ExecutablePlan& plan) {
-        return should_share_sampling(plan, 4096, false, {1, 1}, kDefaultSharedWorkerStateBudget);
+    const auto shares = [](const ExecutablePlan& plan, uint32_t shots = 65536,
+                           uint64_t state_bytes = kDefaultSharedWorkerStateBudget) {
+        return should_share_sampling(plan, shots, false, {1, 1}, state_bytes);
     };
     // Four qubits with `layers` rounds of an X error followed by T, then
     // `record_layers` rounds of X errors before the measurements. An X error
@@ -484,15 +485,36 @@ TEST_CASE("Native automatic sharing without postselection bounds trajectory dive
         }
         return source + "M 0 1 2 3\n";
     };
+    // Three data qubits. Each ancilla measurement controls an X before a T
+    // layer: `prepare` makes its outcome uniformly random, and `measure` can
+    // add readout noise.
+    const auto feedback = [](uint32_t ancillas, const std::string& prepare,
+                             const std::string& measure) {
+        std::string source = "H 0 1 2\n";
+        for (uint32_t a = 0; a < ancillas; ++a) {
+            const auto ancilla = std::to_string(3 + a);
+            source += prepare.empty() ? "" : prepare + " " + ancilla + "\n";
+            source += measure + " " + ancilla + "\nCX rec[-1] " + std::to_string(a % 3) +
+                      "\nT 0 1 2\nH 0 1 2\n";
+        }
+        return source + "M 0 1 2\n";
+    };
+    // Every round measures a qubit of the active state and rotates it again.
+    const auto remeasured = [](uint32_t rounds) {
+        std::string source = "H 0 1 2\nT 0 1 2\nH 0 1 2\n";
+        for (uint32_t round = 0; round < rounds; ++round) {
+            source += "M 0\nH 0\nT 0\nH 0\n";
+        }
+        return source + "M 0 1 2\n";
+    };
 
     SECTION("sign faults") {
         const auto rare = compile(noisy_layers(0.01, 5, 0));
         REQUIRE(rare.peak_active_width() == 4);
         REQUIRE(std::abs(rare.trajectory_divergence().expected_sign_faults - 0.2) < 1e-9);
-        REQUIRE(rare.trajectory_divergence().active_measurements == 4);
         REQUIRE(shares(rare));
-        REQUIRE_FALSE(
-            should_share_sampling(rare, 63, false, {1, 1}, kDefaultSharedWorkerStateBudget));
+        REQUIRE(shares(rare, 64));
+        REQUIRE_FALSE(shares(rare, 63));
 
         const auto frequent = compile(noisy_layers(0.1, 5, 0));
         REQUIRE(std::abs(frequent.trajectory_divergence().expected_sign_faults - 2.0) < 1e-9);
@@ -505,6 +527,27 @@ TEST_CASE("Native automatic sharing without postselection bounds trajectory dive
         REQUIRE(shares(record_noise));
     }
 
+    SECTION("readout flips") {
+        // A noisy readout that controls a later gate is a sign fault, like an
+        // X error before an ideal measurement of the same ancilla.
+        const auto readout = compile(feedback(30, "", "M(0.05)"));
+        const auto bit_flip = compile(feedback(30, "X_ERROR(0.05)", "M"));
+        REQUIRE(readout.peak_active_width() == 3);
+        REQUIRE(readout.num_noise_sites() == 0);
+        REQUIRE(std::abs(readout.trajectory_divergence().expected_sign_faults - 1.5) < 1e-9);
+        REQUIRE(std::abs(bit_flip.trajectory_divergence().expected_sign_faults - 1.5) < 1e-9);
+        REQUIRE_FALSE(shares(readout));
+        REQUIRE_FALSE(shares(bit_flip));
+        REQUIRE(shares(compile(feedback(10, "", "M(0.05)"))));
+
+        // Readout flips that reach only records do not count.
+        const auto output_only =
+            compile("H 0 1 2\nT 0 1 2\nH 0 1 2\nM(0.4) 3 4 5 6 7 8\nM(0.4) 0 1 2\n");
+        REQUIRE(output_only.has_readout_noise());
+        REQUIRE(output_only.trajectory_divergence().expected_sign_faults == 0.0);
+        REQUIRE(shares(output_only));
+    }
+
     SECTION("width") {
         // Two qubits leave too little coefficient work to share.
         const auto narrow = compile("H 0 1\nX_ERROR(0.01) 0 1\nT 0 1\nH 0 1\nM 0 1\n");
@@ -512,43 +555,62 @@ TEST_CASE("Native automatic sharing without postselection bounds trajectory dive
         REQUIRE_FALSE(shares(narrow));
     }
 
-    SECTION("dormant measurement feedback") {
-        // Each ancilla measurement is uniformly random and controls an X
-        // before a T gate, so it doubles the trajectories.
-        const auto feedback = [](uint32_t ancillas) {
-            std::string source = "H 0 1 2\n";
-            for (uint32_t a = 0; a < ancillas; ++a) {
-                const auto ancilla = std::to_string(3 + a);
-                source += "H " + ancilla + "\nM " + ancilla + "\nCX rec[-1] " +
-                          std::to_string(a % 3) + "\nT 0 1 2\nH 0 1 2\n";
-            }
-            return source + "M 0 1 2\n";
-        };
-        const auto few = compile(feedback(8));
+    SECTION("dormant measurement feedback needs lanes for every branch") {
+        const auto plan = compile(feedback(8, "H", "M"));
+        REQUIRE(plan.peak_active_width() == 3);
+        REQUIRE(plan.trajectory_divergence().sign_dormant_measurements == 8);
+        // Eight random bits give 256 trajectories, which share at 16 lanes each.
+        REQUIRE(shares(plan, 4096));
+        REQUIRE_FALSE(shares(plan, 4095));
+        REQUIRE_FALSE(shares(plan, 256));
+        // A state budget below the call size limits the lanes of a batch.
+        REQUIRE(shares(plan, 65536, 4096 * State::storage_bytes(3)));
+        REQUIRE_FALSE(shares(plan, 65536, 4095 * State::storage_bytes(3)));
+
+        const auto few = compile(feedback(2, "H", "M"));
+        REQUIRE(few.trajectory_divergence().sign_dormant_measurements == 2);
+        REQUIRE(shares(few, 64));
+    }
+
+    SECTION("mid-circuit active measurements") {
+        const auto few = compile(remeasured(12));
         REQUIRE(few.peak_active_width() == 3);
-        REQUIRE(few.trajectory_divergence().sign_dormant_measurements == 8);
+        REQUIRE(few.trajectory_divergence().mid_circuit_active_measurements == 12);
         REQUIRE(shares(few));
-        const auto many = compile(feedback(9));
-        REQUIRE(many.trajectory_divergence().sign_dormant_measurements == 9);
+        const auto many = compile(remeasured(13));
+        REQUIRE(many.trajectory_divergence().mid_circuit_active_measurements == 13);
         REQUIRE_FALSE(shares(many));
     }
 
-    SECTION("active measurements") {
-        // Every round measures a qubit of the active state and rotates it again.
-        const auto remeasured = [](uint32_t rounds) {
-            std::string source = "H 0 1 2\nT 0 1 2\nH 0 1 2\n";
+    SECTION("terminal active measurements") {
+        // Measurements after the last rotation split no coefficient work, so a
+        // wide noisy plan with terminal readout still shares.
+        std::string qubits;
+        for (uint32_t q = 0; q < 14; ++q) {
+            qubits += " " + std::to_string(q);
+        }
+        const auto wide = compile("H" + qubits + "\nX_ERROR(0.001)" + qubits + "\nT" + qubits +
+                                  "\nH" + qubits + "\nM" + qubits + "\n");
+        REQUIRE(wide.peak_active_width() == 14);
+        REQUIRE(wide.num_noise_sites() != 0);
+        REQUIRE(wide.trajectory_divergence().mid_circuit_active_measurements == 0);
+        REQUIRE(shares(wide));
+    }
+
+    SECTION("dormant and active measurements share one limit") {
+        const auto combined = [&](uint32_t ancillas, uint32_t rounds) {
+            auto source = feedback(ancillas, "H", "M");
+            source.resize(source.size() - std::string("M 0 1 2\n").size());
             for (uint32_t round = 0; round < rounds; ++round) {
                 source += "M 0\nH 0\nT 0\nH 0\n";
             }
-            return source + "M 0 1 2\n";
+            return compile(source + "M 0 1 2\n");
         };
-        const auto few = compile(remeasured(13));
-        REQUIRE(few.peak_active_width() == 3);
-        REQUIRE(few.trajectory_divergence().active_measurements == 16);
-        REQUIRE(shares(few));
-        const auto many = compile(remeasured(14));
-        REQUIRE(many.trajectory_divergence().active_measurements == 17);
-        REQUIRE_FALSE(shares(many));
+        const auto within = combined(4, 8);
+        REQUIRE(within.trajectory_divergence().sign_dormant_measurements == 4);
+        REQUIRE(within.trajectory_divergence().mid_circuit_active_measurements == 8);
+        REQUIRE(shares(within));
+        REQUIRE_FALSE(shares(combined(4, 9)));
     }
 }
 

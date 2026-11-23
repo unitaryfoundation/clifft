@@ -184,17 +184,26 @@ execution automatically on nonzero-width plans when `sharing="auto"` and
 - **Plans whose shots stay on few trajectories**, of width at least 3 with at
   least 64 requested shots. Shots leave a common trajectory when a non-Clifford
   rotation sign differs between them or a measurement of the active state
-  gives them different outcomes. The plan must have at most one expected noise
-  fault per shot that changes a later rotation sign, at most 8 random
-  measurement outcomes outside the active state that change one, and at most
-  16 measurements of the active state. Noise that only flips measurement
-  records does not count, so a circuit with many noise sites can still
-  qualify.
+  gives them different outcomes. Three limits from the compiled plan bound
+  this:
+    - at most one expected noise fault or readout flip per shot that changes a
+      later rotation sign;
+    - at least 16 shots of a batch for every combination of random measurement
+      outcomes outside the active state that change such a sign, so 4 of these
+      measurements need 256 shots and 8 need 4096;
+    - at most 12 measurements in total of that kind and of the active state
+      before its last rotation.
+
+    Noise that only flips measurement records does not count, so a circuit
+    with many noise sites can still qualify. A batch holds the requested shots
+    up to 8192, or as many states as `max_worker_state_bytes` allows if that
+    is fewer.
 
 The third case cannot tell whether a measurement of the active state is random,
-so circuits with more than 16 of them run ordinary execution even when most
-outcomes are deterministic. Pass `sharing=True` to share such a circuit, or
-`sharing=False` to keep ordinary execution for a circuit that qualifies.
+so circuits with many of them before the last rotation run ordinary execution
+even when most outcomes are deterministic. Pass `sharing=True` to share such a
+circuit, or `sharing=False` to keep ordinary execution for a circuit that
+qualifies.
 
 All three require `max_worker_state_bytes` to hold at least two shared states. On first
 use, `Program` caches the requested output plan, noise metadata, entrance

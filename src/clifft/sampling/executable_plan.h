@@ -80,15 +80,17 @@ class ExecutablePlan {
     // sign differs between them or an active measurement gives them different
     // outcomes, so each field counts one source of such differences.
     struct TrajectoryDivergence {
-        // Expected presampled noise faults per shot that can flip the sign of a
-        // later rotation or promotion.
+        // Expected presampled noise faults and readout flips per shot that can
+        // flip the sign of a later rotation or promotion.
         double expected_sign_faults = 0.0;
         // Dormant measurements whose uniformly random outcome can flip such a
         // sign. Each one doubles the number of trajectories.
         uint32_t sign_dormant_measurements = 0;
-        // Active measurements. Each one doubles the number of trajectories
-        // when its outcome is random, which the plan does not determine.
-        uint32_t active_measurements = 0;
+        // Active measurements followed by a rotation or promotion. Each one
+        // doubles the number of trajectories when its outcome is random, which
+        // the plan does not determine. Later active measurements split no
+        // coefficient work.
+        uint32_t mid_circuit_active_measurements = 0;
     };
 
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
@@ -138,10 +140,10 @@ class ExecutablePlan {
     [[nodiscard]] const TrajectoryDivergence& trajectory_divergence() const noexcept {
         return trajectory_divergence_;
     }
-    // Whether every source of divergence is small enough that the shots of a
-    // batch stay on few distinct trajectories, so sharing their coefficient
-    // evolution pays without postselection.
-    [[nodiscard]] bool has_bounded_trajectory_divergence() const noexcept;
+    // Whether every source of divergence is small enough that a batch of
+    // `lanes` shots stays on few distinct trajectories, so sharing their
+    // coefficient evolution pays without postselection.
+    [[nodiscard]] bool has_bounded_trajectory_divergence(uint32_t lanes) const noexcept;
     [[nodiscard]] uint32_t num_batch_noise_carriers() const noexcept {
         return batch_presampled_program_.has_value() ? batch_presampled_program_->num_carriers()
                                                      : 0;

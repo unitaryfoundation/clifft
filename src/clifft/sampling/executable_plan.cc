@@ -198,32 +198,59 @@ ExecutablePlan::TrajectoryDivergence ExecutablePlan::measure_trajectory_divergen
             previous = outcome.cumulative_probability;
         }
     }
-    for (const auto& action : actions_) {
+    // Active measurements at or after this index precede no coefficient work.
+    size_t coefficient_work_end = actions_.size();
+    while (coefficient_work_end != 0 &&
+           !std::visit(
+               [](const auto& typed) {
+                   using T = std::decay_t<decltype(typed)>;
+                   return std::is_same_v<T, ExecuteRotation> ||
+                          std::is_same_v<T, ExecuteFusedRotation> ||
+                          std::is_same_v<T, ExecuteDynamicFusedRotation> ||
+                          std::is_same_v<T, ExecutePromotion>;
+               },
+               actions_[coefficient_work_end - 1])) {
+        --coefficient_work_end;
+    }
+    for (size_t index = 0; index < actions_.size(); ++index) {
+        const auto& action = actions_[index];
         if (const auto* dormant = std::get_if<ExecuteDormantMeasurement>(&action)) {
             divergence.sign_dormant_measurements += feeds_sign(dormant->branch) ? 1 : 0;
-        } else if (std::holds_alternative<ExecuteActiveMeasurement>(action)) {
-            ++divergence.active_measurements;
+        } else if (const auto* readout = std::get_if<ExecuteReadoutNoise>(&action)) {
+            // The flip rate depends on the recorded bit, so take the larger one.
+            if (feeds_sign(readout->flip)) {
+                divergence.expected_sign_faults +=
+                    std::max(readout->prob_zero_to_one, readout->prob_one_to_zero);
+            }
+        } else if (std::holds_alternative<ExecuteActiveMeasurement>(action) &&
+                   index < coefficient_work_end) {
+            ++divergence.mid_circuit_active_measurements;
         }
     }
     return divergence;
 }
 
-bool ExecutablePlan::has_bounded_trajectory_divergence() const noexcept {
+bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noexcept {
     // Narrower plans have too little coefficient work to share.
     constexpr uint32_t kMinWidth = 3;
     // At one expected sign fault per shot about 63% of a batch leaves the
     // fault-free trajectory. Sharing then breaks even with AVX-512 packed
     // batches and is ahead at narrower vector widths.
     constexpr double kMaxExpectedSignFaults = 1.0;
-    // 2^8 trajectories stay well below the lanes of a shared batch.
-    constexpr uint32_t kMaxSignDormantMeasurements = 8;
-    // When every outcome is random, the trajectories of a batch reach its lane
-    // count after 13 measurements, and sharing still breaks even at 16.
-    constexpr uint32_t kMaxActiveMeasurements = 16;
+    // Every dormant sign measurement, and every mid-circuit active measurement
+    // whose outcome is random, doubles the trajectories. When all of them are
+    // random, sharing stays ahead through 12 on a full batch.
+    constexpr uint64_t kMaxBranchingMeasurements = 12;
+    // Dormant sign measurements split a batch into equally likely
+    // trajectories. Sharing breaks even at 4 to 8 lanes per trajectory.
+    constexpr uint32_t kMinLanesPerDormantBranch = 16;
+    const TrajectoryDivergence& divergence = trajectory_divergence_;
+    const uint64_t branching =
+        uint64_t{divergence.sign_dormant_measurements} + divergence.mid_circuit_active_measurements;
     return peak_active_width_ >= kMinWidth &&
-           trajectory_divergence_.expected_sign_faults <= kMaxExpectedSignFaults &&
-           trajectory_divergence_.sign_dormant_measurements <= kMaxSignDormantMeasurements &&
-           trajectory_divergence_.active_measurements <= kMaxActiveMeasurements;
+           divergence.expected_sign_faults <= kMaxExpectedSignFaults &&
+           branching <= kMaxBranchingMeasurements &&
+           (lanes >> divergence.sign_dormant_measurements) >= kMinLanesPerDormantBranch;
 }
 
 void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,

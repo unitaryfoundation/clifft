@@ -405,7 +405,8 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
         return false;
     }
     constexpr uint32_t kMinSharedStates = 2;
-    if (max_worker_state_bytes / State::storage_bytes(width) < kMinSharedStates) {
+    const uint64_t state_capacity = max_worker_state_bytes / State::storage_bytes(width);
+    if (state_capacity < kMinSharedStates) {
         return false;
     }
     if (compiled.has_postselection()) {
@@ -416,7 +417,10 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
         shots >= kMinUnitaryPrefixShots && compiled.has_reusable_unitary_prefix()) {
         return true;
     }
-    return shots >= kDefaultMinAutoBatchShots && compiled.has_bounded_trajectory_divergence();
+    // Lanes one shared batch holds for this call.
+    const auto lanes = static_cast<uint32_t>(
+        std::min<uint64_t>({shots, kMaxAutoSharedBatchShots, state_capacity}));
+    return shots >= kDefaultMinAutoBatchShots && compiled.has_bounded_trajectory_divergence(lanes);
 }
 
 sampling::SamplingResult sample(const Program& program, uint32_t shots,
