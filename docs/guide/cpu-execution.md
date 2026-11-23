@@ -188,22 +188,25 @@ execution automatically on nonzero-width plans when `sharing="auto"` and
   this:
     - at most one expected noise fault or readout flip per shot that changes a
       later rotation sign;
-    - at least 16 shots of a batch for every combination of random measurement
+    - at least 16 requested shots for every combination of random measurement
       outcomes outside the active state that change such a sign, so 4 of these
       measurements need 256 shots and 8 need 4096;
     - at most 12 measurements in total of that kind and of the active state
       before its last rotation.
 
     Noise that only flips measurement records does not count, so a circuit
-    with many noise sites can still qualify. A batch holds the requested shots
-    up to 8192, or as many states as `max_worker_state_bytes` allows if that
-    is fewer.
+    with many noise sites can still qualify. The shot count in the second
+    limit is an estimate for the whole call: it is capped at 8192 and at the
+    number of states `max_worker_state_bytes` holds, and it does not depend on
+    the thread count, although each shot worker runs its own smaller batch.
 
-The third case cannot tell whether a measurement of the active state is random,
-so circuits with many of them before the last rotation run ordinary execution
-even when most outcomes are deterministic. Pass `sharing=True` to share such a
-circuit, or `sharing=False` to keep ordinary execution for a circuit that
-qualifies.
+The third case cannot tell whether a measurement of the active state is random.
+Circuits with many of them before the last rotation therefore run ordinary
+execution even when most outcomes are deterministic. A circuit within the limit
+whose outcomes are random can run slower shared, most of all on a short call or
+when the measurements all precede the non-Clifford work. Pass `sharing=True` to
+share a circuit the rule declines, or `sharing=False` to keep ordinary
+execution for one that qualifies.
 
 All three require `max_worker_state_bytes` to hold at least two shared states. On first
 use, `Program` caches the requested output plan, noise metadata, entrance

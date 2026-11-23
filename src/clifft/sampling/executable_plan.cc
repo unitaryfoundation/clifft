@@ -238,8 +238,11 @@ bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noe
     // batches and is ahead at narrower vector widths.
     constexpr double kMaxExpectedSignFaults = 1.0;
     // Every dormant sign measurement, and every mid-circuit active measurement
-    // whose outcome is random, doubles the trajectories. When all of them are
-    // random, sharing stays ahead through 12 on a full batch.
+    // whose outcome is random, doubles the trajectories. With all of them
+    // random and spread through the plan, sharing stays ahead through 12 on a
+    // full batch. It falls behind when they all precede the coefficient work
+    // or the batch is small. A plan does not determine whether an active
+    // outcome is random, so this limit bounds that loss without excluding it.
     constexpr uint64_t kMaxBranchingMeasurements = 12;
     // Dormant sign measurements split a batch into equally likely
     // trajectories. Sharing breaks even at 4 to 8 lanes per trajectory.

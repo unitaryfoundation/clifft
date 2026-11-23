@@ -417,7 +417,8 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
         shots >= kMinUnitaryPrefixShots && compiled.has_reusable_unitary_prefix()) {
         return true;
     }
-    // Lanes one shared batch holds for this call.
+    // Call-level estimate of the lanes shots share. It ignores the worker
+    // count, although each shot worker runs its own smaller batch.
     const auto lanes = static_cast<uint32_t>(
         std::min<uint64_t>({shots, kMaxAutoSharedBatchShots, state_capacity}));
     return shots >= kDefaultMinAutoBatchShots && compiled.has_bounded_trajectory_divergence(lanes);
