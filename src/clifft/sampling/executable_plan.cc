@@ -148,6 +148,114 @@ std::vector<AffineBool> ExecutablePlan::affine_registers() const {
     return expressions;
 }
 
+std::vector<uint8_t> ExecutablePlan::rotation_sign_registers() const {
+    std::vector<uint8_t> required(num_expression_registers());
+    for (const auto& action : actions_) {
+        std::visit(
+            [&](const auto& typed) {
+                using T = std::decay_t<decltype(typed)>;
+                if constexpr (std::is_same_v<T, ExecuteRotation> ||
+                              std::is_same_v<T, ExecutePromotion>) {
+                    required[typed.sign.register_id] = 1;
+                } else if constexpr (std::is_same_v<T, ExecuteDynamicFusedRotation>) {
+                    for (const auto& sign :
+                         dynamic_fused_rotations_[typed.rotation_index].sign_basis) {
+                        required[sign.register_id] = 1;
+                    }
+                }
+            },
+            action);
+    }
+    // A derived sign input is uniform only when its defining expression is
+    // uniform. Definitions are ordered, so one reverse pass closes this set.
+    for (auto it = actions_.rbegin(); it != actions_.rend(); ++it) {
+        if (const auto* definition = std::get_if<ExecuteSymbolDefinition>(&*it)) {
+            for (auto reg : expression_dependencies_.dependent_registers(definition->symbol)) {
+                if (required[reg]) {
+                    required[definition->value.register_id] = 1;
+                    break;
+                }
+            }
+        }
+    }
+    return required;
+}
+
+ExecutablePlan::TrajectoryDivergence ExecutablePlan::measure_trajectory_divergence() const {
+    const auto sign_registers = rotation_sign_registers();
+    const auto feeds_sign = [&](uint32_t symbol) {
+        return std::ranges::any_of(expression_dependencies_.dependent_registers(symbol),
+                                   [&](uint32_t reg) { return sign_registers[reg] != 0; });
+    };
+    TrajectoryDivergence divergence;
+    for (const PreparedNoiseSite& site : noise_sites_) {
+        double previous = 0.0;
+        for (uint32_t k = 0; k < site.outcome_count; ++k) {
+            const PreparedNoiseOutcome& outcome = noise_outcomes_[site.outcome_begin + k];
+            if (feeds_sign(outcome.symbol)) {
+                divergence.expected_sign_faults += outcome.cumulative_probability - previous;
+            }
+            previous = outcome.cumulative_probability;
+        }
+    }
+    // Active measurements at or after this index precede no coefficient work.
+    size_t coefficient_work_end = actions_.size();
+    while (coefficient_work_end != 0 &&
+           !std::visit(
+               [](const auto& typed) {
+                   using T = std::decay_t<decltype(typed)>;
+                   return std::is_same_v<T, ExecuteRotation> ||
+                          std::is_same_v<T, ExecuteFusedRotation> ||
+                          std::is_same_v<T, ExecuteDynamicFusedRotation> ||
+                          std::is_same_v<T, ExecutePromotion>;
+               },
+               actions_[coefficient_work_end - 1])) {
+        --coefficient_work_end;
+    }
+    for (size_t index = 0; index < actions_.size(); ++index) {
+        const auto& action = actions_[index];
+        if (const auto* dormant = std::get_if<ExecuteDormantMeasurement>(&action)) {
+            divergence.sign_dormant_measurements += feeds_sign(dormant->branch) ? 1 : 0;
+        } else if (const auto* readout = std::get_if<ExecuteReadoutNoise>(&action)) {
+            // The flip rate depends on the recorded bit, so take the larger one.
+            if (feeds_sign(readout->flip)) {
+                divergence.expected_sign_faults +=
+                    std::max(readout->prob_zero_to_one, readout->prob_one_to_zero);
+            }
+        } else if (std::holds_alternative<ExecuteActiveMeasurement>(action) &&
+                   index < coefficient_work_end) {
+            ++divergence.mid_circuit_active_measurements;
+        }
+    }
+    return divergence;
+}
+
+bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noexcept {
+    // Narrower plans have too little coefficient work to share.
+    constexpr uint32_t kMinWidth = 3;
+    // At one expected sign fault per shot about 63% of a batch leaves the
+    // fault-free trajectory. Sharing then breaks even with AVX-512 packed
+    // batches and is ahead at narrower vector widths.
+    constexpr double kMaxExpectedSignFaults = 1.0;
+    // Every dormant sign measurement, and every mid-circuit active measurement
+    // whose outcome is random, doubles the trajectories. With all of them
+    // random and spread through the plan, sharing stays ahead through 12 on a
+    // full batch. It falls behind when they all precede the coefficient work
+    // or the batch is small. A plan does not determine whether an active
+    // outcome is random, so this limit bounds that loss without excluding it.
+    constexpr uint64_t kMaxBranchingMeasurements = 12;
+    // Dormant sign measurements split a batch into equally likely
+    // trajectories. Sharing breaks even at 4 to 8 lanes per trajectory.
+    constexpr uint32_t kMinLanesPerDormantBranch = 16;
+    const TrajectoryDivergence& divergence = trajectory_divergence_;
+    const uint64_t branching =
+        uint64_t{divergence.sign_dormant_measurements} + divergence.mid_circuit_active_measurements;
+    return peak_active_width_ >= kMinWidth &&
+           divergence.expected_sign_faults <= kMaxExpectedSignFaults &&
+           branching <= kMaxBranchingMeasurements &&
+           (lanes >> divergence.sign_dormant_measurements) >= kMinLanesPerDormantBranch;
+}
+
 void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,
                                                       size_t num_registers) const noexcept {
 #ifndef NDEBUG

@@ -27,10 +27,11 @@ result = clifft.sample(program, shots=10_000, seed=42, threads=4)
 Clifft chooses whether that budget is better spent across shots or within a
 wide shot. `sample()` and `sample_survivors()` can also share coefficient
 evolution between shots that follow the same quantum trajectory. This is useful
-for sufficiently large postselected workloads and noiseless circuits with a
-shared unitary prefix. Short calls and uncertain cases use ordinary scalar or
-packed execution. Requested expectation-value rows use ordinary execution so
-every probe is retained.
+for sufficiently large postselected workloads, circuits whose shots rarely
+leave a common trajectory, and noiseless circuits with a shared unitary prefix.
+Short calls and uncertain cases use ordinary scalar or packed execution.
+Requested expectation-value rows use ordinary execution so every probe is
+retained.
 
 Calls can run concurrently on the same `Program` and reuse its preparation.
 For a fixed seed and execution configuration, results are independent of earlier
@@ -174,14 +175,40 @@ checks before later evolution.
 
 `sample()`, `sample_detectors()`, and `sample_survivors()` select shared
 execution automatically on nonzero-width plans when `sharing="auto"` and
-`batch_size="auto"` (independent of thread count) in two plan-driven cases:
+`batch_size="auto"` (independent of thread count) in three plan-driven cases:
 
 - **Postselected plans** with at least 64 requested shots.
 - **Noiseless unitary-prefix plans** of width at least 8 with at least 16
   requested shots, when measurement branches shrink monotonically after the
   unitary prefix.
+- **Plans whose shots stay on few trajectories**, of width at least 3 with at
+  least 64 requested shots. Shots leave a common trajectory when a non-Clifford
+  rotation sign differs between them or a measurement of the active state
+  gives them different outcomes. Three limits from the compiled plan bound
+  this:
+    - at most one expected noise fault or readout flip per shot that changes a
+      later rotation sign;
+    - at least 16 requested shots for every combination of random measurement
+      outcomes outside the active state that change such a sign, so 4 of these
+      measurements need 256 shots and 8 need 4096;
+    - at most 12 measurements in total of that kind and of the active state
+      before its last rotation.
 
-Both require `max_worker_state_bytes` to hold at least two shared states. On first
+    Noise that only flips measurement records does not count, so a circuit
+    with many noise sites can still qualify. The shot count in the second
+    limit is an estimate for the whole call: it is capped at 8192 and at the
+    number of states `max_worker_state_bytes` holds, and it does not depend on
+    the thread count, although each shot worker runs its own smaller batch.
+
+The third case cannot tell whether a measurement of the active state is random.
+Circuits with many of them before the last rotation therefore run ordinary
+execution even when most outcomes are deterministic. A circuit within the limit
+whose outcomes are random can run slower shared, most of all on a short call or
+when the measurements all precede the non-Clifford work. Pass `sharing=True` to
+share a circuit the rule declines, or `sharing=False` to keep ordinary
+execution for one that qualifies.
+
+All three require `max_worker_state_bytes` to hold at least two shared states. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
 checks, and any grouping key. Repeated calls on a `Program` with the same
 execution settings reuse idle shared workers instead of reallocating their

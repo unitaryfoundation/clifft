@@ -14,36 +14,7 @@
 namespace clifft::sampling {
 
 SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
-    std::vector<uint8_t> required(plan.num_expression_registers());
-    for (const auto& action : plan.actions_) {
-        std::visit(
-            [&](const auto& typed) {
-                using T = std::decay_t<decltype(typed)>;
-                if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteRotation> ||
-                              std::is_same_v<T, ExecutablePlan::ExecutePromotion>) {
-                    required[typed.sign.register_id] = 1;
-                } else if constexpr (std::is_same_v<T,
-                                                    ExecutablePlan::ExecuteDynamicFusedRotation>) {
-                    for (const auto& sign :
-                         plan.dynamic_fused_rotations_[typed.rotation_index].sign_basis) {
-                        required[sign.register_id] = 1;
-                    }
-                }
-            },
-            action);
-    }
-    // A derived sign input is uniform only when its defining expression is
-    // uniform. Definitions are ordered, so one reverse pass closes this set.
-    for (auto it = plan.actions_.rbegin(); it != plan.actions_.rend(); ++it) {
-        if (const auto* definition = std::get_if<ExecutablePlan::ExecuteSymbolDefinition>(&*it)) {
-            for (auto reg : plan.expression_dependencies_.dependent_registers(definition->symbol)) {
-                if (required[reg]) {
-                    required[definition->value.register_id] = 1;
-                    break;
-                }
-            }
-        }
-    }
+    const auto required = plan.rotation_sign_registers();
     std::vector<AffineBool> rows(required.size());
     for (uint32_t symbol : plan.presampled_symbols_) {
         for (uint32_t reg : plan.expression_dependencies_.dependent_registers(symbol)) {
