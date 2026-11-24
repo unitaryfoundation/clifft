@@ -77,14 +77,14 @@ evolution across equivalent quantum trajectories so exact near-Clifford
 simulation scales cleanly with CPU cores.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8f1c023d963b2b05316cc074ade7542c8925c950/reporting/figures/web/simulator-throughput-packed-dark.png">
-  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8f1c023d963b2b05316cc074ade7542c8925c950/reporting/figures/web/simulator-throughput-packed-light.png" alt="Packed detector and observable sample throughput in attempted shots per second for Clifft 0.14, xtim, Stim, and Tsim on one and eight physical CPU cores side by side">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/eeff4d28344f2c95d7b80e76db4f4513eed28dec/reporting/figures/web/simulator-throughput-packed-dark.png">
+  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/eeff4d28344f2c95d7b80e76db4f4513eed28dec/reporting/figures/web/simulator-throughput-packed-light.png" alt="Packed detector and observable sample throughput in attempted shots per second for Clifft 0.14, xtim, Stim, and Tsim on one and eight physical CPU cores side by side">
 </picture>
 
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)
 for the interactive throughput chart (including postselected survivor counts,
-simulator filtering, and per-workload details), release-over-release gains,
-historical trends, and dense Quantum Volume results.
+simulator filtering, and per-workload details), release-over-release gains, and
+historical trends.
 
 ## Installation
 
