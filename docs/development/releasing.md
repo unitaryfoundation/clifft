@@ -177,8 +177,11 @@ raw results and figure generation. This repository owns the reader-facing prose 
 
    Update image links and claims together in `README.md`, `docs/guide/performance.md`, and any
    release-specific excerpts in `docs/index.md` or `docs/updates/`. Use the stable `release-change`
-   filenames for paired release comparisons and remove replaced release-specific assets once their
-   links have moved. Use final release version labels in reader-facing prose and explain what the
+   filenames in `docs/guide/performance.md` and remove replaced release-specific assets once their
+   links have moved. When embedding a release chart in a historical development blog post under
+   `docs/updates/`, save a version-specific copy under `docs/assets/updates/` (for example,
+   `v014-vs-v013-{light,dark}.png`) instead of linking to the overwritten `release-change` files so
+   the post remains self-contained across future releases. Use final release version labels in reader-facing prose and explain what the
    results mean for users; keep collection dates, candidate tags, dependency lock details, and
    run-joining provenance in the pinned `clifft-bench` links and PR summary.
 4. Check headline numbers against the execution's samples and review summary, inspect both themes,

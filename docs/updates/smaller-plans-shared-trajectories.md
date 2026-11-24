@@ -30,8 +30,8 @@ and [#673](https://github.com/unitaryfoundation/clifft/pull/673).
 Clifft's sampling cost scales with $2^k$, where $k$ is the *active width*—the
 number of non-Clifford degrees of freedom live in the dense quantum state at
 once. Local compiler passes (fusion, phase-polynomial reduction, squeezing, and
-scheduling) already shrink $k$ substantially, but they preserve the full
-circuit's exact state evolution step by step.
+scheduling) already shrink $k$ substantially, but they preserve the circuit's
+sequential gate-and-measurement structure.
 
 When you only need sampled outcomes—measurements, detectors, observables, or
 postselected survivor counts—you do not need to replay the circuit's original
@@ -117,11 +117,11 @@ detector fails:
 ![Ordinary sampling versus shared trajectory execution: ordinary sampling evolves 8 independent statevectors for 8 shots, while shared trajectory execution evolves one shared trunk, splits only on diverging faults, and drops failed postselected shots early](../assets/updates/shared-trajectories-v014-dark.svg#only-dark)
 
 Each shot still keeps its own independent classical noise, measurement,
-detector, and observable records. With `sharing="auto"` (the default in
-`sample()`, `sample_detectors()`, and `sample_survivors()`), Clifft enables
-shared execution automatically for:
+detector, and observable records. On nonzero-width plans with
+`batch_size="auto"` and `sharing="auto"`, Clifft enables shared execution
+automatically for:
 
-- postselected plans (at 64+ shots);
+- postselected plans in `sample_survivors()` (at 64+ shots);
 - noiseless unitary-prefix plans such as Quantum Volume (at width 8+ and 16+
   shots); and
 - unpostselected noisy plans whose shots stay on few trajectories (at width 3+
@@ -194,15 +194,18 @@ Two additional changes round out the out-of-the-box speedups in v0.14:
   giving a 1.4x–2.5x boost on ordinary packed workloads on modern x86 CPUs.
 
 All default changes preserve exact sampling distributions, though compiled
-plans, compile time, and fixed-seed rows can differ from v0.13. If you need
-v0.13-style reproducibility, pass `reconstruction=False` and an explicit
-`HirPassManager` without `ActiveWidthSchedulePass` to `compile()`, and
-`sharing=False` with a numeric `batch_size` when sampling.
+plans, compile time, and fixed-seed rows can differ from v0.13. To restore
+v0.13-style compilation and execution choices, pass `reconstruction=False` and
+an explicit `HirPassManager` without `ActiveWidthSchedulePass` to `compile()`,
+and `sharing=False` with a numeric `batch_size` when sampling. Circuits using
+inverted `MR`/`MRX`/`MRY` targets also follow the new Clifford-frame handling
+described in `CHANGELOG.md`; pin `clifft==0.13.0` if exact cross-version replay
+is required.
 
 ## Release benchmark results
 
-![Clifft v0.14 survivor-count throughput ratios over v0.13 on one and eight cores side by side: gains on all nine paired circuits, ranging from 1.08x to 65.0x](../assets/performance/release-change-light.png#only-light)
-![Clifft v0.14 survivor-count throughput ratios over v0.13 on one and eight cores side by side: gains on all nine paired circuits, ranging from 1.08x to 65.0x](../assets/performance/release-change-dark.png#only-dark)
+![Clifft v0.14 survivor-count throughput ratios over v0.13 on one and eight cores side by side: gains on all nine paired circuits, ranging from 1.08x to 65.0x](../assets/updates/v014-vs-v013-light.png#only-light)
+![Clifft v0.14 survivor-count throughput ratios over v0.13 on one and eight cores side by side: gains on all nine paired circuits, ranging from 1.08x to 65.0x](../assets/updates/v014-vs-v013-dark.png#only-dark)
 
 On the AWS `m7a.4xlarge` CPU release suite using Clifft's default compiler and
 sampling settings:
