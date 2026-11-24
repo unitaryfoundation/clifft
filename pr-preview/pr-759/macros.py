@@ -124,16 +124,19 @@ def define_env(env: Any) -> None:
                 row["circuit_url"] = env.page.meta["throughput_circuits"][row["artifact_sha256"]]
                 semantics = row["semantics"]
                 if row["postselect"] == "off":
-                    row["postselection_summary"] = "Postselection off (packed samples)"
-                elif semantics.get("postselect_all_detectors"):
-                    row["postselection_summary"] = "All-detector postselection (survivor counts)"
-                elif semantics.get("postselection_detector_indices"):
-                    count = len(semantics["postselection_detector_indices"])
                     row["postselection_summary"] = (
-                        f"{count}-detector postselection (survivor counts)"
+                        "Postselection off; returns all detectors and observables"
                     )
                 else:
-                    row["postselection_summary"] = "Postselection on (survivor counts)"
+                    observable_index = semantics["observable_index"]
+                    if semantics.get("postselect_all_detectors"):
+                        prefix = "All-detector postselection (survivor counts)"
+                    elif semantics.get("postselection_detector_indices"):
+                        count = len(semantics["postselection_detector_indices"])
+                        prefix = f"{count}-detector postselection (survivor counts)"
+                    else:
+                        prefix = "Postselection on (survivor counts)"
+                    row["postselection_summary"] = f"{prefix}; observable {observable_index}"
 
                 for value in row["values"]:
                     rate = value["median_attempted_shots_per_second"]
