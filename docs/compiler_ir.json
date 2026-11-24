@@ -126,6 +126,12 @@
       "detail": "Each shot maps the Pauli through its own frame and then finds one of three cases: the outcome is fixed by the dormant frame coordinates, it is an unbiased coin flip that only updates the frame, or it depends on the coefficient state, which is sampled and collapsed with one active coordinate removed. The branch symbol holds the eigenvalue bit of the unsigned Pauli. The record bit combines it with the outcome expression's corrections from earlier stochastic events.",
       "operands": "Pauli product, branch, outcome, record"
     },
+    "RETIRE_FRAME": {
+      "category": "Measurement",
+      "summary": "Ends the runtime Clifford frame once measurements have fixed its whole state.",
+      "detail": "Each frame measurement leaves a stabilizer whose sign is that measurement's branch symbol. When such stabilizers determine every frame coordinate, for example after a factory's qubits have all been measured or reset, the planner turns each one into Z on a dormant coordinate and moves its sign into the symbolic Pauli frame. Those measurements leave no active coordinates, so this action only returns every shot's frame to the identity. Later actions address static coordinates again, and a later T region whose signs vary starts a new frame from the reference state.",
+      "operands": "none"
+    },
     "RECORD_CLASSICAL": {
       "category": "Classical",
       "summary": "Writes a deterministic expression to the measurement record.",

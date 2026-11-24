@@ -92,16 +92,23 @@ def test_fixed_joint_distribution_matches_dense_physical_model(text, fixed_sampl
 
 
 @pytest.mark.parametrize(
-    "text",
+    ("text", "frame"),
     [
+        # The partner channel acts on a qubit in |+>, where it cannot flip a
+        # rotation sign: the frame planner drops it and the T pair cancels
+        # without a frame.
+        ("H 0 2\nCX 0 1\nLEAKAGE(0.25) 0\nCX 0 2\nT 0\nT_DAG 1\nT 2\nH 0 1 2\nM 0 1 2", False),
         # The partner channel of a leaked or lost qubit decides the signs of
         # a T pair that cancels without it.
-        "H 0 2\nCX 0 1\nLEAKAGE(0.25) 0\nCX 0 2\nT 0\nT_DAG 1\nT 2\nH 0 1 2\nM 0 1 2",
-        "H 0\nCX 0 1\nLOSS(0.3) 2\nCX 2 0\nT 0\nT_DAG 1\nH 0 1\nM 0 1 2",
-        "H 0\nCX 0 1\nLEAKAGE(0.3) 2\nLOSS(0.2) 3\nCX 2 0\nCX 3 1\nT 0\nT_DAG 1\nH 0 1\nM 0 1",
+        ("H 0\nCX 0 1\nLOSS(0.3) 2\nCX 2 0\nT 0\nT_DAG 1\nH 0 1\nM 0 1 2", True),
+        (
+            "H 0\nCX 0 1\nLEAKAGE(0.3) 2\nLOSS(0.2) 3\nCX 2 0\nCX 3 1\nT 0\nT_DAG 1\nH 0 1\nM 0 1",
+            True,
+        ),
     ],
+    ids=["inert-partner-noise", "loss", "leakage-and-loss"],
 )
-def test_fixed_runtime_frame_matches_dense_physical_model(text):
+def test_fixed_runtime_frame_matches_dense_physical_model(text, frame):
     model = noncomp.Model(
         classifier=noncomp.Classifier(CLASSIFIER),
         gate_partner_effects={"leaked": DEPOLARIZE, "lost": DEPOLARIZE},
@@ -119,7 +126,7 @@ def test_fixed_runtime_frame_matches_dense_physical_model(text):
     assert program.metrics["peak_active_width"] < prepare(text, model).metrics["peak_active_width"]
     # A plan with a runtime Clifford frame runs on the scalar executor.
     result = sample(program)
-    assert result.stats["scalar_shots"] == 16000
+    assert result.stats["scalar_shots"] == (16000 if frame else 0)
     empirical = dense.empirical_record_probs(result.measurements)
     assert dense.tvd(expected.record_probs, empirical) < 0.025
     threaded = sample(program, threads=3)

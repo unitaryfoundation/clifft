@@ -257,6 +257,7 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                     << " branch=s" << typed.branch << " record=r" << typed.record << " correction=e"
                     << typed.correction.register_id;
             },
+            [&](const ExecuteFrameRetirement&) { out << "FRAME_RETIREMENT"; },
             [&](const ExecuteBoundary& typed) {
                 out << "INSTRUMENT_BOUNDARY site=" << typed.site
                     << " active_width=" << typed.active_width << " noise=[" << typed.noise_begin

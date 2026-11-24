@@ -235,7 +235,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
     // Adding, removing, or renaming a SamplingAction alternative changes this
     // count. Extend the action list below and the plan_actions table in
     // docs/compiler_ir.json together, then update this assertion.
-    static_assert(std::variant_size_v<SamplingAction> == 15);
+    static_assert(std::variant_size_v<SamplingAction> == 16);
 
     const SymbolId s0{0};
     const AffineBool empty{};
@@ -265,6 +265,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
         PlannedAction{0, 1, RotateFramePauli{FramePauli{{1}, {0}}, 0.25, empty}},
         PlannedAction{0, 0,
                       MeasureFramePauli{FramePauli{{1}, {0}}, s0, branch_outcome, RecordSlot{0}}},
+        PlannedAction{0, 0, clifft::sampling::RetireFrame{}},
     };
 
     std::set<std::string> mnemonics;
@@ -282,7 +283,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
         "ROTATE_ACTIVE",        "PROMOTE_DORMANT",   "MEASURE_ACTIVE",   "MEASURE_DORMANT",
         "RECORD_CLASSICAL",     "DEFINE_SYMBOL",     "READOUT_NOISE",    "WRITE_DETECTOR",
         "WRITE_OBSERVABLE",     "WRITE_EXPECTATION", "APPLY_INSTRUMENT", "INSTRUMENT_BOUNDARY",
-        "CONDITIONAL_CLIFFORD", "ROTATE_FRAME",      "MEASURE_FRAME",
+        "CONDITIONAL_CLIFFORD", "ROTATE_FRAME",      "MEASURE_FRAME",    "RETIRE_FRAME",
     };
     REQUIRE(mnemonics == expected);
 

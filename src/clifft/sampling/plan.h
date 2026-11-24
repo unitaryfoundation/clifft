@@ -223,6 +223,14 @@ struct MeasureFramePauli {
     RecordSlot record{};
 };
 
+// Ends a runtime Clifford frame whose state the plan knows: measurements have
+// fixed a stabilizer on every frame coordinate, and the planner has moved
+// their eigenvalue bits into the symbolic Pauli frame. Those measurements left
+// every frame coordinate dormant, so no shot keeps coefficients. Every shot's
+// frame returns to the identity, later actions address static coordinates
+// again, and a later signed T region can start a new frame.
+struct RetireFrame {};
+
 // Writes a deterministic expression to visible or hidden circuit record
 // history without touching the state. Use DefineSymbol instead when an
 // internal parity needs a reusable name but no record slot.
@@ -359,7 +367,8 @@ using SamplingAction =
     std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
                  MeasureDormantRandom, RecordClassical, DefineSymbol, ApplyReadoutNoise,
                  WriteDetector, WriteObservable, WriteExpectationValue, ApplyInstrument,
-                 InstrumentBoundary, ApplyConditionalClifford, RotateFramePauli, MeasureFramePauli>;
+                 InstrumentBoundary, ApplyConditionalClifford, RotateFramePauli, MeasureFramePauli,
+                 RetireFrame>;
 
 struct PlannedAction {
     // Dense active-coordinate widths immediately before and after this action.

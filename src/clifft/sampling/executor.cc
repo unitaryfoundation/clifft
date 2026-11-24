@@ -817,6 +817,19 @@ void Executor::execute_action(const ExecutablePlan::ExecuteFrameClifford& action
     }
 }
 
+void Executor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    assert(frame_.has_value() && frame_->running &&
+           "frame actions run through run_frame_shot or replay_frame_shot");
+    // Each stabilizer the plan relied on came from a measurement that left
+    // its coordinate dormant, so no coefficients remain.
+    assert(state_.active_width() == 0 && "a retired frame has no active coordinates");
+    if (frame_->changed) {
+        frame_->frame.reset();
+        frame_->changed = false;
+    }
+}
+
 void Executor::execute_action(const ExecutablePlan::ExecuteFrameRotation& action,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     const PauliStringView axis = map_frame_pauli(action.pauli);

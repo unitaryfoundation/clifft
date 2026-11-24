@@ -75,7 +75,8 @@ bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
                     return false;
                 } else if constexpr (std::is_same_v<T, ExecuteFrameClifford> ||
                                      std::is_same_v<T, ExecuteFrameRotation> ||
-                                     std::is_same_v<T, ExecuteFrameMeasurement>) {
+                                     std::is_same_v<T, ExecuteFrameMeasurement> ||
+                                     std::is_same_v<T, ExecuteFrameRetirement>) {
                     // A frame action is not part of a unitary prefix.
                     return true;
                 } else {
@@ -130,13 +131,19 @@ ExecutablePlan::ExecutablePlan(const SamplingPlan& plan)
       final_tableau_(plan.final_tableau),
       instrument_distributions_(plan.instrument_distributions),
       frame_width_(plan.frame_width) {
+    // Widths are exact outside a live frame and upper bounds inside one.
     frame_entry_peak_width_ = initial_active_width_;
+    bool frame_live = false;
     for (const PlannedAction& planned : plan.actions) {
         if (std::visit([](const auto& typed) { return FrameAction<decltype(typed)>; },
                        planned.action)) {
-            break;
+            frame_live = true;
+        } else if (std::holds_alternative<RetireFrame>(planned.action)) {
+            frame_live = false;
         }
-        frame_entry_peak_width_ = std::max(frame_entry_peak_width_, planned.active_after);
+        if (!frame_live) {
+            frame_entry_peak_width_ = std::max(frame_entry_peak_width_, planned.active_after);
+        }
     }
     // Keep construction-only lowering state out of the immutable executable.
     ExecutablePlanBuilder::build(*this, plan);

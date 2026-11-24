@@ -1522,7 +1522,9 @@ void SharingExecutor::execute_action(
             state.set_active_width(0);
             state.real()[0] = 1.0;
             state.imag()[0] = 0.0;
-            if (!share_) {
+            // Groups prepared by a sharing key keep the uniform rotation
+            // signs that static actions after a retirement rely on.
+            if (!share_ || key_ != nullptr) {
                 continue;
             }
             if (slot.link == kNoShot) {
@@ -1556,6 +1558,41 @@ void SharingExecutor::execute_action(
                             live_words_);
     }
     if (merged) {
+        collect_merged_groups();
+    }
+}
+
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&) noexcept {
+    // Every shot's frame is the identity again, so one tableau serves them
+    // all. Each stabilizer the plan relied on came from a measurement that
+    // left its coordinate dormant, so no group keeps coefficients.
+    std::fill_n(shot_signs_.begin(), size_t{active_lanes()} * sign_stride_, uint64_t{0});
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        assert(states_[group].active_width() == 0 && "a retired frame has no active coordinates");
+        release_frame(frame_of_[group]);
+    }
+    // Groups prepared by a sharing key keep the uniform rotation signs that
+    // later static actions rely on, so they stay apart.
+    const bool merge = share_ && key_ == nullptr;
+    uint32_t frame = kNoShot;
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        if (merge && index != 0) {
+            for (uint32_t shot : lanes(group)) {
+                group_of_[shot] = groups_[0];
+            }
+            end_[group] = begin_[group];
+            ++num_merges_;
+            continue;
+        }
+        if (frame == kNoShot || !share_) {
+            frame = acquire_frame(nullptr);
+        }
+        frame_of_[group] = frame;
+        ++frames_[frame].users;
+    }
+    if (merge && group_count_ > 1) {
         collect_merged_groups();
     }
 }

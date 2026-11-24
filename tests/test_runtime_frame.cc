@@ -277,6 +277,31 @@ struct SignedRegionCase {
 
 std::vector<SignedRegionCase> signed_region_cases() {
     return {
+        // On two pairs the frame Paulis X_a*X_b and Y_a*Y_b are measured as
+        // Z0*Z1 and Y0*X2*Y1*X3. Their product is -Z_a*Z_b, so the stabilizers
+        // that retire the frame carry a negative sign, which the X checks then
+        // read back.
+        {"checks whose product is negative fix a frame",
+         "H 0 1\nCX 0 2\nCX 1 3\nX_ERROR(0.3) 0\nX_ERROR(0.2) 1\nT 0 1\nT_DAG 2 3\n"
+         "MPP Z0*Z1\nMPP Y0*X2*Y1*X3\nMPP X0*X2*X1*X3\nM 0 1 2 3\n"},
+        // The same with a third pair. Measuring X on one of its qubits replaces
+        // a stabilizer outside the frame before that pair's check completes
+        // the frame, and the negative stabilizer must come through it.
+        {"a negative stabilizer is kept across a measurement outside the frame",
+         "H 0 1 4\nCX 0 2\nCX 1 3\nCX 4 5\nX_ERROR(0.3) 0\nX_ERROR(0.2) 1\nX_ERROR(0.25) 4\n"
+         "T 0 1 4\nT_DAG 2 3 5\nMPP Z0*Z1\nMPP Y0*X2*Y1*X3\nMX 4\nMPP X4*X5\n"
+         "MPP X0*X2*X1*X3\nM 0 1 2 3 4 5\n"},
+        // The check of the first pair is known until the T gate rotates about
+        // an axis that anticommutes with it. The second check must not then
+        // count as fixing the whole frame.
+        {"a rotation between two checks disturbs the first",
+         "H 0 2\nCX 0 1\nCX 2 3\nX_ERROR(0.3) 0\nX_ERROR(0.2) 2\nT 0 2\nT_DAG 1 3\n"
+         "MPP X0*X1\nT 0\nMPP X2*X3\nM 0 1 2 3\n"},
+        // The same, where a measurement that reaches an idle qubit outside the
+        // frame anticommutes with the first check.
+        {"a check through an idle qubit disturbs an earlier one",
+         "H 0 2\nCX 0 1\nCX 2 3\nX_ERROR(0.3) 0\nX_ERROR(0.2) 2\nT 0 2\nT_DAG 1 3\n"
+         "MPP X0*X1\nMPP Z0*X4\nMPP X2*X3\nM 0 1 2 3 4\n"},
         {"bit and phase faults before a CCZ",
          "H 0 1 2\n"
          "X_ERROR(0.1) 0\n"
@@ -620,35 +645,121 @@ TEST_CASE("Frame planning reduces a later region on fresh coordinates",
     REQUIRE(count(fresh, is_conditional) == 2);
     REQUIRE(count(fresh, is_frame_rotation) == 0);
 
-    // The same pair entangled with qubit 1 touches the frame and keeps its
+    // A second pair that no measurement resolves keeps the frame live. The
+    // later pair, entangled with qubit 1, then touches the frame and keeps its
     // signed rotations.
+    const std::string two_pairs =
+        "H 0 2 4\nCX 0 1\nCX 4 5\nX_ERROR(0.3) 0 4\n"
+        "T 0 4\nT_DAG 1 5\nMPP X0*X1\n";
     const SamplingPlan overlapping = sampling::plan_sampling(
-        clifft::trace(clifft::parse(first + "CX 1 2\nCX 2 3\nX_ERROR(0.2) 2\nT 2\nT_DAG 3\n"
-                                            "M 0 1 2 3\n")),
+        clifft::trace(clifft::parse(two_pairs + "CX 1 2\nCX 2 3\nX_ERROR(0.2) 2\nT 2\nT_DAG 3\n"
+                                                "M 0 1 2 3 4 5\n")),
         {.runtime_frame = true});
-    REQUIRE(count(overlapping, is_conditional) == 1);
+    REQUIRE(count(overlapping, is_conditional) == 2);
     REQUIRE(count(overlapping, is_frame_rotation) == 2);
 }
 
-TEST_CASE("Long entry signs are defined once and shared", "[runtime_frame][sampling]") {
-    // Twenty-two faults reach each of Z0 and Z1 before the region, and Z0*Z2
-    // sees those of Z0 and two more. Each of the three independent axes gets
-    // one derived symbol for that history instead of repeating it in every
-    // condition, and the second Z0*Z2 rotation reuses the first one's.
-    std::string source = "H 0 2\n";
-    const auto faults = [&](uint32_t count, const char* qubit) {
-        for (uint32_t i = 0; i < count; ++i) {
-            source += std::string("X_ERROR(0.05) ") + qubit + "\n";
+TEST_CASE("Frame planning retires a frame once measurements fix its state",
+          "[runtime_frame][sampling]") {
+    const auto count = [](const SamplingPlan& plan, auto matches) {
+        return std::ranges::count_if(plan.actions, matches);
+    };
+    const auto holds = [&]<typename Action>(const SamplingPlan& plan) {
+        return count(plan, [](const PlannedAction& planned) {
+            return std::holds_alternative<Action>(planned.action);
+        });
+    };
+    // The check of the first pair fixes the only frame coordinate, so the
+    // frame ends before the second pair, which reuses qubit 1 and is reduced
+    // from the reference state again.
+    const std::string pair = "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nMPP X0*X1\n";
+    const SamplingPlan reused = sampling::plan_sampling(
+        clifft::trace(clifft::parse(pair + "H 2\nCX 1 2\nCX 2 3\nX_ERROR(0.2) 2\nT 2\nT_DAG 3\n"
+                                           "M 0 1 2 3\n")),
+        {.runtime_frame = true});
+    REQUIRE(reused.peak_active_width == 0);
+    REQUIRE(holds.operator()<sampling::ApplyConditionalClifford>(reused) == 2);
+    REQUIRE(holds.operator()<sampling::RotateFramePauli>(reused) == 0);
+    const auto index_of = [&](auto matches, int occurrence) {
+        auto it = reused.actions.begin();
+        for (int found = 0;; ++it) {
+            it = std::find_if(it, reused.actions.end(), matches);
+            REQUIRE(it != reused.actions.end());
+            if (++found == occurrence) {
+                return it - reused.actions.begin();
+            }
         }
     };
-    faults(12, "0");
-    source += "CX 0 1\n";
-    faults(10, "0");
-    faults(10, "1");
-    faults(2, "2");
+    const auto first_retirement = index_of(
+        [](const PlannedAction& planned) {
+            return std::holds_alternative<sampling::RetireFrame>(planned.action);
+        },
+        1);
+    const auto second_clifford = index_of(
+        [](const PlannedAction& planned) {
+            return std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+        },
+        2);
+    REQUIRE(first_retirement < second_clifford);
+
+    // Three rounds on the same two qubits, each ending in a reset: the frame
+    // is retired before every later round.
+    std::string rounds;
+    for (int round = 0; round < 3; ++round) {
+        rounds += "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nCX 0 1\nH 0\nMR 0 1\n";
+    }
+    const SamplingPlan repeated =
+        sampling::plan_sampling(clifft::trace(clifft::parse(rounds)), {.runtime_frame = true});
+    REQUIRE(repeated.peak_active_width == 0);
+    REQUIRE(repeated.frame_width == 1);
+    REQUIRE(holds.operator()<sampling::RetireFrame>(repeated) >= 2);
+    REQUIRE(holds.operator()<sampling::ApplyConditionalClifford>(repeated) >= 3);
+    REQUIRE(holds.operator()<sampling::RotateFramePauli>(repeated) == 0);
+    // The ordinary plan needs an active qubit in each round.
+    REQUIRE(sampling::plan_sampling(clifft::trace(clifft::parse(rounds))).peak_active_width == 1);
+
+    // A measurement that reaches an idle qubit outside the frame anticommutes
+    // with the first pair's check. The static frame absorbs it without
+    // changing the frame's state, so that check stays known, the second one
+    // completes the frame, and the later T gates on the first pair are reduced.
+    const Circuit through_idle = clifft::parse(
+        "H 0 2\nCX 0 1\nCX 2 3\nX_ERROR(0.3) 0\nX_ERROR(0.2) 2\nT 0 2\n"
+        "T_DAG 1 3\nMPP X0*X1\nMPP Z0*X4\nMPP X2*X3\n"
+        "T 0\nT_DAG 1\nM 0 1 2 3 4\n");
+    const SamplingPlan carried =
+        sampling::plan_sampling(clifft::trace(through_idle), {.runtime_frame = true});
+    REQUIRE(holds.operator()<sampling::RetireFrame>(carried) >= 1);
+    REQUIRE(holds.operator()<sampling::RotateFramePauli>(carried) == 0);
+    require_distributions_equal(compute_dense_circuit_distribution(through_idle),
+                                compute_exact_plan_distribution(carried));
+
+    // Static work after a retirement counts toward the coefficient storage an
+    // executor allocates: the frame leaves none, and three plain T gates then
+    // need three active qubits.
+    const Circuit widening = clifft::parse(pair + "MR 0 1\nH 0 1 2\nT 0 1 2\nH 0 1 2\nM 0 1 2\n");
+    const SamplingPlan wider =
+        sampling::plan_sampling(clifft::trace(widening), {.runtime_frame = true});
+    REQUIRE(holds.operator()<sampling::RetireFrame>(wider) >= 1);
+    REQUIRE(wider.peak_active_width == 3);
+    REQUIRE(sampling::ExecutablePlan(wider).initial_capacity_width() == 3);
+    require_distributions_equal(compute_dense_circuit_distribution(widening),
+                                compute_exact_plan_distribution(wider));
+}
+
+TEST_CASE("Long entry signs are defined once and shared", "[runtime_frame][sampling]") {
+    // Twenty-two faults flip the stabilizer of each Bell pair before the
+    // region. Every pair gets one derived symbol for that history instead of
+    // repeating it in every condition, and the two product rotations reuse
+    // both.
+    std::string source = "H 0 2\nCX 0 1\nCX 2 3\n";
+    for (const char* qubit : {"0", "2"}) {
+        for (uint32_t i = 0; i < 22; ++i) {
+            source += std::string("X_ERROR(0.05) ") + qubit + "\n";
+        }
+    }
     source +=
-        "T 0\nT_DAG 1\nTPP Z0*Z2\nX_ERROR(0.2) 2\nTPP_DAG Z0*Z2\n"
-        "MPP X0*X1\nMPP Y0*X1*X2\nM 0 1\nMX 2\n";
+        "T 0 2\nT_DAG 1 3\nX_ERROR(0.2) 2\nTPP Z0*Z2\nTPP_DAG Z1*Z3\n"
+        "MPP X0*X1\nMPP X2*X3\nM 0 1 2 3\n";
     const HirModule hir = clifft::trace(clifft::parse(source));
     const SamplingPlan fixed = sampling::plan_sampling(hir);
     const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
@@ -664,7 +775,7 @@ TEST_CASE("Long entry signs are defined once and shared", "[runtime_frame][sampl
             REQUIRE(clifford->condition.terms().size() <= 4);
         }
     }
-    REQUIRE(definitions == 3);
+    REQUIRE(definitions == 2);
     REQUIRE(conditionals == 4);
 
     Xoshiro256PlusPlus rng(0x1D);
@@ -696,6 +807,7 @@ TEST_CASE("Frame planning keeps the static plan when it cannot help", "[runtime_
         // Expectation probes need the static coordinates.
         "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nEXP_VAL X0*X1\nM 0 1\n",
     };
+    Xoshiro256PlusPlus rng(0x2F);
     for (const std::string& source : sources) {
         CAPTURE(source);
         const HirModule hir = clifft::trace(clifft::parse(source));
@@ -703,7 +815,15 @@ TEST_CASE("Frame planning keeps the static plan when it cannot help", "[runtime_
         const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
         REQUIRE(frame.frame_width == 0);
         REQUIRE(frame.peak_active_width == fixed.peak_active_width);
-        REQUIRE(frame.inspect() == fixed.inspect());
+        // The actions match. Their signs may be shorter: the X error on |+>
+        // does nothing, and the frame planner leaves it out.
+        REQUIRE(frame.actions.size() == fixed.actions.size());
+        for (size_t i = 0; i < frame.actions.size(); ++i) {
+            REQUIRE(frame.actions[i].action.index() == fixed.actions[i].action.index());
+        }
+        if (hir.num_exp_vals == 0) {
+            check_exact_equivalent(fixed, frame, rng, 64);
+        }
     }
 }
 
@@ -795,6 +915,146 @@ Circuit parse_random_signed_region(Xoshiro256PlusPlus& rng, uint32_t num_qubits,
             return clifft::parse(source);
         } catch (const ParseError&) {}
     }
+}
+
+// Rounds of a signed T layer and measurements on the same qubits. A round
+// measures a random choice of single qubits, some with a reset, and Pauli
+// products, some of them through one further idle qubit, so its frame ends
+// with all, some, or none of its state fixed.
+std::string random_measured_rounds_source(Xoshiro256PlusPlus& rng, uint32_t num_qubits) {
+    const auto below = [&](uint32_t bound) { return static_cast<uint32_t>(rng() % bound); };
+    const auto qubit = [&] { return std::to_string(below(num_qubits)); };
+    const auto pair = [&](const char* separator) {
+        const uint32_t a = below(num_qubits);
+        const uint32_t b = (a + 1 + below(num_qubits - 1)) % num_qubits;
+        return std::pair{std::to_string(a) + separator, std::to_string(b)};
+    };
+    // The dense oracle branches on every record.
+    constexpr uint32_t kMaxRecords = 9;
+    std::string source;
+    uint32_t faults = 0;
+    uint32_t records = 0;
+    const auto cliffords = [&](uint32_t count) {
+        for (uint32_t i = 0; i < count; ++i) {
+            switch (below(3)) {
+                case 0:
+                    source += "H " + qubit() + "\n";
+                    break;
+                case 1:
+                    source += "S " + qubit() + "\n";
+                    break;
+                default: {
+                    const auto [a, b] = pair(" ");
+                    source += "CX " + a + b + "\n";
+                    break;
+                }
+            }
+        }
+    };
+    const uint32_t rounds = 2 + below(2);
+    for (uint32_t round = 0; round < rounds; ++round) {
+        for (uint32_t q = 0; q < num_qubits; ++q) {
+            if (below(2) == 0) {
+                source += "H " + std::to_string(q) + "\n";
+            }
+        }
+        cliffords(num_qubits);
+        const uint32_t rotations = 2 + below(num_qubits + 1);
+        for (uint32_t i = 0; i < rotations; ++i) {
+            // Two faults a round leave some for every round.
+            if (faults < 2 * (round + 1) && below(2) == 0) {
+                ++faults;
+                source +=
+                    std::string(below(2) == 0 ? "X_ERROR" : "Z_ERROR") + "(0.2) " + qubit() + "\n";
+            }
+            switch (below(3)) {
+                case 0:
+                    source += "T " + qubit() + "\n";
+                    break;
+                case 1:
+                    source += "T_DAG " + qubit() + "\n";
+                    break;
+                default: {
+                    const auto [a, b] = pair("*Z");
+                    source += std::string(below(2) == 0 ? "TPP" : "TPP_DAG") + " Z" + a + b + "\n";
+                    break;
+                }
+            }
+        }
+        cliffords(below(num_qubits));
+        // Half the rounds end by measuring and resetting every qubit.
+        if (below(2) == 0) {
+            for (uint32_t q = 0; q < num_qubits && records < kMaxRecords; ++q, ++records) {
+                source += "MR " + std::to_string(q) + "\n";
+            }
+            continue;
+        }
+        const uint32_t measurements = 1 + below(num_qubits + 1);
+        for (uint32_t i = 0; i < measurements && records < kMaxRecords; ++i, ++records) {
+            constexpr char kPaulis[] = {'X', 'Y', 'Z'};
+            switch (below(6)) {
+                case 0:
+                    source += "M " + qubit() + "\n";
+                    break;
+                case 1:
+                    source += "MX " + qubit() + "\n";
+                    break;
+                case 2:
+                case 3:
+                    source += "MR " + qubit() + "\n";
+                    break;
+                case 4: {
+                    const uint32_t a = below(num_qubits);
+                    const uint32_t b = (a + 1 + below(num_qubits - 1)) % num_qubits;
+                    source += std::string("MPP ") + kPaulis[below(3)] + std::to_string(a) + "*" +
+                              kPaulis[below(3)] + std::to_string(b) + "\n";
+                    break;
+                }
+                default:
+                    // Through the idle qubit, which no rotation touches.
+                    source += std::string("MPP ") + kPaulis[below(3)] + qubit() + "*" +
+                              kPaulis[below(2)] + std::to_string(num_qubits) + "\n";
+                    break;
+            }
+        }
+    }
+    return source;
+}
+
+TEST_CASE("Random measured rounds match the dense oracle on a runtime frame",
+          "[runtime_frame][sampling]") {
+    Xoshiro256PlusPlus rng(0x706A);
+    uint32_t retired = 0;
+    uint32_t restarted = 0;
+    uint32_t continued = 0;
+    for (uint32_t trial = 0; trial < 300; ++trial) {
+        const std::string source = random_measured_rounds_source(rng, 2 + trial % 3);
+        CAPTURE(trial, source);
+        const Circuit circuit = clifft::parse(source);
+        const SamplingPlan frame =
+            sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
+        // A plan restarts when a conditional Clifford follows a retirement, and
+        // continues when a frame rotation shows a later region met a live frame.
+        bool seen_retirement = false;
+        bool restarts = false;
+        bool continues = false;
+        for (const PlannedAction& planned : frame.actions) {
+            seen_retirement |= std::holds_alternative<sampling::RetireFrame>(planned.action);
+            restarts |= seen_retirement &&
+                        std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+            continues |= std::holds_alternative<sampling::RotateFramePauli>(planned.action);
+        }
+        retired += seen_retirement;
+        restarted += restarts;
+        continued += continues;
+        require_distributions_equal(compute_dense_circuit_distribution(circuit),
+                                    compute_exact_plan_distribution(frame));
+    }
+    // The generator must reach each outcome often enough to test it.
+    CAPTURE(retired, restarted, continued);
+    REQUIRE(retired >= 30);
+    REQUIRE(restarted >= 10);
+    REQUIRE(continued >= 10);
 }
 
 TEST_CASE("Random signed regions match the dense oracle on a runtime frame",
@@ -1258,6 +1518,133 @@ TEST_CASE("Frame conditions and signs count toward trajectory divergence",
     REQUIRE(std::abs(divergence.expected_sign_faults - 0.375) < 1e-12);
     REQUIRE(divergence.mid_circuit_active_measurements == 1);
     REQUIRE(divergence.sign_dormant_measurements == 0);
+}
+
+TEST_CASE("Shared frame execution retires and restarts a frame", "[runtime_frame][sampling]") {
+    // Three rounds on the same qubits. Each has a signed pair for the frame
+    // and one T gate that needs coefficients, and ends by measuring and
+    // resetting every qubit, which lets the plan retire the frame.
+    std::string source;
+    for (int round = 0; round < 3; ++round) {
+        source += "H 0 2\nCX 0 1\nX_ERROR(0.3) 0\nT 0 2\nT_DAG 1\nCX 0 1\nH 0 2\nMR 0 1 2\n";
+    }
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+    const auto count = [&](auto matches) { return std::ranges::count_if(plan.actions, matches); };
+    REQUIRE(count([](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::RetireFrame>(planned.action);
+            }) >= 2);
+    REQUIRE(plan.peak_active_width == 1);
+
+    const sampling::ExecutablePlan executable(plan);
+    // After a retirement the frame is the identity again, so the next round's
+    // conditional Cliffords take the kernel for Paulis the frame fixes.
+    const std::string listing = executable.inspect();
+    size_t fixed_cliffords = 0;
+    for (size_t at = listing.find("kernel=support"); at != std::string::npos;
+         at = listing.find("kernel=support", at + 1)) {
+        ++fixed_cliffords;
+    }
+    REQUIRE(fixed_cliffords == static_cast<size_t>(count([](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+            })));
+
+    const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+    std::map<uint64_t, double> expected;
+    for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+        expected[entry.outcome.visible_records] = entry.probability;
+    }
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    const sampling::EarlyPostselection checks(executable);
+    constexpr uint32_t kCapacity = 500;
+    constexpr uint32_t kBatches = 16;
+    const auto make = [&](bool share) {
+        return sampling::SharingExecutor(executable, noise, checks, kCapacity, 1, share, nullptr,
+                                         sampling::kDefaultSharedWorkerStateBudget,
+                                         sampling::BatchOutputMode::Rows);
+    };
+    sampling::SharingExecutor shared = make(true);
+    sampling::SharingExecutor independent = make(false);
+    const SeedRoot root = seed_root_from_seed(77);
+    std::map<uint64_t, uint32_t> counts;
+    uint64_t merges = 0;
+    for (uint32_t batch = 0; batch < kBatches; ++batch) {
+        shared.run_batch(root, batch * kCapacity, kCapacity);
+        independent.run_batch(root, batch * kCapacity, kCapacity);
+        merges += shared.num_merges();
+        REQUIRE(independent.num_merges() == 0);
+        const auto patterns = shared_record_patterns(shared, plan.num_visible_records);
+        REQUIRE(patterns == shared_record_patterns(independent, plan.num_visible_records));
+        for (uint64_t bits : patterns) {
+            ++counts[bits];
+        }
+    }
+    // Every round starts again from one group.
+    REQUIRE(merges > 0);
+    REQUIRE(shared.peak_groups() < kCapacity);
+    for (const auto& [bits, count_of] : counts) {
+        CAPTURE(bits);
+        REQUIRE(expected.contains(bits));
+    }
+    constexpr double kShots = kCapacity * kBatches;
+    for (const auto& [bits, probability] : expected) {
+        CAPTURE(bits, probability);
+        const double observed = counts.contains(bits) ? counts[bits] / kShots : 0.0;
+        const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
+        REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
+    }
+}
+
+TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame][sampling]") {
+    // A sharing key groups shots by the noise that decides static rotation
+    // signs, here the fault between the two T gates on qubit 2. Those
+    // rotations follow a frame that measures its last active qubit and then
+    // retires, the two places where groups without a key merge.
+    const std::string source =
+        "H 0 4\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4\nT_DAG 1\nCX 0 1\nH 0 4\n"
+        "MR 0 1 4\n"
+        "H 2\nT 2\nH 2\nX_ERROR(0.3) 2\nT 2\nH 2\nM 2\n";
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+    const auto holds = [&]<typename Action>() {
+        return std::ranges::any_of(plan.actions, [](const PlannedAction& planned) {
+            return std::holds_alternative<Action>(planned.action);
+        });
+    };
+    REQUIRE(holds.operator()<sampling::RetireFrame>());
+    REQUIRE(holds.operator()<sampling::MeasureFramePauli>());
+    REQUIRE(holds.operator()<sampling::RotateActivePauli>());
+
+    const sampling::ExecutablePlan executable(plan);
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    const sampling::EarlyPostselection checks(executable);
+    const sampling::SharingKey key(executable);
+    REQUIRE(key.num_bits() != 0);
+    constexpr uint32_t kCapacity = 300;
+    const auto make = [&](bool share, const sampling::SharingKey* grouping) {
+        return sampling::SharingExecutor(executable, noise, checks, kCapacity, 1, share, grouping,
+                                         sampling::kDefaultSharedWorkerStateBudget,
+                                         sampling::BatchOutputMode::Rows);
+    };
+    sampling::SharingExecutor keyed = make(true, &key);
+    sampling::SharingExecutor merging = make(true, nullptr);
+    sampling::SharingExecutor independent = make(false, nullptr);
+    uint64_t merges = 0;
+    bool saw_one = false;
+    for (uint32_t batch = 0; batch < 8; ++batch) {
+        const SeedRoot root = seed_root_from_seed(900 + batch);
+        keyed.run_batch(root, 0, kCapacity);
+        merging.run_batch(root, 0, kCapacity);
+        independent.run_batch(root, 0, kCapacity);
+        REQUIRE(keyed.num_merges() == 0);
+        merges += merging.num_merges();
+        const auto expected = shared_record_patterns(independent, plan.num_visible_records);
+        REQUIRE(shared_record_patterns(keyed, plan.num_visible_records) == expected);
+        REQUIRE(shared_record_patterns(merging, plan.num_visible_records) == expected);
+        saw_one |= std::ranges::any_of(expected, [](uint64_t bits) { return bits != 0; });
+    }
+    REQUIRE(merges > 0);
+    REQUIRE(saw_one);
 }
 
 TEST_CASE("Shared frame budgets count the tableau of every group", "[runtime_frame][sampling]") {

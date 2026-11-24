@@ -224,6 +224,19 @@ A later T rotation on frame coordinates is applied one at a time and can make
 a coordinate active in the shots where its image requires one, so the plan
 states an upper bound on the active width from the first frame action on.
 
+A frame does not have to last to the end of the circuit. Each frame
+measurement leaves a stabilizer whose sign is that measurement's outcome
+symbol, and it holds until an operation that anticommutes with it. When such
+stabilizers determine every frame coordinate, as after measuring or resetting
+all the qubits of a factory, the planner treats them as measurements with
+known outcomes: each becomes Z on a dormant coordinate and its sign moves into
+the symbolic Pauli frame. The frame is then retired, and the next region
+starts a new one from the reference state. Before a region reads its signs,
+the planner also drops every Z the Pauli frame carries on a dormant
+coordinate. Such a Z acts on a stabilizer state and does nothing, but it would
+otherwise turn an earlier round's faults and outcomes into conditional
+Cliffords of this one.
+
 In shared-trajectory execution, shots share a tableau as well as a coefficient
 state. A tableau update does not depend on row signs, so each shot keeps one
 sign bit per row, and shots take a separate tableau only where a conditional

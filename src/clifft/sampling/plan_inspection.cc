@@ -210,6 +210,8 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
                     << " branch=s" << index(typed.branch)
                     << " outcome=" << format_expression(typed.outcome, max_expression_terms)
                     << " record=r" << index(typed.record);
+            } else if constexpr (std::is_same_v<T, RetireFrame>) {
+                out << "RETIRE_FRAME";
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }

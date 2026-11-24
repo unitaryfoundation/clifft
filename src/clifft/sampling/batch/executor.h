@@ -75,6 +75,7 @@ class BatchExecutor : public BatchClassicalState {
     void execute_action(const ExecutablePlan::ExecuteFrameClifford& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameMeasurement& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameRetirement& action) noexcept;
     [[nodiscard]] bool should_compact(
         const ExecutablePlan::ExecuteDetector& detector) const noexcept;
     void compact_live_lanes(CompactionMode mode) noexcept;

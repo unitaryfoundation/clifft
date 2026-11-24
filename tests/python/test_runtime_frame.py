@@ -278,6 +278,50 @@ def test_automatic_selection_without_postselection_follows_the_expected_sign_fau
     assert clifft.sample(frame, 4096, seed=1).execution.executor == "scalar"
 
 
+def _rounds(count: int, detector: bool = False) -> str:
+    """Rounds of a signed pair and a plain T qubit that reset every qubit.
+
+    With ``detector``, each round checks the pair, which a fault flips.
+    """
+    one_round = "H 0 2\nCX 0 1\nX_ERROR(0.3) 0\nT 0 2\nT_DAG 1\nCX 0 1\nH 0 2\nMR 0 1 2\n"
+    if detector:
+        one_round += "DETECTOR rec[-3]\n"
+    return one_round * count
+
+
+@pytest.mark.parametrize(
+    "controls",
+    [{}, {"sharing": False}, {"sharing": True}, {"sharing": True, "group_by_noise": True}],
+    ids=["automatic", "scalar", "shared", "noise-groups"],
+)
+def test_repeated_rounds_retire_the_frame(controls: dict) -> None:
+    ordinary, frame = _programs(_rounds(3))
+    # Every round ends with its qubits reset, so the frame ends there and the
+    # next round is reduced like the first.
+    assert "FRAME_RETIREMENT" in frame.original_plan.inspect()
+    assert "FRAME_ROTATION" not in frame.original_plan.inspect()
+    assert frame.original_plan.peak_active_width == 1
+    assert ordinary.original_plan.peak_active_width == 2
+    shots = 60_000
+    expected = clifft.sample(ordinary, shots, seed=11).measurements
+    actual = clifft.sample(frame, shots, seed=12, **controls).measurements
+    _assert_same_distribution(expected, actual)
+
+
+def test_postselected_rounds_share_through_retirement() -> None:
+    ordinary, frame = _programs(_rounds(3, detector=True), postselection_mask=[1, 1, 1])
+    shots = 60_000
+    expected = clifft.sample_survivors(ordinary, shots, seed=31, keep_records=True)
+    actual = clifft.sample_survivors(frame, shots, seed=32, keep_records=True)
+    assert actual.execution.executor == "shared"
+    assert 0 < actual.passed_shots < shots
+    _assert_same_survivor_counts(expected, actual, shots)
+    _assert_same_distribution(
+        expected.measurements[: min(expected.passed_shots, actual.passed_shots)],
+        actual.measurements[: min(expected.passed_shots, actual.passed_shots)],
+    )
+
+
 def test_runtime_frame_is_off_unless_requested() -> None:
     text = _signed_pairs(pairs=4, plain=0)
     default = clifft.compile(text)

@@ -28,8 +28,9 @@ namespace clifft::sampling {
 // tableau where a conditional quarter turn fires, and a group splits where its
 // shots differ in a frame rotation's sign or in the outcome of a measurement
 // that collapses the coefficients. Groups sharing a tableau merge again when
-// its last active coordinate is measured. A run of consecutive quarter turns
-// that the frame fixes regroups the shots once, by the set each one fires.
+// its last active coordinate is measured, and all of them when the plan
+// retires the frame. A run of consecutive quarter turns that the frame fixes
+// regroups the shots once, by the set each one fires.
 
 // Default bound on the coefficients, collapse scratch, and page alignment of
 // the states one shared worker holds. States are allocated as trajectories
@@ -209,6 +210,7 @@ class SharingExecutor : public BatchClassicalState {
     void execute_action(const ExecutablePlan::ExecuteFrameClifford& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameMeasurement& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameRetirement& action) noexcept;
 
     // Rows of the frame that a stored frame Pauli selects: bit q for the image
     // of X_q and bit 64 * frame_words + q for the image of Z_q. A shot's sign
