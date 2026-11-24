@@ -6,7 +6,7 @@
   </style>
   <text x="16" y="22" font-size="14.5" font-weight="700" fill="#edf2fa">How global sampling reconstruction shrinks a circuit</text>
   <text x="16" y="38" font-size="11.5" fill="#9fb0c8">Native stabilizer-tableau reduction inspired by Tsim’s closed-output ZX workflow</text>
-  
+
   <rect x="16.5" y="48.5" width="182" height="152" rx="9" fill="#232834" stroke="#35445c" stroke-opacity="1"/>
   <circle cx="38" cy="71" r="10" fill="#3a2c22"/>
   <text x="38" y="75" text-anchor="middle" font-size="11" font-weight="700" fill="#ffb26c">1</text>
