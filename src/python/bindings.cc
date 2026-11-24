@@ -276,17 +276,19 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
                                                bool normalize_syndromes,
                                                clifft::HirPassManager* hir_passes,
                                                std::vector<uint8_t>& expected_detectors,
-                                               std::vector<uint8_t>& expected_observables) {
+                                               std::vector<uint8_t>& expected_observables,
+                                               bool allow_reconstruction = false) {
     if (normalize_syndromes && (!expected_detectors.empty() || !expected_observables.empty())) {
         throw std::invalid_argument(
             "Cannot provide expected parities when normalize_syndromes=True");
     }
     clifft::HirModule hir = clifft::trace(circuit);
+    const clifft::Circuit* reconstruction_source = allow_reconstruction ? &circuit : nullptr;
     const bool has_postselection =
         std::ranges::any_of(postselection_mask, [](uint8_t flag) { return flag != 0; });
     const bool reference_before_passes = normalize_syndromes && has_postselection;
     if (reference_before_passes) {
-        auto reference = clifft::compute_reference_syndrome(hir);
+        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
     }
@@ -297,7 +299,7 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         hir_passes->run(hir);
     }
     if (normalize_syndromes && !reference_before_passes) {
-        auto reference = clifft::compute_reference_syndrome(hir);
+        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
         hir.postselection.expected_detectors = expected_detectors;
@@ -352,8 +354,8 @@ const char* width_effect_to_str(clifft::WidthEffect effect) {
 // All retained arrays own their native vectors; omitted arrays retain the
 // circuit's declared column width and zero-column outputs retain the row count.
 template <typename Result>
-nb::object sampling_result_to_python(Result result, const clifft::sampling::ExecutablePlan& program,
-                                     size_t rows, clifft::sampling::SamplingOutputs outputs) {
+nb::object sampling_result_to_python(Result result, const clifft::Program& program, size_t rows,
+                                     clifft::sampling::SamplingOutputs outputs) {
     warn_if_batch_tuning_inconclusive(result.batch_tuning);
     const auto bits = [&](std::vector<uint8_t> values, size_t columns, bool retained) {
         return vec_to_numpy(std::move(values),
@@ -637,6 +639,7 @@ NB_MODULE(_clifft_core, m) {
         m, "BatchTuningTrial",
         "Timing for one batch-size candidate. The first probe is recorded as warmup; "
         "its throughput is used when no subsequent measurement is available.")
+        .def_ro("sharing", &clifft::sampling::BatchTuningTrial::sharing)
         .def_ro("batch_size", &clifft::sampling::BatchTuningTrial::batch_size)
         .def_ro("shot_workers", &clifft::sampling::BatchTuningTrial::shot_workers)
         .def_ro("warmup_shots", &clifft::sampling::BatchTuningTrial::warmup_shots)
@@ -649,7 +652,8 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("shots_per_second", &clifft::sampling::BatchTuningTrial::shots_per_second,
                      "Attempted-shot throughput used for selection, or zero without timing data.")
         .def("__repr__", [](const clifft::sampling::BatchTuningTrial& trial) {
-            return "BatchTuningTrial(batch_size=" + std::to_string(trial.batch_size) +
+            return "BatchTuningTrial(sharing=" + std::string(trial.sharing ? "True" : "False") +
+                   ", batch_size=" + std::to_string(trial.batch_size) +
                    ", shot_workers=" + std::to_string(trial.shot_workers) +
                    ", shots_per_second=" + std::to_string(trial.shots_per_second()) +
                    ", used_warmup=" + (trial.used_warmup() ? "True" : "False") + ")";
@@ -659,6 +663,7 @@ NB_MODULE(_clifft_core, m) {
         "Calibration outcome and reusable batch size. sufficient_measurements says whether "
         "the automatic choice and an alternative were compared; stop_reason records why "
         "calibration ended, including budget exhaustion even when falling back to auto.")
+        .def_ro("sharing", &clifft::sampling::BatchTuningReport::sharing)
         .def_ro("batch_size", &clifft::sampling::BatchTuningReport::batch_size)
         .def_ro("baseline_batch_size", &clifft::sampling::BatchTuningReport::baseline_batch_size)
         .def_ro("shot_workers", &clifft::sampling::BatchTuningReport::shot_workers)
@@ -670,7 +675,8 @@ NB_MODULE(_clifft_core, m) {
         .def_ro("stop_reason", &clifft::sampling::BatchTuningReport::stop_reason)
         .def_ro("trials", &clifft::sampling::BatchTuningReport::trials)
         .def("__repr__", [](const clifft::sampling::BatchTuningReport& report) {
-            return "BatchTuningReport(batch_size=" + std::to_string(report.batch_size) +
+            return "BatchTuningReport(sharing=" + std::string(report.sharing ? "True" : "False") +
+                   ", batch_size=" + std::to_string(report.batch_size) +
                    ", baseline_batch_size=" + std::to_string(report.baseline_batch_size) +
                    ", elapsed_seconds=" + std::to_string(report.elapsed_seconds) +
                    ", sufficient_measurements=" +
@@ -1371,12 +1377,14 @@ NB_MODULE(_clifft_core, m) {
     nb::class_<clifft::ActiveWidthSchedulePass, clifft::HirPass>(
         m, "ActiveWidthSchedulePass",
         "State-aware beam search over the schedule-dependence trace class that\n"
-        "reduces peak active width, then a dense-work estimate. Opt in by\n"
-        "adding it after PeepholeFusionPass and StatevectorSqueezePass.")
+        "reduces peak active width, then a dense-work estimate at width >=\n"
+        "min_equal_width. Included in the default pipeline after\n"
+        "StatevectorSqueezePass.")
         .def(
             "__init__",
             [](clifft::ActiveWidthSchedulePass* self, bool noise_transparent, uint32_t beam_width,
-               std::optional<double> search_budget, bool sink_neutral_rotations) {
+               std::optional<double> search_budget, bool sink_neutral_rotations,
+               uint32_t min_equal_width) {
                 // The C++ constructor validates options; nanobind translates failures to
                 // ValueError.
                 clifft::ActiveWidthScheduleOptions options;
@@ -1384,11 +1392,13 @@ NB_MODULE(_clifft_core, m) {
                 options.beam_width = beam_width;
                 options.search_budget = search_budget;
                 options.sink_neutral_rotations = sink_neutral_rotations;
+                options.min_equal_width = min_equal_width;
                 new (self) clifft::ActiveWidthSchedulePass(options);
             },
             nb::arg("noise_transparent") = true, nb::arg("beam_width") = uint32_t{8},
             nb::arg("search_budget").none() = clifft::ActiveWidthScheduleOptions{}.search_budget,
-            nb::arg("sink_neutral_rotations") = true)
+            nb::arg("sink_neutral_rotations") = true,
+            nb::arg("min_equal_width") = clifft::ActiveWidthScheduleOptions{}.min_equal_width)
         .def_prop_ro("incumbent_peak", &clifft::ActiveWidthSchedulePass::incumbent_peak)
         .def_prop_ro("result_peak", &clifft::ActiveWidthSchedulePass::result_peak)
         .def_prop_ro("incumbent_dense_work", &clifft::ActiveWidthSchedulePass::incumbent_dense_work)
@@ -1441,19 +1451,7 @@ NB_MODULE(_clifft_core, m) {
         .def(nb::init<>())
         .def(
             "add",
-            [](clifft::HirPassManager& pm, clifft::HirPass& hir_pass) {
-                // HirPassManager needs unique_ptr ownership, but Python owns the pass.
-                // Use a thin non-owning wrapper that delegates to the Python-owned pass.
-                struct BorrowedPass : clifft::HirPass {
-                    clifft::HirPass& ref;
-                    explicit BorrowedPass(clifft::HirPass& r) : ref(r) {}
-                    void run(clifft::HirModule& hir) override { ref.run(hir); }
-                    bool preserves_sampling_distribution() const override {
-                        return ref.preserves_sampling_distribution();
-                    }
-                };
-                pm.add_pass(std::make_unique<BorrowedPass>(hir_pass));
-            },
+            [](clifft::HirPassManager& pm, clifft::HirPass& hir_pass) { pm.add_pass(hir_pass); },
             nb::arg("hir_pass"), nb::keep_alive<1, 2>(),
             "Add an optimization pass. Passes run in the order added.")
         .def(
@@ -1594,22 +1592,19 @@ NB_MODULE(_clifft_core, m) {
                 return p.sampling_plan(true).peak_active_width();
             },
             "Deprecated alias for peak_active_width.")
-        .def_prop_ro("num_qubits",
-                     [](const clifft::Program& p) { return p.original().num_qubits(); })
+        .def_prop_ro("num_qubits", [](const clifft::Program& p) { return p.num_qubits(); })
         .def_prop_ro("num_measurements",
-                     [](const clifft::Program& p) { return p.original().num_visible_records(); })
+                     [](const clifft::Program& p) { return p.num_visible_records(); })
         .def_prop_ro(
             "num_hidden_measurements",
-            [](const clifft::Program& p) { return p.original().num_hidden_records(); },
+            [](const clifft::Program& p) { return p.num_hidden_records(); },
             "Hidden measurement count in the original executable used by replay.")
-        .def_prop_ro("num_detectors",
-                     [](const clifft::Program& p) { return p.original().num_detectors(); })
+        .def_prop_ro("num_detectors", [](const clifft::Program& p) { return p.num_detectors(); })
         .def_prop_ro("num_observables",
-                     [](const clifft::Program& p) { return p.original().num_observables(); })
-        .def_prop_ro("num_exp_vals",
-                     [](const clifft::Program& p) { return p.original().num_exp_vals(); })
+                     [](const clifft::Program& p) { return p.num_observables(); })
+        .def_prop_ro("num_exp_vals", [](const clifft::Program& p) { return p.num_exp_vals(); })
         .def_prop_ro("has_postselection",
-                     [](const clifft::Program& p) { return p.original().has_postselection(); })
+                     [](const clifft::Program& p) { return p.has_postselection(); })
         .def_prop_ro(
             "num_actions",
             [](const clifft::Program& p) { return p.sampling_plan(true).num_actions(); },
@@ -1642,7 +1637,7 @@ NB_MODULE(_clifft_core, m) {
             [](const clifft::Program& p) { return PyPlanView{&p.original(), false, {}}; },
             nb::keep_alive<0, 1>(),
             "Read-only view of the original executable used by exact queries, replay, "
-            "and fixed-fault sampling.")
+            "and fixed-fault sampling. Raises OverflowError if the original plan was too wide.")
         .def(
             "sampling_plan",
             [](const clifft::Program& p, const RecordOption& option) {
@@ -1655,25 +1650,37 @@ NB_MODULE(_clifft_core, m) {
             nb::sig("def sampling_plan(self, *, keep_records: bool | "
                     "typing.Literal['all', 'syndromes', 'measurements']) -> clifft.PlanView"),
             "Return a read-only view of the compiled plan selected for ordinary CPU sampling.\n\n"
-            "Selection is prepared during compilation. When reconstruction is disabled or "
-            "falls back, the view describes the original executable. Output preparation can "
-            "remove actions before execution; the view retains the compiled action count.\n\n"
+            "Compilation selects the executable for each output mode. Raises OverflowError "
+            "if no plan fits the requested mode. The view reports the compiled action count "
+            "before output preparation removes unused actions.\n\n"
             "Args:\n"
             "    keep_records: Required output choice. Match the sampling call's keep_records "
             "argument (True by default for sample(), False for sample_survivors()).\n\n"
             "Returns:\n"
             "    A PlanView with metrics, inspection methods, and reconstruction diagnostics.")
         .def("__repr__", [](const clifft::Program& p) {
+            if (!p.has_sampling_plan(true)) {
+                const auto& syndromes = p.sampling_plan(false);
+                return "Program(" + std::to_string(syndromes.num_actions()) +
+                       " survivor actions, survivor_peak_active_width=" +
+                       std::to_string(syndromes.peak_active_width()) + ", " +
+                       std::to_string(p.num_visible_records()) +
+                       " measurements, records_plan=unavailable, original_plan=unavailable)";
+            }
             const auto& records = p.sampling_plan(true);
             std::string text =
                 "Program(" + std::to_string(records.num_actions()) +
                 " actions, peak_active_width=" + std::to_string(records.peak_active_width()) +
-                ", " + std::to_string(p.original().num_visible_records()) + " measurements";
-            if (p.original().peak_active_width() != records.peak_active_width()) {
+                ", " + std::to_string(p.num_visible_records()) + " measurements";
+            if (!p.has_original()) {
+                text += ", original_plan=unavailable";
+            } else if (p.original().peak_active_width() != records.peak_active_width()) {
                 text += ", original_peak_active_width=" +
                         std::to_string(p.original().peak_active_width());
             }
-            if (p.sampling_plan(false).peak_active_width() != records.peak_active_width()) {
+            if (!p.has_sampling_plan(false)) {
+                text += ", survivor_plan=unavailable";
+            } else if (p.sampling_plan(false).peak_active_width() != records.peak_active_width()) {
                 text += ", survivor_peak_active_width=" +
                         std::to_string(p.sampling_plan(false).peak_active_width());
             }
@@ -1746,21 +1753,29 @@ NB_MODULE(_clifft_core, m) {
         "compile",
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
-           bool normalize_syndromes, clifft::HirPassManager* hir_passes, bool reconstruction) {
+           bool normalize_syndromes, clifft::HirPassManager* hir_passes,
+           const BoolOrAutoOption& reconstruction_option, const std::string& input_format) {
+            const auto reconstruction =
+                parse_bool_or_auto_option(reconstruction_option, "reconstruction");
+            if (input_format != "stim" && input_format != "qasm2") {
+                throw std::invalid_argument("input_format must be 'stim' or 'qasm2'");
+            }
             nb::gil_scoped_release release;
-            const auto circuit = clifft::parse(stim_text);
-            const auto hir =
-                prepare_circuit_for_lowering(circuit, postselection_mask, normalize_syndromes,
-                                             hir_passes, expected_detectors, expected_observables);
-            return clifft::Program::compile(
-                circuit, hir, reconstruction,
-                hir_passes == nullptr || hir_passes->preserves_sampling_distribution());
+            const auto circuit = input_format == "stim" ? clifft::parse(stim_text)
+                                                        : clifft::parse_qasm2(stim_text).circuit;
+            const bool preserves_sampling =
+                hir_passes == nullptr || hir_passes->preserves_sampling_distribution();
+            const auto hir = prepare_circuit_for_lowering(
+                circuit, postselection_mask, normalize_syndromes, hir_passes, expected_detectors,
+                expected_observables, reconstruction != false && preserves_sampling);
+            return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling);
         },
         nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         nb::arg("expected_detectors") = std::vector<uint8_t>{},
         nb::arg("expected_observables") = std::vector<uint8_t>{},
         nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(), nb::kw_only(),
-        nb::arg("reconstruction") = false,
+        nb::arg("reconstruction") = BoolOrAutoOption(std::string("auto")),
+        nb::arg("input_format") = std::string("stim"),
         "Compile a quantum circuit string to an executable program.\n\n"
         "Compilation plans optimized HIR and prepares it for Clifft's sampler.\n"
         "\n"
@@ -1772,7 +1787,7 @@ NB_MODULE(_clifft_core, m) {
         "For coherent errors, supply expected parities from the ideal circuit.\n"
         "\n"
         "Args:\n"
-        "    stim_text: Circuit in .stim text format.\n"
+        "    stim_text: Circuit in .stim or OpenQASM 2 format.\n"
         "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
         "        Detectors where mask[i] != 0 become post-selection checks\n"
         "        that abort the shot early if their parity is non-zero.\n"
@@ -1781,29 +1796,12 @@ NB_MODULE(_clifft_core, m) {
         "    normalize_syndromes: If True, auto-compute reference parities from a\n"
         "        noiseless reference shot (mutually exclusive with explicit parities).\n"
         "    hir_passes: Optional HirPassManager to run on the HIR before lowering.\n"
-        "    reconstruction: Opt in to bounded output-specific CPU sampling plans.\n"
-        "        State queries and fixed-fault sampling retain the original plan.\n");
-
-    m.def(
-        "_compile_qasm2",
-        [](const std::string& qasm_text, std::vector<uint8_t> postselection_mask,
-           std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
-           bool normalize_syndromes, clifft::HirPassManager* hir_passes, bool reconstruction) {
-            nb::gil_scoped_release release;
-            const auto circuit = clifft::parse_qasm2(qasm_text).circuit;
-            const auto hir =
-                prepare_circuit_for_lowering(circuit, postselection_mask, normalize_syndromes,
-                                             hir_passes, expected_detectors, expected_observables);
-            return clifft::Program::compile(
-                circuit, hir, reconstruction,
-                hir_passes == nullptr || hir_passes->preserves_sampling_distribution());
-        },
-        nb::arg("qasm_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
-        nb::arg("expected_detectors") = std::vector<uint8_t>{},
-        nb::arg("expected_observables") = std::vector<uint8_t>{},
-        nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(), nb::kw_only(),
-        nb::arg("reconstruction") = false,
-        "Compile a unitary OpenQASM 2 circuit string to an executable program.");
+        "    reconstruction: 'auto' (default), True, or False. 'auto' selects bounded\n"
+        "        output-specific CPU sampling plans when they reduce active width or\n"
+        "        estimated work without harming postselected rejection. True uses\n"
+        "        the full reconstruction budget for strictly narrower plans; False\n"
+        "        uses the original plan for all outputs.\n"
+        "    input_format: 'stim' (default) or 'qasm2'.\n");
 
     m.def(
         "sample",
@@ -1819,8 +1817,7 @@ NB_MODULE(_clifft_core, m) {
             if (!outputs.rows()) {
                 throw std::invalid_argument("keep_records=False requires a survivor sampling API");
             }
-            const auto& program = owner.original();
-            if (program.has_postselection()) {
+            if (owner.has_postselection()) {
                 const auto choice = nb::repr(nb::cast(keep_records));
                 throw nb::value_error(
                     (std::string("sample() cannot be used with post-selected programs because it "
@@ -1838,7 +1835,7 @@ NB_MODULE(_clifft_core, m) {
                 nb::gil_scoped_release release;
                 result = clifft::sample(owner, shots, seed, outputs, options);
             }
-            return sampling_result_to_python(std::move(result), program, shots, outputs);
+            return sampling_result_to_python(std::move(result), owner, shots, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
@@ -1918,8 +1915,8 @@ NB_MODULE(_clifft_core, m) {
             if (!outputs.rows()) {
                 throw std::invalid_argument("keep_records=False requires a survivor sampling API");
             }
-            const auto& program = owner.original();
-            if (program.has_postselection()) {
+            (void)owner.original();
+            if (owner.has_postselection()) {
                 const auto choice = nb::repr(nb::cast(keep_records));
                 throw nb::value_error(
                     (std::string("sample_k() cannot be used with post-selected programs because it "
@@ -1943,7 +1940,7 @@ NB_MODULE(_clifft_core, m) {
                         .plan(),
                     shots, k, seed, threads, thread_layout, batch_size, tuning_budget, outputs);
             }
-            return sampling_result_to_python(std::move(result), program, shots, outputs);
+            return sampling_result_to_python(std::move(result), owner, shots, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("threads") = int64_t{1}, nb::arg("thread_layout") = nb::none(),
@@ -2000,7 +1997,7 @@ NB_MODULE(_clifft_core, m) {
            std::optional<int64_t> intra_shot_min_active_width, const BatchOption& batch_option,
            std::optional<double> tuning_budget_seconds, bool bit_packed) {
             const auto outputs = parse_record_option(keep_records, bit_packed);
-            const auto& program = owner.original();
+            (void)owner.original();
             const uint32_t threads = parse_thread_option(thread_option);
             const auto thread_layout =
                 parse_thread_layout(thread_layout_option, intra_shot_min_active_width);
@@ -2021,7 +2018,7 @@ NB_MODULE(_clifft_core, m) {
                                                               batch_size, tuning_budget, noise);
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
-            return sampling_result_to_python(std::move(result), program, rows, outputs);
+            return sampling_result_to_python(std::move(result), owner, rows, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("k"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = RecordOption{false}, nb::arg("threads") = int64_t{1},
@@ -2078,7 +2075,6 @@ NB_MODULE(_clifft_core, m) {
            const BoolOrAutoOption& sharing_option, const BoolOrAutoOption& group_by_noise_option,
            const NoisePreparationOption& noise_preparation_option, int64_t max_worker_state_bytes) {
             const auto outputs = parse_record_option(keep_records, bit_packed);
-            const auto& program = owner.original();
             const auto options = parse_sampling_options(
                 thread_option, thread_layout_option, intra_shot_min_active_width, batch_option,
                 tuning_budget_seconds, sharing_option, group_by_noise_option,
@@ -2089,7 +2085,7 @@ NB_MODULE(_clifft_core, m) {
                 result = clifft::sample_survivors(owner, shots, seed, outputs, options);
             }
             const size_t rows = outputs.rows() ? result.passed_shots : 0;
-            return sampling_result_to_python(std::move(result), program, rows, outputs);
+            return sampling_result_to_python(std::move(result), owner, rows, outputs);
         },
         nb::arg("program"), nb::arg("shots"), nb::arg("seed") = nb::none(),
         nb::arg("keep_records") = RecordOption{false}, nb::arg("threads") = int64_t{1},

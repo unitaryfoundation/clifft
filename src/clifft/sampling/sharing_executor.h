@@ -3,6 +3,7 @@
 #include "clifft/sampling/batch/classical.h"
 #include "clifft/sampling/batch/tuning.h"
 #include "clifft/sampling/state.h"
+#include "clifft/util/page_allocation.h"
 
 #include <cstdint>
 #include <limits>
@@ -15,8 +16,7 @@ namespace clifft::sampling {
 // data with SharingExecutor's groups and pool of coefficient states. An optional
 // SharingKey, prepared before execution, groups shots upfront by noise effects
 // on future rotation signs. SharingExecutor applies prepared actions to each
-// group and splits it when needed; each sampling call owns its workers and
-// their storage.
+// group and splits it when needed.
 
 // Default bound on the coefficients, collapse scratch, and page alignment of
 // the states one shared worker holds. States are allocated as trajectories
@@ -91,6 +91,7 @@ class SharingExecutor : public BatchClassicalState {
     [[nodiscard]] uint32_t state_capacity() const noexcept {
         return static_cast<uint32_t>(states_.size());
     }
+    [[nodiscard]] uint64_t state_pool_bytes() const noexcept;
     [[nodiscard]] uint32_t peak_groups() const noexcept { return peak_groups_; }
     [[nodiscard]] uint32_t storage_boundaries() const noexcept { return storage_boundaries_; }
     [[nodiscard]] uint32_t entrance_rejected() const noexcept { return entrance_rejected_; }
@@ -106,8 +107,17 @@ class SharingExecutor : public BatchClassicalState {
     template <ExecutorBackend Backend>
     [[nodiscard]] uint32_t dispatch_until_storage_boundary() noexcept;
     void copy_state(uint32_t to, uint32_t from) noexcept;
+    [[nodiscard]] std::span<const uint32_t> lanes(uint32_t group) const noexcept {
+        return {order_.data() + begin_[group], end_[group] - begin_[group]};
+    }
+    void swap_lanes(uint32_t first, uint32_t second) noexcept;
+    // Gives the lanes at [tail, end) of a group their own state. Returns the
+    // new group, or kNoShot when the tail is empty or holds the whole group.
+    uint32_t detach_tail(uint32_t group, uint32_t tail) noexcept;
+    // Separates lanes by choices_; lanes that chose one form the new group.
     [[nodiscard]] uint32_t split(uint32_t group) noexcept;
-    [[nodiscard]] uint32_t split_by_sign(uint32_t group, std::span<const uint64_t> values) noexcept;
+    // Splits groups until the sign is uniform within each one.
+    void split_by_sign(std::span<const uint64_t> values) noexcept;
     // Uses the packed outcome in scratch_words_ and prepared sign dependencies.
     void split_on_symbol(uint32_t symbol) noexcept;
     void prune() noexcept;
@@ -139,9 +149,17 @@ class SharingExecutor : public BatchClassicalState {
     std::vector<uint32_t> key_hash_;
     std::vector<uint32_t> split_factors_;
     uint32_t max_states_ = 0;
+    // Contiguous slabs outlive the non-owning State views in states_.
+    std::vector<PageAlignedAllocation> state_chunks_;
     std::vector<State> states_;
     std::vector<Xoshiro256PlusPlus> shot_rng_;
-    std::vector<uint32_t> heads_, next_, groups_, free_;
+    // Every group is the range [begin_, end_) of order_, a permutation of the
+    // lanes, so a split moves the departing lanes to the tail of the range and
+    // cuts it there. position_ inverts order_. departing_ counts the lanes a
+    // sign split has moved to a group's tail and is zero between splits.
+    std::vector<uint32_t> order_, position_, group_of_;
+    std::vector<uint32_t> begin_, end_, departing_;
+    std::vector<uint32_t> groups_, free_;
     std::vector<uint8_t> choices_;
     uint32_t group_count_ = 0;
     uint32_t free_count_ = 0;

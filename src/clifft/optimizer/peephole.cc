@@ -1,6 +1,7 @@
 #include "clifft/optimizer/peephole.h"
 
 #include "clifft/optimizer/commutation.h"
+#include "clifft/optimizer/pauli_axis.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
@@ -21,7 +22,7 @@ namespace {
 // Symplectic conjugation: absorb a virtual S gate into downstream ops
 // =========================================================================
 
-/// Conjugate Pauli Q by S_P in place.
+/// Conjugate the stored Pauli Q by S_P in place.
 ///
 /// For S gate (is_dagger=false), c_phase=3 computes S^dag Q S.
 /// For S_dag gate (is_dagger=true), c_phase=1 computes S Q S^dag.
@@ -30,20 +31,24 @@ namespace {
 /// a phase i^{+1} when A*B advances cyclically (X->Y->Z->X) and i^{-1}
 /// when it retreats. The total phase from the commutator [P, Q] is
 /// i^{sum of per-qubit contributions}.
-inline void conjugate_pauli_by_S(MaskView x_p, MaskView z_p, bool sign_p, MutableMaskView x_q,
-                                 MutableMaskView z_q, bool& sign_q, bool is_dagger) {
-    if (!anti_commute(x_p, z_p, x_q, z_q))
+///
+/// `p` must not view the mask being conjugated. `product` is scratch storage.
+void conjugate_pauli_by_S(PauliMaskView p, PauliMaskArena& masks, PauliMaskHandle q_handle,
+                          bool is_dagger, std::vector<PauliWord>& product) {
+    const PauliMaskView q = masks.at(q_handle);
+    if (!anti_commute(p, q))
         return;
 
     // Compute per-qubit phase contributions from the Pauli product P*Q.
     // Each qubit pair (A_i, B_i) contributes +1 or -1 to the total phase
-    // exponent based on the cyclic ordering X->Y->Z->X.
+    // exponent based on the cyclic ordering X->Y->Z->X. Only words stored
+    // by both Paulis can contribute.
     int phase = 0;
-    for (uint32_t w = 0; w < x_p.num_words(); ++w) {
-        uint64_t X1 = x_p.words[w];
-        uint64_t Z1 = z_p.words[w];
-        uint64_t X2 = x_q.words[w];
-        uint64_t Z2 = z_q.words[w];
+    for_each_common_word(p, q, [&](const PauliWord& p_word, const PauliWord& q_word) {
+        uint64_t X1 = p_word.x;
+        uint64_t Z1 = p_word.z;
+        uint64_t X2 = q_word.x;
+        uint64_t Z2 = q_word.z;
 
         // +1 phase contributions: XY->Z, YZ->X, ZX->Y
         uint64_t mask_plus = (X1 & ~Z1 & X2 & Z2) | (X1 & Z1 & ~X2 & Z2) | (~X1 & Z1 & X2 & ~Z2);
@@ -52,7 +57,7 @@ inline void conjugate_pauli_by_S(MaskView x_p, MaskView z_p, bool sign_p, Mutabl
 
         phase += std::popcount(mask_plus);
         phase -= std::popcount(mask_minus);
-    }
+    });
 
     int p_mod4 = ((phase % 4) + 4) % 4;
     // S (is_dagger=false): downstream we want S^dag Q S = +i P Q -> c_phase=1
@@ -60,44 +65,22 @@ inline void conjugate_pauli_by_S(MaskView x_p, MaskView z_p, bool sign_p, Mutabl
     int c_phase = is_dagger ? 3 : 1;
 
     int total_phase = (p_mod4 + c_phase) % 4;
-    if (sign_p)
+    if (p.sign())
         total_phase = (total_phase + 2) % 4;
-    if (sign_q)
+    if (q.sign())
         total_phase = (total_phase + 2) % 4;
 
-    sign_q = (total_phase == 2);
-    x_q.xor_with(x_p);
-    z_q.xor_with(z_p);
+    product.clear();
+    append_body_product(p, q, product);
+    masks.assign(q_handle, PauliMaskView{product, total_phase == 2});
 }
 
-}  // namespace
+/// Absorb a virtual S gate on the Pauli `axis` into all downstream HIR
+/// operations and the final tableau.
+void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, PauliMaskView axis,
+                                bool is_dagger, const std::vector<uint8_t>& deleted) {
+    std::vector<PauliWord> product;
 
-namespace internal {
-
-void apply_s_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v, bool sign_v, bool is_dagger) {
-    PauliString axis(tab.num_qubits());
-    axis.mut_x().xor_with(x_v);
-    axis.mut_z().xor_with(z_v);
-    axis.set_sign(sign_v);
-    tab.prepend_pauli_rotation(axis.view(), is_dagger);
-}
-
-void apply_pauli_to_tableau(Tableau& tab, MaskView x_v, MaskView z_v) {
-    PauliString axis(tab.num_qubits());
-    axis.mut_x().xor_with(x_v);
-    axis.mut_z().xor_with(z_v);
-    axis.set_sign(false);
-    tab.prepend_pauli(axis.view());
-}
-
-}  // namespace internal
-
-namespace {
-
-/// Absorb a virtual S gate on Pauli generator (x_v, z_v) into all
-/// downstream HIR operations and the final tableau.
-void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
-                                bool sign_v, bool is_dagger, const std::vector<uint8_t>& deleted) {
     // 1. Conjugate all downstream ops
     for (size_t k = start_idx; k < hir.ops.size(); ++k) {
         if (deleted[k])
@@ -106,47 +89,32 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
 
         switch (op.op_type()) {
             case OpType::T_GATE:
+            case OpType::PHASE_ROTATION:
             case OpType::MEASURE:
             case OpType::CONDITIONAL_PAULI:
-            case OpType::EXP_VAL: {
-                auto m = hir.mask_at(op);
-                bool sign_i = m.sign();
-                conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), sign_i, is_dagger);
-                m.set_sign(sign_i);
+            case OpType::EXP_VAL:
+                conjugate_pauli_by_S(axis, hir.pauli_masks, op.mask_handle(), is_dagger, product);
                 break;
-            }
 
             case OpType::INSTRUMENT: {
-                auto m = hir.mask_at(op);
-                bool sign_i = m.sign();
-                conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), sign_i, is_dagger);
-                m.set_sign(sign_i);
+                conjugate_pauli_by_S(axis, hir.pauli_masks, op.mask_handle(), is_dagger, product);
                 // The site's destination flip rides in the arena behind a
                 // side-table handle; it must track the same frame change
                 // as the op's own mask.
                 const auto& site =
                     hir.instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
-                auto f = hir.pauli_masks.mut_at(site.destination_flip_mask);
-                bool sign_f = f.sign();
-                conjugate_pauli_by_S(x_v, z_v, sign_v, f.x(), f.z(), sign_f, is_dagger);
-                f.set_sign(sign_f);
-                break;
-            }
-
-            case OpType::PHASE_ROTATION: {
-                auto m = hir.mask_at(op);
-                bool sign_i = m.sign();
-                conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), sign_i, is_dagger);
-                m.set_sign(sign_i);
+                conjugate_pauli_by_S(axis, hir.pauli_masks, site.destination_flip_mask, is_dagger,
+                                     product);
                 break;
             }
 
             case OpType::NOISE: {
                 auto site_idx = static_cast<uint32_t>(op.noise_site_idx());
                 for (auto& ch : hir.noise_sites[site_idx].channels) {
-                    auto m = hir.noise_channel_masks.mut_at(ch.mask);
-                    bool dummy_sign = false;
-                    conjugate_pauli_by_S(x_v, z_v, sign_v, m.x(), m.z(), dummy_sign, is_dagger);
+                    conjugate_pauli_by_S(axis, hir.noise_channel_masks, ch.mask, is_dagger,
+                                         product);
+                    // Channel signs are irrelevant and stay cleared.
+                    hir.noise_channel_masks.set_sign(ch.mask, false);
                 }
                 break;
             }
@@ -161,16 +129,18 @@ void apply_virtual_s_downstream(HirModule& hir, size_t start_idx, MaskView x_v, 
 
     // 2. Final Tableau: U_C' = U_C S (requires inverted dagger flag)
     if (hir.final_tableau.has_value()) {
-        internal::apply_s_to_tableau(*hir.final_tableau, x_v, z_v, sign_v, is_dagger);
+        hir.final_tableau->prepend_pauli_rotation(
+            optimizer_detail::copy_axis(axis, hir.num_qubits).view(), is_dagger);
     }
 }
 
 /// Absorb a virtual Pauli into downstream signs and the final Clifford frame.
-void apply_virtual_pauli_downstream(HirModule& hir, size_t start_idx, MaskView x_v, MaskView z_v,
+void apply_virtual_pauli_downstream(HirModule& hir, size_t start_idx, PauliMaskView axis,
                                     const std::vector<uint8_t>& deleted) {
-    auto conjugate_mask = [&](MutablePauliMaskView mask) {
-        if (anti_commute(x_v, z_v, mask.x(), mask.z())) {
-            mask.set_sign(!mask.sign());
+    auto conjugate_mask = [&](PauliMaskHandle handle) {
+        const PauliMaskView mask = hir.pauli_masks.at(handle);
+        if (anti_commute(axis, mask)) {
+            hir.pauli_masks.set_sign(handle, !mask.sign());
         }
     };
 
@@ -185,14 +155,14 @@ void apply_virtual_pauli_downstream(HirModule& hir, size_t start_idx, MaskView x
             case OpType::MEASURE:
             case OpType::CONDITIONAL_PAULI:
             case OpType::EXP_VAL:
-                conjugate_mask(hir.mask_at(op));
+                conjugate_mask(op.mask_handle());
                 break;
 
             case OpType::INSTRUMENT: {
-                conjugate_mask(hir.mask_at(op));
+                conjugate_mask(op.mask_handle());
                 const auto& site =
                     hir.instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
-                conjugate_mask(hir.pauli_masks.mut_at(site.destination_flip_mask));
+                conjugate_mask(site.destination_flip_mask);
                 break;
             }
 
@@ -208,7 +178,9 @@ void apply_virtual_pauli_downstream(HirModule& hir, size_t start_idx, MaskView x
     }
 
     if (hir.final_tableau.has_value()) {
-        internal::apply_pauli_to_tableau(*hir.final_tableau, x_v, z_v);
+        PauliString unsigned_axis = optimizer_detail::copy_axis(axis, hir.num_qubits);
+        unsigned_axis.set_sign(false);
+        hir.final_tableau->prepend_pauli(unsigned_axis.view());
     }
 }
 
@@ -225,27 +197,22 @@ inline void normalize_t_sign(HirModule& hir, HeisenbergOp& op) {
     }
 }
 
-/// Check whether op_j blocks op_i from commuting past it.
-/// Returns true if op_i is blocked (anti-commutes with op_j).
-inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const HirModule& hir) {
+/// Check whether op_j blocks an op with Pauli `axis` from commuting past it.
+/// Returns true if the op is blocked (anti-commutes with op_j).
+inline bool is_blocked(PauliMaskView axis, const HeisenbergOp& op_j, const HirModule& hir) {
     switch (op_j.op_type()) {
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION:
         case OpType::MEASURE:
         case OpType::CONDITIONAL_PAULI:
-            return anti_commute(hir.destab_mask(op_i), hir.stab_mask(op_i), hir.destab_mask(op_j),
-                                hir.stab_mask(op_j));
+            return anti_commute(axis, hir.mask_view(op_j));
 
         case OpType::NOISE: {
             auto site_idx = static_cast<uint32_t>(op_j.noise_site_idx());
             const auto& channels = hir.noise_sites[site_idx].channels;
-            for (const auto& ch : channels) {
-                auto cv = hir.noise_channel_masks.at(ch.mask);
-                if (anti_commute(hir.destab_mask(op_i), hir.stab_mask(op_i), cv.x(), cv.z())) {
-                    return true;
-                }
-            }
-            return false;
+            return std::ranges::any_of(channels, [&](const NoiseChannel& ch) {
+                return anti_commute(axis, hir.noise_channel_masks.at(ch.mask));
+            });
         }
 
         case OpType::EXP_VAL:
@@ -264,18 +231,6 @@ inline bool is_blocked(const HeisenbergOp& op_i, const HeisenbergOp& op_j, const
         default:
             return true;
     }
-}
-
-/// Return true when two Pauli strings act nontrivially on any common qubit.
-inline bool has_overlapping_support(MaskView x1, MaskView z1, MaskView x2, MaskView z2) {
-    assert(x1.num_words() == z1.num_words() && z1.num_words() == x2.num_words() &&
-           x2.num_words() == z2.num_words());
-    for (uint32_t w = 0; w < x1.num_words(); ++w) {
-        if (((x1.words[w] | z1.words[w]) & (x2.words[w] | z2.words[w])) != 0) {
-            return true;
-        }
-    }
-    return false;
 }
 
 /// Delete phase operations whose only remaining quantum effect is a phase in
@@ -299,8 +254,7 @@ size_t eliminate_terminal_measurement_phases(HirModule& hir, std::vector<uint8_t
         if (candidate_type != OpType::T_GATE && candidate_type != OpType::PHASE_ROTATION)
             continue;
 
-        const MaskView candidate_x = hir.destab_mask(hir.ops[i]);
-        const MaskView candidate_z = hir.stab_mask(hir.ops[i]);
+        const PauliMaskView candidate = hir.mask_view(hir.ops[i]);
 
         for (size_t j = i + 1; j < hir.ops.size(); ++j) {
             if (deleted[j])
@@ -317,22 +271,20 @@ size_t eliminate_terminal_measurement_phases(HirModule& hir, std::vector<uint8_t
             }
 
             if (next.op_type() == OpType::CONDITIONAL_PAULI) {
-                if (!has_overlapping_support(candidate_x, candidate_z, hir.destab_mask(next),
-                                             hir.stab_mask(next)) &&
+                if (!supports_overlap(candidate, hir.mask_view(next)) &&
                     can_swap(hir.ops[i], next, hir)) {
                     continue;
                 }
                 break;
             }
 
-            if (next.op_type() == OpType::MEASURE && hir.destab_mask(next) == candidate_x &&
-                hir.stab_mask(next) == candidate_z) {
+            if (next.op_type() == OpType::MEASURE && same_body(hir.mask_view(next), candidate)) {
                 deleted[i] = true;
                 ++eliminated;
                 break;
             }
 
-            if (!is_blocked(hir.ops[i], next, hir)) {
+            if (!is_blocked(candidate, next, hir)) {
                 continue;
             }
             break;
@@ -371,10 +323,9 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 continue;
 
             normalize_t_sign(hir, hir.ops[i]);
-            // After normalization the mask handle is unchanged; capture the
-            // arena-resident views once so we can compare against later ops.
-            auto destab_i = hir.destab_mask(hir.ops[i]);
-            auto stab_i = hir.stab_mask(hir.ops[i]);
+            // Normalization left the axis unsigned and no later step in this
+            // scan reassigns this op's mask, so the view stays valid.
+            const PauliMaskView axis_i = hir.mask_view(hir.ops[i]);
 
             for (size_t j = i + 1; j < n; ++j) {
                 if (deleted[j])
@@ -393,8 +344,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 // Check if op_j is a matching T gate on the same axis.
                 // After normalization both ops have sign=false, so
                 // effective_angle depends only on the dagger flag.
-                if (op_j.op_type() == OpType::T_GATE && hir.destab_mask(op_j) == destab_i &&
-                    hir.stab_mask(op_j) == stab_i) {
+                if (op_j.op_type() == OpType::T_GATE && same_body(hir.mask_view(op_j), axis_i)) {
                     int dir_i = op_i.is_dagger() ? -1 : 1;
                     int dir_j = op_j.is_dagger() ? -1 : 1;
                     int total = dir_i + dir_j;
@@ -410,8 +360,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         deleted[i] = true;
                         deleted[j] = true;
 
-                        apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, s_is_dagger,
-                                                   deleted);
+                        apply_virtual_s_downstream(hir, j + 1, axis_i, s_is_dagger, deleted);
                         ++fusions_;
                     }
 
@@ -420,7 +369,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 }
 
                 // Not a match -- check if op_j blocks commutation
-                if (is_blocked(op_i, op_j, hir)) {
+                if (is_blocked(axis_i, op_j, hir)) {
                     break;
                 }
             }
@@ -433,8 +382,8 @@ void PeepholeFusionPass::run(HirModule& hir) {
             if (hir.ops[i].op_type() != OpType::PHASE_ROTATION)
                 continue;
 
-            auto destab_i = hir.destab_mask(hir.ops[i]);
-            auto stab_i = hir.stab_mask(hir.ops[i]);
+            // The unsigned axis; no step in this scan reassigns this op's mask.
+            const PauliMaskView axis_i{hir.mask_view(hir.ops[i]).words(), false};
 
             for (size_t j = i + 1; j < n; ++j) {
                 if (deleted[j])
@@ -443,8 +392,8 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 const auto& op_i = hir.ops[i];
                 const auto& op_j = hir.ops[j];
 
-                if (op_j.op_type() == OpType::PHASE_ROTATION && hir.destab_mask(op_j) == destab_i &&
-                    hir.stab_mask(op_j) == stab_i) {
+                if (op_j.op_type() == OpType::PHASE_ROTATION &&
+                    same_body(hir.mask_view(op_j), axis_i)) {
                     // Compute fused angle accounting for sign bits.
                     double alpha_i = op_i.alpha() * (hir.sign(op_i) ? -1.0 : 1.0);
                     double alpha_j = op_j.alpha() * (hir.sign(op_j) ? -1.0 : 1.0);
@@ -462,21 +411,19 @@ void PeepholeFusionPass::run(HirModule& hir) {
                         // S gate: absorb downstream.
                         deleted[i] = true;
                         deleted[j] = true;
-                        apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, false,
-                                                   deleted);
+                        apply_virtual_s_downstream(hir, j + 1, axis_i, false, deleted);
                         ++fusions_;
                     } else if (clifford == CliffordRotation::SQRT_DAG) {
                         // S_dag gate: absorb downstream.
                         deleted[i] = true;
                         deleted[j] = true;
-                        apply_virtual_s_downstream(hir, j + 1, destab_i, stab_i, false, true,
-                                                   deleted);
+                        apply_virtual_s_downstream(hir, j + 1, axis_i, true, deleted);
                         ++fusions_;
                     } else if (clifford == CliffordRotation::PAULI) {
                         // A Pauli rotation is Clifford up to global phase.
                         deleted[i] = true;
                         deleted[j] = true;
-                        apply_virtual_pauli_downstream(hir, j + 1, destab_i, stab_i, deleted);
+                        apply_virtual_pauli_downstream(hir, j + 1, axis_i, deleted);
                         ++fusions_;
                     } else if (std::abs(fused - 0.25) < kRotationCanonicalizationTolerance) {
                         hir.demote_to_tgate(hir.ops[i], false);
@@ -511,7 +458,7 @@ void PeepholeFusionPass::run(HirModule& hir) {
                     break;
                 }
 
-                if (is_blocked(op_i, op_j, hir)) {
+                if (is_blocked(axis_i, op_j, hir)) {
                     break;
                 }
             }
@@ -526,6 +473,8 @@ void PeepholeFusionPass::run(HirModule& hir) {
 
             double alpha = hir.ops[i].alpha() * (hir.sign(hir.ops[i]) ? -1.0 : 1.0);
             double a_mod2 = alpha - 2.0 * std::floor(alpha / 2.0);
+            // The signed angle already accounts for the axis sign.
+            const PauliMaskView axis_i{hir.mask_view(hir.ops[i]).words(), false};
 
             const auto clifford = classify_clifford_rotation(a_mod2);
             if (clifford == CliffordRotation::IDENTITY) {
@@ -534,21 +483,18 @@ void PeepholeFusionPass::run(HirModule& hir) {
                 changed = true;
             } else if (clifford == CliffordRotation::SQRT) {
                 // S: absorb downstream.
-                apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
-                                           hir.stab_mask(hir.ops[i]), false, false, deleted);
+                apply_virtual_s_downstream(hir, i + 1, axis_i, false, deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
             } else if (clifford == CliffordRotation::SQRT_DAG) {
                 // S_dag: absorb downstream.
-                apply_virtual_s_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
-                                           hir.stab_mask(hir.ops[i]), false, true, deleted);
+                apply_virtual_s_downstream(hir, i + 1, axis_i, true, deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;
             } else if (clifford == CliffordRotation::PAULI) {
-                apply_virtual_pauli_downstream(hir, i + 1, hir.destab_mask(hir.ops[i]),
-                                               hir.stab_mask(hir.ops[i]), deleted);
+                apply_virtual_pauli_downstream(hir, i + 1, axis_i, deleted);
                 deleted[i] = true;
                 ++fusions_;
                 changed = true;

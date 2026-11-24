@@ -28,6 +28,8 @@ class Tableau {
     [[nodiscard]] PauliString apply(PauliStringView input) const;
     [[nodiscard]] Tableau then(const Tableau& next) const;
     [[nodiscard]] Tableau inverse() const;
+    // Positive Pauli with the body of inverse().z_output(qubit).
+    [[nodiscard]] PauliString unsigned_z_preimage(uint32_t qubit) const;
     [[nodiscard]] bool satisfies_invariants() const;
 
     void set_x_output(uint32_t qubit, PauliStringView value);

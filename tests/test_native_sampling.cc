@@ -274,9 +274,9 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
     REQUIRE(cold.execution.outputs == SamplingOutputs(true));
     REQUIRE(cold.execution.max_worker_state_bytes == kDefaultSharedWorkerStateBudget);
     const auto& plan = program.sampling_plan(true);
-    REQUIRE_FALSE(should_share_sampling(plan, 1024, true, {2, 1}, kDefaultSharedWorkerStateBudget));
-    REQUIRE_FALSE(
-        should_share_sampling(plan, 16384, true, {4, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE_FALSE(should_share_sampling(plan, 63, true, {1, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE(should_share_sampling(plan, 64, true, {1, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE(should_share_sampling(plan, 16384, true, {4, 1}, kDefaultSharedWorkerStateBudget));
     REQUIRE_FALSE(should_share_sampling(plan, 16384, true, {1, 1}, State::storage_bytes(1)));
     require_same(cold, clifft::sample_survivors(program, 16384, 42, true, {.threads = 2}));
     const Program fresh{ExecutablePlan(plan_sampling(hir))};
@@ -296,13 +296,13 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
     const Program terminal{ExecutablePlan(plan_sampling(unitary))};
     REQUIRE(terminal.original().peak_active_width() == 8);
     REQUIRE(terminal.original().has_reusable_unitary_prefix());
-    REQUIRE(clifft::sample(terminal, 256, 42).execution.executor == SamplingExecutor::Shared);
-    REQUIRE(clifft::sample(terminal, 16, 42).execution.executor != SamplingExecutor::Shared);
+    REQUIRE(clifft::sample(terminal, 32, 42).execution.executor == SamplingExecutor::Shared);
+    REQUIRE(clifft::sample(terminal, 15, 42).execution.executor != SamplingExecutor::Shared);
     const auto branching_hir =
         trace(parse("H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0\nH 0\nT 0\nM 0 1 2 3 4 5 6 7"));
     const Program branching{ExecutablePlan(plan_sampling(branching_hir))};
     REQUIRE_FALSE(branching.original().has_reusable_unitary_prefix());
-    REQUIRE(clifft::sample(branching, 256, 42).execution.executor != SamplingExecutor::Shared);
+    REQUIRE(clifft::sample(branching, 32, 42).execution.executor != SamplingExecutor::Shared);
     const auto dormant_independent_hir = trace(parse(
         "H 0 1 2 3 4 5 6 7 8\nT 0 1 2 3 4 5 6 7\nH 0 1\nT 0 1\nM 8\nT 0\nH 0\nM 0 1 2 3 4 5 6 7"));
     const Program dormant_independent{ExecutablePlan(plan_sampling(dormant_independent_hir))};
@@ -314,14 +314,20 @@ TEST_CASE("Native automatic selection depends on the call and meaningful sharing
               "M 0 1 2 3 4 5 6 7"));
     const Program dormant_feedback{ExecutablePlan(plan_sampling(dormant_feedback_hir))};
     REQUIRE_FALSE(dormant_feedback.original().has_reusable_unitary_prefix());
-    REQUIRE(clifft::sample(dormant_feedback, 256, 42).execution.executor !=
+    REQUIRE(clifft::sample(dormant_feedback, 32, 42).execution.executor !=
             SamplingExecutor::Shared);
     const auto heavy_suffix_hir =
         trace(parse("H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0 1\n"
                     "H 2 3 4 5 6 7\nT 2 3 4 5 6 7\nH 2 3 4 5 6 7\nT 2 3 4 5 6 7\nM 2 3 4 5 6 7"));
     const Program heavy_suffix{ExecutablePlan(plan_sampling(heavy_suffix_hir))};
     REQUIRE_FALSE(heavy_suffix.original().has_reusable_unitary_prefix());
-    REQUIRE(clifft::sample(heavy_suffix, 256, 42).execution.executor != SamplingExecutor::Shared);
+    REQUIRE(clifft::sample(heavy_suffix, 32, 42).execution.executor != SamplingExecutor::Shared);
+    // A few measurement branches keep the shots of a longer call on few
+    // trajectories, so these plans share without a reusable prefix.
+    for (const Program* few_branches : {&branching, &dormant_feedback, &heavy_suffix}) {
+        REQUIRE(clifft::sample(*few_branches, 256, 42).execution.executor ==
+                SamplingExecutor::Shared);
+    }
 
     const auto qv_source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/qv10.stim");
     auto qv_hir = trace(qv_source);
@@ -426,9 +432,11 @@ TEST_CASE("Native shared calibration skips a single candidate") {
     REQUIRE(result.execution.batch_size == 8);
 }
 
-TEST_CASE("Native automatic sharing requires more selected detectors on wider plans") {
+TEST_CASE(
+    "Native automatic sharing depends on the plan rather than worker count or detector "
+    "thresholds") {
     const uint32_t width = GENERATE(7u, 8u);
-    const uint32_t selected = GENERATE(7u, 8u, 16u, 31u, 32u);
+    const uint32_t selected = GENERATE(0u, 1u, 8u);
     std::string source;
     for (const auto* gate : {"H", "T", "M"}) {
         source += gate;
@@ -437,19 +445,173 @@ TEST_CASE("Native automatic sharing requires more selected detectors on wider pl
         }
         source += "\n";
     }
-    for (uint32_t q = width; q < width + 32; ++q) {
+    for (uint32_t q = width; q < width + 8; ++q) {
         source += "X_ERROR(0.01) " + std::to_string(q) + "\nM " + std::to_string(q) +
                   "\nDETECTOR rec[-1]\n";
     }
     auto hir = trace(parse(source));
-    hir.postselection.mask.assign(32, 0);
+    hir.postselection.mask.assign(8, 0);
     std::fill_n(hir.postselection.mask.begin(), selected, 1);
     const ExecutablePlan plan(plan_sampling(hir));
     REQUIRE(plan.peak_active_width() == width);
     REQUIRE(plan.num_postselected_detectors() == selected);
-    REQUIRE(plan.num_presampled_symbols() == 32);
-    REQUIRE(should_share_sampling(plan, 8192, false, {1, 1}, kDefaultSharedWorkerStateBudget) ==
-            (selected >= (width < 8 ? 8 : 32)));
+    // The noise acts on classical qubits only, so every shot follows one
+    // trajectory up to the terminal measurements with or without selection.
+    REQUIRE(plan.trajectory_divergence().expected_sign_faults == 0.0);
+    REQUIRE(should_share_sampling(plan, 64, false, {1, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE(should_share_sampling(plan, 64, false, {8, 1}, kDefaultSharedWorkerStateBudget));
+    REQUIRE_FALSE(should_share_sampling(plan, 63, false, {1, 1}, kDefaultSharedWorkerStateBudget));
+}
+
+TEST_CASE("Native automatic sharing without postselection bounds trajectory divergence") {
+    const auto compile = [](const std::string& source) {
+        return ExecutablePlan(plan_sampling(trace(parse(source))));
+    };
+    const auto shares = [](const ExecutablePlan& plan, uint32_t shots = 65536,
+                           uint64_t state_bytes = kDefaultSharedWorkerStateBudget) {
+        return should_share_sampling(plan, shots, false, {1, 1}, state_bytes);
+    };
+    // Four qubits with `layers` rounds of an X error followed by T, then
+    // `record_layers` rounds of X errors before the measurements. An X error
+    // before T flips the rotation sign; one after the last T only flips a record.
+    const auto noisy_layers = [](double probability, uint32_t layers, uint32_t record_layers) {
+        const std::string error = "X_ERROR(" + std::to_string(probability) + ") 0 1 2 3\n";
+        std::string source = "H 0 1 2 3\n";
+        for (uint32_t layer = 0; layer < layers; ++layer) {
+            source += error + "T 0 1 2 3\nH 0 1 2 3\n";
+        }
+        for (uint32_t layer = 0; layer < record_layers; ++layer) {
+            source += error;
+        }
+        return source + "M 0 1 2 3\n";
+    };
+    // Three data qubits. Each ancilla measurement controls an X before a T
+    // layer: `prepare` makes its outcome uniformly random, and `measure` can
+    // add readout noise.
+    const auto feedback = [](uint32_t ancillas, const std::string& prepare,
+                             const std::string& measure) {
+        std::string source = "H 0 1 2\n";
+        for (uint32_t a = 0; a < ancillas; ++a) {
+            const auto ancilla = std::to_string(3 + a);
+            source += prepare.empty() ? "" : prepare + " " + ancilla + "\n";
+            source += measure + " " + ancilla + "\nCX rec[-1] " + std::to_string(a % 3) +
+                      "\nT 0 1 2\nH 0 1 2\n";
+        }
+        return source + "M 0 1 2\n";
+    };
+    // Every round measures a qubit of the active state and rotates it again.
+    const auto remeasured = [](uint32_t rounds) {
+        std::string source = "H 0 1 2\nT 0 1 2\nH 0 1 2\n";
+        for (uint32_t round = 0; round < rounds; ++round) {
+            source += "M 0\nH 0\nT 0\nH 0\n";
+        }
+        return source + "M 0 1 2\n";
+    };
+
+    SECTION("sign faults") {
+        const auto rare = compile(noisy_layers(0.01, 5, 0));
+        REQUIRE(rare.peak_active_width() == 4);
+        REQUIRE(std::abs(rare.trajectory_divergence().expected_sign_faults - 0.2) < 1e-9);
+        REQUIRE(shares(rare));
+        REQUIRE(shares(rare, 64));
+        REQUIRE_FALSE(shares(rare, 63));
+
+        const auto frequent = compile(noisy_layers(0.1, 5, 0));
+        REQUIRE(std::abs(frequent.trajectory_divergence().expected_sign_faults - 2.0) < 1e-9);
+        REQUIRE_FALSE(shares(frequent));
+
+        // Frequent faults that only flip records leave the estimate unchanged.
+        const auto record_noise = compile(noisy_layers(0.01, 5, 40));
+        REQUIRE(record_noise.expected_noise_faults() > 1.0);
+        REQUIRE(std::abs(record_noise.trajectory_divergence().expected_sign_faults - 0.2) < 1e-9);
+        REQUIRE(shares(record_noise));
+    }
+
+    SECTION("readout flips") {
+        // A noisy readout that controls a later gate is a sign fault, like an
+        // X error before an ideal measurement of the same ancilla.
+        const auto readout = compile(feedback(30, "", "M(0.05)"));
+        const auto bit_flip = compile(feedback(30, "X_ERROR(0.05)", "M"));
+        REQUIRE(readout.peak_active_width() == 3);
+        REQUIRE(readout.num_noise_sites() == 0);
+        REQUIRE(std::abs(readout.trajectory_divergence().expected_sign_faults - 1.5) < 1e-9);
+        REQUIRE(std::abs(bit_flip.trajectory_divergence().expected_sign_faults - 1.5) < 1e-9);
+        REQUIRE_FALSE(shares(readout));
+        REQUIRE_FALSE(shares(bit_flip));
+        REQUIRE(shares(compile(feedback(10, "", "M(0.05)"))));
+
+        // Readout flips that reach only records do not count.
+        const auto output_only =
+            compile("H 0 1 2\nT 0 1 2\nH 0 1 2\nM(0.4) 3 4 5 6 7 8\nM(0.4) 0 1 2\n");
+        REQUIRE(output_only.has_readout_noise());
+        REQUIRE(output_only.trajectory_divergence().expected_sign_faults == 0.0);
+        REQUIRE(shares(output_only));
+    }
+
+    SECTION("width") {
+        // Two qubits leave too little coefficient work to share.
+        const auto narrow = compile("H 0 1\nX_ERROR(0.01) 0 1\nT 0 1\nH 0 1\nM 0 1\n");
+        REQUIRE(narrow.peak_active_width() == 2);
+        REQUIRE_FALSE(shares(narrow));
+    }
+
+    SECTION("dormant measurement feedback needs lanes for every branch") {
+        const auto plan = compile(feedback(8, "H", "M"));
+        REQUIRE(plan.peak_active_width() == 3);
+        REQUIRE(plan.trajectory_divergence().sign_dormant_measurements == 8);
+        // Eight random bits give 256 trajectories, which share at 16 lanes each.
+        REQUIRE(shares(plan, 4096));
+        REQUIRE_FALSE(shares(plan, 4095));
+        REQUIRE_FALSE(shares(plan, 256));
+        // A state budget below the call size limits the lanes of a batch.
+        REQUIRE(shares(plan, 65536, 4096 * State::storage_bytes(3)));
+        REQUIRE_FALSE(shares(plan, 65536, 4095 * State::storage_bytes(3)));
+
+        const auto few = compile(feedback(2, "H", "M"));
+        REQUIRE(few.trajectory_divergence().sign_dormant_measurements == 2);
+        REQUIRE(shares(few, 64));
+    }
+
+    SECTION("mid-circuit active measurements") {
+        const auto few = compile(remeasured(12));
+        REQUIRE(few.peak_active_width() == 3);
+        REQUIRE(few.trajectory_divergence().mid_circuit_active_measurements == 12);
+        REQUIRE(shares(few));
+        const auto many = compile(remeasured(13));
+        REQUIRE(many.trajectory_divergence().mid_circuit_active_measurements == 13);
+        REQUIRE_FALSE(shares(many));
+    }
+
+    SECTION("terminal active measurements") {
+        // Measurements after the last rotation split no coefficient work, so a
+        // wide noisy plan with terminal readout still shares.
+        std::string qubits;
+        for (uint32_t q = 0; q < 14; ++q) {
+            qubits += " " + std::to_string(q);
+        }
+        const auto wide = compile("H" + qubits + "\nX_ERROR(0.001)" + qubits + "\nT" + qubits +
+                                  "\nH" + qubits + "\nM" + qubits + "\n");
+        REQUIRE(wide.peak_active_width() == 14);
+        REQUIRE(wide.num_noise_sites() != 0);
+        REQUIRE(wide.trajectory_divergence().mid_circuit_active_measurements == 0);
+        REQUIRE(shares(wide));
+    }
+
+    SECTION("dormant and active measurements share one limit") {
+        const auto combined = [&](uint32_t ancillas, uint32_t rounds) {
+            auto source = feedback(ancillas, "H", "M");
+            source.resize(source.size() - std::string("M 0 1 2\n").size());
+            for (uint32_t round = 0; round < rounds; ++round) {
+                source += "M 0\nH 0\nT 0\nH 0\n";
+            }
+            return compile(source + "M 0 1 2\n");
+        };
+        const auto within = combined(4, 8);
+        REQUIRE(within.trajectory_divergence().sign_dormant_measurements == 4);
+        REQUIRE(within.trajectory_divergence().mid_circuit_active_measurements == 8);
+        REQUIRE(shares(within));
+        REQUIRE_FALSE(shares(combined(4, 9)));
+    }
 }
 
 TEST_CASE("Survivor row collection transfers a single batch and preserves batch order") {
@@ -635,12 +797,15 @@ TEST_CASE("Native width zero sampling selects noise preparation from expected fa
                     .execution.noise_preparation == BatchNoiseMode::Dense);
     }
 
-    // Plans with coefficient work keep Dense preparation and the narrow limit.
+    // Plans with coefficient work also select noise preparation from expected faults.
     const auto active =
         clifft::sample_survivors(row_program(true), 8193, 5, true, {.sharing = false});
     REQUIRE(active.execution.executor == SamplingExecutor::Packed);
     REQUIRE(active.execution.batch_size == 256);
-    REQUIRE(active.execution.noise_preparation == BatchNoiseMode::Dense);
+    REQUIRE(active.execution.noise_preparation == BatchNoiseMode::SiteSparse);
+    const auto active_explicit = clifft::sample_survivors(row_program(true), 8193, 5, true,
+                                                          {.batch_size = 256, .sharing = false});
+    REQUIRE(active_explicit.execution.noise_preparation == BatchNoiseMode::Dense);
 }
 
 TEST_CASE("Native width zero selection replays across preparation history and concurrency") {
@@ -731,4 +896,155 @@ TEST_CASE("Native site noise preparation skips zero-probability sites") {
     }
     // Eight standard deviations around the 1,024 expected flips.
     REQUIRE(std::abs(static_cast<int>(flips) - 1024) < 222);
+}
+
+TEST_CASE("Shared sampling reuses and bounds idle workers across repeated and concurrent calls") {
+    const Program program = row_program(true);
+    const SamplingOutputs outputs(true);
+    const auto& prep = program.sampling_preparation(
+        outputs, {.early_postselection = true, .survivor_counts = true});
+    REQUIRE(prep.retained_shared_worker_count() == 0);
+    REQUIRE(prep.retained_shared_worker_bytes() == 0);
+
+    const SamplingOptions one_thread{.threads = 1, .batch_size = 512, .sharing = true};
+    const auto cold = clifft::sample_survivors(program, 2048, 42, outputs, one_thread);
+    REQUIRE(cold.execution.executor == SamplingExecutor::Shared);
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+    const uint64_t retained_one = prep.retained_shared_worker_bytes();
+    REQUIRE(retained_one > 0);
+    REQUIRE(retained_one <= clifft::kMaxRetainedSharedWorkerBytes);
+
+    // Repeating the same call reuses the idle worker without growing the pool.
+    const auto warm = clifft::sample_survivors(program, 2048, 42, outputs, one_thread);
+    require_same(cold, warm);
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+    REQUIRE(prep.retained_shared_worker_bytes() == retained_one);
+
+    // Borrowing with a mismatched configuration releases the old pool before dispatch.
+    const clifft::SharedWorkerKey dense_key{
+        .output_mode = BatchOutputMode::Rows,
+        .noise_mode = BatchNoiseMode::Dense,
+        .lane_capacity = 512,
+        .max_worker_state_bytes = kDefaultSharedWorkerStateBudget,
+        .group_by_noise = false,
+    };
+    REQUIRE(prep.borrow_shared_workers(dense_key, 1).empty());
+    REQUIRE(prep.retained_shared_worker_count() == 0);
+    REQUIRE(prep.retained_shared_worker_bytes() == 0);
+
+    // Concurrent multi-threaded calls check out exclusive workers and stay within the byte cap.
+    const SamplingOptions two_threads{.threads = 2, .batch_size = 512, .sharing = true};
+    const auto expected_two = clifft::sample_survivors(program, 2048, 42, outputs, two_threads);
+    std::array<std::future<SamplingSurvivorResult>, 4> calls;
+    for (auto& call : calls) {
+        call = std::async(std::launch::async, [&] {
+            return clifft::sample_survivors(program, 2048, 42, outputs, two_threads);
+        });
+    }
+    for (auto& call : calls) {
+        require_same(expected_two, call.get());
+    }
+    REQUIRE(prep.retained_shared_worker_count() >= 1);
+    REQUIRE(prep.retained_shared_worker_bytes() <= clifft::kMaxRetainedSharedWorkerBytes);
+
+    // Switching execution configuration replaces the retained pool cleanly.
+    const SamplingOptions one_thread_alt{
+        .threads = 1, .batch_size = 256, .sharing = true, .group_by_noise = true};
+    const auto alt = clifft::sample_survivors(program, 1024, 42, outputs, one_thread_alt);
+    REQUIRE(alt.execution.group_by_noise);
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+
+    // Isolate max_worker_state_bytes in SharedWorkerKey: warm an identical
+    // ungrouped 65-lane worker at the default budget, then lower only the budget.
+    const SamplingOptions wide_budget{.threads = 1, .batch_size = 65, .sharing = true};
+    const auto grown = clifft::sample_survivors(program, 65, 1, outputs, wide_budget);
+    REQUIRE(grown.execution.batch_size == 65);
+    REQUIRE_FALSE(grown.execution.group_by_noise);
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+    const uint32_t width = program.sampling_plan(true).peak_active_width();
+    REQUIRE_THROWS_AS(
+        clifft::sample_survivors(program, 65, 1, outputs,
+                                 {.threads = 1,
+                                  .batch_size = 65,
+                                  .sharing = true,
+                                  .max_worker_state_bytes = 2 * State::storage_bytes(width)}),
+        std::runtime_error);
+    require_same(cold, clifft::sample_survivors(program, 2048, 42, outputs, one_thread));
+    REQUIRE(prep.retained_shared_worker_count() == 1);
+}
+
+TEST_CASE("Process-wide shared worker cache enforces its budget and LRU eviction") {
+    const SamplingOutputs outputs(true);
+    const SamplingOptions options{.threads = 1, .batch_size = 512, .sharing = true};
+    std::optional<Program> first = row_program(true);
+    const auto& first_prep = first->sampling_preparation(
+        outputs, {.early_postselection = true, .survivor_counts = true});
+    const auto ref = clifft::sample_survivors(*first, 2048, 7, outputs, options);
+    const uint64_t worker_bytes = first_prep.retained_shared_worker_bytes();
+    REQUIRE(worker_bytes > 0);
+
+    // A budget below one worker rejects retention completely.
+    {
+        const clifft::detail::ScopedSharedWorkerCacheBudget tiny(worker_bytes - 1);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
+        require_same(ref, clifft::sample_survivors(*first, 2048, 7, outputs, options));
+        REQUIRE(first_prep.retained_shared_worker_count() == 0);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
+    }
+
+    // A budget holding two workers evicts the least-recently-used Program when a third returns.
+    {
+        const uint64_t two_budget = 2 * worker_bytes + worker_bytes / 2;
+        const clifft::detail::ScopedSharedWorkerCacheBudget two_workers(two_budget);
+        std::optional<Program> second = row_program(true);
+        std::optional<Program> third = row_program(true);
+        const auto& second_prep = second->sampling_preparation(
+            outputs, {.early_postselection = true, .survivor_counts = true});
+        const auto& third_prep = third->sampling_preparation(
+            outputs, {.early_postselection = true, .survivor_counts = true});
+        require_same(ref, clifft::sample_survivors(*first, 2048, 7, outputs, options));
+        require_same(ref, clifft::sample_survivors(*second, 2048, 7, outputs, options));
+        // Touch first so second becomes the least-recently-used entry.
+        require_same(ref, clifft::sample_survivors(*first, 2048, 7, outputs, options));
+        REQUIRE(first_prep.retained_shared_worker_count() == 1);
+        REQUIRE(second_prep.retained_shared_worker_count() == 1);
+
+        require_same(ref, clifft::sample_survivors(*third, 2048, 7, outputs, options));
+        REQUIRE(first_prep.retained_shared_worker_count() == 1);
+        REQUIRE(second_prep.retained_shared_worker_count() == 0);
+        REQUIRE(third_prep.retained_shared_worker_count() == 1);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() <= two_budget);
+
+        // Destroying cached Programs releases their workers immediately.
+        third.reset();
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == worker_bytes);
+    }
+
+    // Returning an extra worker that cannot fit alongside the caller's own
+    // retained worker must not evict another Program's cached worker.
+    {
+        const SamplingOptions small_options{.threads = 1, .batch_size = 64, .sharing = true};
+        const SamplingOptions two_threads{.threads = 2, .batch_size = 512, .sharing = true};
+        std::optional<Program> small = row_program(true);
+        const auto& small_prep = small->sampling_preparation(
+            outputs, {.early_postselection = true, .survivor_counts = true});
+        (void)clifft::sample_survivors(*small, 2048, 7, outputs, small_options);
+        const uint64_t small_bytes = small_prep.retained_shared_worker_bytes();
+        REQUIRE(small_bytes > 0);
+        REQUIRE(small_bytes < worker_bytes);
+
+        const uint64_t pair_budget = worker_bytes + small_bytes;
+        const clifft::detail::ScopedSharedWorkerCacheBudget pair(pair_budget);
+        REQUIRE(first_prep.retained_shared_worker_count() == 1);
+        REQUIRE(small_prep.retained_shared_worker_count() == 1);
+        (void)clifft::sample_survivors(*first, 2048, 7, outputs, two_threads);
+        REQUIRE(first_prep.retained_shared_worker_count() == 1);
+        REQUIRE(small_prep.retained_shared_worker_count() == 1);
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == pair_budget);
+
+        small.reset();
+        REQUIRE(clifft::total_retained_shared_worker_bytes() == worker_bytes);
+    }
+    first.reset();
+    REQUIRE(clifft::total_retained_shared_worker_bytes() == 0);
 }

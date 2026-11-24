@@ -64,7 +64,7 @@ opportunities.
 | Peephole fusion | Combine or cancel compatible rotations and remove phases consumed by measurements. |
 | Phase-polynomial and rotation simplification | Use algebra and known state constraints to remove non-Clifford work. |
 | Statevector squeezing | Move measurements earlier and expanding rotations later where dependencies allow, shortening active lifetimes. |
-| Active-width scheduling (opt-in) | Search legal operation orders, preferring lower peak width, then lower estimated dense work. |
+| Active-width scheduling | Search legal operation orders, preferring lower peak width, then lower estimated dense work. |
 
 These HIR rewrites run after Clifford tracing and before active-coordinate
 planning. They complement the planner's coordinate choices and the executable
@@ -77,20 +77,30 @@ cost, without guaranteeing an optimal result.
 ## Closed-Output Global Reconstruction
 
 Local HIR passes preserve the sequential structure of the traced circuit. When
-only the classical output distribution is needed, `clifft.compile(...,
-reconstruction=True)` can reformulate the entire sampling problem to reduce the
-number of active coordinates that must stay entangled at once.
+only the classical output distribution is needed, `clifft.compile()` (with its
+default `reconstruction="auto"`, or explicit `reconstruction=True`) can
+reformulate the entire sampling problem to reduce the number of active
+coordinates that must stay entangled at once.
 
-The reconstruction compiler defers measurements onto fresh record ancillas and
-moves discarded reset states onto environment wires. It replaces each $\pi/4$
-rotation with a Clifford gadget and a magic-state projection, dresses those
-rotation axes with causal input stabilizers, and folds a maximally commuting
-subset of the projections back into the initial stabilizer state. A native
-Clifford frame and linear $X$-support basis then eliminate coordinates fixed in
-$|0\rangle$. Remaining projections that commute with all retained outputs and
-remaining non-Clifford rotations are dropped, and a measurement-first schedule
-orders the surviving operations to minimize peak active width. This formulation
-and scheduling approach were informed by
+The reconstruction compiler splits a circuit at its last non-Clifford operation.
+In the prefix, it defers measurements onto fresh record ancillas and moves
+discarded reset states onto environment wires, while eliding Pauli faults on
+qubits discarded before any measurement. Clifford-angle rotations are absorbed
+directly into the dilated Clifford frame, and each remaining non-Clifford
+Pauli-product rotation (including Euler-decomposed single-qubit gates) is
+replaced with a Clifford ancilla gadget whose postselected $|0\rangle$
+projection has state-independent norm $1/\sqrt{2}$ for every real angle.
+Dressing those rotation axes with causal input stabilizers lets the gadget
+projections fold back into the initial stabilizer state over only the wires
+coupled to gadget constraints. Any trailing pure-Clifford escape or memory
+suffix is then evolved in a stabilizer frame without allocating dilation wires:
+anticommuting syndrome checks draw classical fair coins, stabilized checks
+evaluate deterministically, and logical readouts collapse directly onto the
+folded prefix coordinates. A linear $X$-support basis then eliminates
+coordinates fixed in $|0\rangle$. Remaining projections that commute with all
+retained outputs and non-Clifford rotations are dropped, and a measurement-first
+schedule orders the distinct quantum operations to minimize peak active width.
+This formulation and scheduling approach were informed by
 [Tsim's reconstruction work](https://github.com/QuEraComputing/tsim/pull/203).
 
 Throughout dilation and folding, Pauli and symmetric readout noise are tracked
@@ -109,18 +119,21 @@ Compilation builds up to two reconstructed candidates: one retaining all
 measurement records, detectors, and observables, and one retaining only
 detectors and observables. Calls retaining measurements select the first;
 syndrome and count-only calls select the second. Output preparation removes
-unrequested rows and evaluations from the selected candidate. See
-[sampling-plan inspection](../guide/compilation.md#inspect-sampling-cost) for
-the API mapping. To limit compilation cost, a candidate proceeds to
-lowering and the default HIR passes only when its scheduled peak active width
-is strictly smaller than the original plan's. This heuristic can miss reductions
-that later optimization would find. The optimized candidate must still have a
-strictly smaller peak active width to be selected. Dilation and scheduling
-precede the guard, so unsuccessful attempts can remain expensive. Explicit
-resource bounds cap circuit size, dilation qubits, noise channels, and scheduling
-work; unsupported operations (such as general-angle rotations, `EXP_VAL` probes,
-asymmetric readout noise, or distribution-altering HIR passes) fall back to the
-original plan.
+unrequested rows and evaluations from the selected candidate.
+
+When the original plan fits, a candidate must have a smaller peak active width
+both after scheduling and after optimization. If the original plan is too wide,
+the compiler optimizes each candidate within its resource bounds and keeps each
+one that fits. With `normalize_syndromes=True`, the compiler also tries a
+narrower detector plan when a noiseless reference shot would need a large
+dense state. See [Global reconstruction for sampling](../guide/compilation.md#global-reconstruction-for-sampling).
+
+Dilation and scheduling precede the width check, so unsuccessful attempts can
+remain expensive. Resource bounds cap circuit size, prefix dilation qubits,
+noise channels, scheduling work, and lowered frame memory. Circuits with
+unsupported features, such as leakage, loss, `EXP_VAL` probes, asymmetric
+readout noise, or distribution-altering HIR passes, use the original plan
+when available.
 
 ## Stabilizer-Based Simplification
 
@@ -159,14 +172,15 @@ merge or cancel rotations, including rotations with arbitrary angles.
 
 The phase-polynomial pass collects commuting T rotations and expresses their
 combined phase using Boolean eigenvalue coordinates for independent Pauli axes.
-It expands the phase into a polynomial modulo eight, where cancellations can
-reveal a smaller non-Clifford core. The pass then synthesizes T rotations for
+Cancellations in the phase polynomial modulo eight can reveal a smaller
+non-Clifford core. The pass then synthesizes T rotations for
 that core and retains the exact Clifford correction. Subsequent squeezing can
 reduce active execution width further, using the final measurements as well
 as the preparation.
 
 Collecting a larger complete region can expose cancellations that smaller
-regions miss. The optional wide search also tries coordinates derived from the
+regions miss. The pass keeps each XOR parity as one term, even when a rotation
+acts on many axes. The wide search can also try coordinates derived from the
 final Clifford tableau, since coordinate choice affects synthesis. It retains
 a candidate only when the rewrite meets the T-count and active-width cost
 guards. The number of variables needed to analyze a region can therefore be

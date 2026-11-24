@@ -73,9 +73,6 @@ from clifft._clifft_core import (
     version,
 )
 from clifft._clifft_core import (
-    _compile_qasm2 as _compile_qasm2_core,
-)
-from clifft._clifft_core import (
     _prepare_hir_for_lowering as _prepare_hir_for_lowering,
 )
 from clifft._clifft_core import (
@@ -346,6 +343,8 @@ def basis_probabilities(
     Pass ``return_log=True`` to get natural-log probabilities. Zero
     probabilities map to ``-inf`` in log output.
     """
+    # Report an unavailable original plan before validating the bitstrings.
+    _ = program.original_plan
     probs = cast(
         npt.NDArray[np.float64],
         _basis_probabilities_from_bitmasks(
@@ -439,6 +438,8 @@ def record_probabilities(
     underflow float64, pass ``return_log=True`` so the log-domain values
     survive.
     """
+    # Report an unavailable original plan before validating the records.
+    _ = program.original_plan
     # Reject zero-measurement programs up front so a user who passes a real
     # record string against a unitary program gets the right hint rather
     # than the wrapper's record-length mismatch error.
@@ -477,7 +478,7 @@ def compile(
     hir_passes: HirPassManager | None | _DefaultPasses = _DEFAULT_PASSES,
     input_format: Literal["stim", "qasm2"] = "stim",
     *,
-    reconstruction: bool = False,
+    reconstruction: bool | Literal["auto"] = "auto",
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -506,25 +507,19 @@ def compile(
             Defaults to ``default_hir_pass_manager()``. Pass ``None`` to skip.
         input_format: ``"stim"`` for Clifft's Stim-compatible syntax or
             ``"qasm2"`` for the supported unitary OpenQASM 2 subset.
-        reconstruction: Opt in to bounded global reconstruction for ordinary
-            CPU sampling. Compilation prepares reconstructed plans for
-            sampling with and without measurement records, including syndrome rows
-            and survivor counts. To limit cost,
-            candidates must reduce peak active width before lowering and after
-            optimization. Inspect
-            ``program.sampling_plan(keep_records=...)`` for details.
-            State queries, exact probabilities, and fixed-fault sampling always
-            use the original plan.
+        reconstruction: By default, ``"auto"`` selects bounded output-specific
+            CPU sampling plans when they reduce active width or estimated work
+            without harming postselected rejection. Pass ``True`` to use the
+            full reconstruction budget for strictly narrower plans, or ``False``
+            to use the original plan for all outputs. Inspect each plan with
+            ``program.sampling_plan(keep_records=...)``. If the original plan
+            is too wide, sampling can still use a reconstructed plan. State
+            queries, exact probabilities, replay, and fixed-fault sampling
+            then raise ``OverflowError``.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
-    if input_format == "stim":
-        compile_core = _compile_core
-    elif input_format == "qasm2":
-        compile_core = _compile_qasm2_core
-    else:
-        raise ValueError("input_format must be 'stim' or 'qasm2'")
-    return compile_core(
+    return _compile_core(
         stim_text,
         postselection_mask if postselection_mask is not None else [],
         expected_detectors if expected_detectors is not None else [],
@@ -532,6 +527,7 @@ def compile(
         normalize_syndromes,
         hir_passes,
         reconstruction=reconstruction,
+        input_format=input_format,
     )
 
 

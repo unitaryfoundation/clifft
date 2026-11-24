@@ -617,11 +617,14 @@ def test_fixed_automatic_batch_policy_reports_executed_work(dynamic, shots):
         assert (parallel.stats["packed_worker_bytes"] > 0) == (expected_capacity > 1)
 
 
-def test_fixed_automatic_batching_retains_scalar_with_little_classical_work():
-    text = "H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nLOSS(0.3) 6\nH 0 1 2 3 4 5\nM 0 1 2 3 4 5 6"
+def test_fixed_automatic_batching_retains_scalar_above_width_eight():
+    text = (
+        "H 0 1 2 3 4 5 6 7 8\nT 0 1 2 3 4 5 6 7 8\nLOSS(0.3) 9\n"
+        "H 0 1 2 3 4 5 6 7 8\nM 0 1 2 3 4 5 6 7 8 9"
+    )
     model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
     program = prepare(text, model, final_status=True)
-    assert program.metrics["peak_active_width"] == 6
+    assert program.metrics["peak_active_width"] == 9
     result = sample(program, shots=129, threads=3)
     assert result.stats["scalar_shots"] == 129
     assert result.stats["batch_size"] == 1
@@ -629,8 +632,8 @@ def test_fixed_automatic_batching_retains_scalar_with_little_classical_work():
     forced = sample(program, shots=129, threads=3, batch_size=65)
     assert forced.stats["packed_shots"] == 129
     assert forced.stats["packed_classical_shots"] == 129
-    np.testing.assert_array_equal(forced.final_status[:, :6], result.final_status[:, :6])
-    assert abs((forced.final_status[:, 6] == noncomp.QubitStatus.LOST).mean() - 0.3) < 0.15
+    np.testing.assert_array_equal(forced.final_status[:, :9], result.final_status[:, :9])
+    assert abs((forced.final_status[:, 9] == noncomp.QubitStatus.LOST).mean() - 0.3) < 0.15
     repeated = sample(program, shots=129, threads=1, batch_size=65)
     for field in ("measurements", "heralds", "detectors", "observables", "final_status"):
         np.testing.assert_array_equal(getattr(forced, field), getattr(repeated, field))

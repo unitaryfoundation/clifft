@@ -71,19 +71,12 @@ def test_auto_packs_wider_classical_work_and_replays_without_calibration(
     assert forced.stats.packed_shots == 0
 
 
-@pytest.mark.parametrize(
-    "width,depth,inputs,probability",
-    [(6, 128, 256, 0.3), (6, 0, 0, 0.3), (9, 0, 256, 0.3)],
-    ids=["sustained-quantum-work", "little-classical-work", "wider-state"],
-)
-def test_auto_preserves_conservative_fallbacks(width, depth, inputs, probability):
-    program = noncomp.compile(
-        circuit(width, depth=depth, inputs=inputs, probability=probability), model()
-    )
+def test_auto_falls_back_to_scalar_above_width_eight():
+    program = noncomp.compile(circuit(9, depth=0, inputs=256, probability=0.3), model())
     result = program.sample(129, seed=83, collect_stats=True)
     assert result.stats is not None
     assert result.stats.strategy == "fixed"
-    assert result.stats.peak_active_width == width
+    assert result.stats.peak_active_width == 9
     assert result.stats.batch_size == 1
     assert result.stats.scalar_shots == 129
     same_rows(result, program.sample(129, seed=83, batch_size=1))

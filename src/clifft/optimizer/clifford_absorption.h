@@ -43,8 +43,9 @@ class CliffordAbsorption {
         if (empty()) {
             return;
         }
-        const auto transform_mask = [&](MutablePauliMaskView mask) {
-            write_axis(mask, read(mask, hir.num_qubits));
+        const auto transform_mask = [&](PauliMaskArena& masks, PauliMaskHandle handle) {
+            const PauliString axis = read(masks.at(handle), hir.num_qubits);
+            masks.assign(handle, axis.x(), axis.z(), axis.sign());
         };
         switch (op.op_type()) {
             case OpType::T_GATE:
@@ -52,21 +53,20 @@ class CliffordAbsorption {
             case OpType::MEASURE:
             case OpType::CONDITIONAL_PAULI:
             case OpType::EXP_VAL:
-                transform_mask(hir.mask_at(op));
+                transform_mask(hir.pauli_masks, op.mask_handle());
                 break;
             case OpType::INSTRUMENT: {
-                transform_mask(hir.mask_at(op));
+                transform_mask(hir.pauli_masks, op.mask_handle());
                 const auto& site =
                     hir.instrument_sites[static_cast<uint32_t>(op.instrument_site_idx())];
-                transform_mask(hir.pauli_masks.mut_at(site.destination_flip_mask));
+                transform_mask(hir.pauli_masks, site.destination_flip_mask);
                 break;
             }
             case OpType::NOISE:
                 for (const auto& channel :
                      hir.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels) {
-                    auto mask = hir.noise_channel_masks.mut_at(channel.mask);
-                    transform_mask(mask);
-                    mask.set_sign(false);
+                    transform_mask(hir.noise_channel_masks, channel.mask);
+                    hir.noise_channel_masks.set_sign(channel.mask, false);
                 }
                 break;
             case OpType::READOUT_NOISE:

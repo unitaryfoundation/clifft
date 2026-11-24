@@ -877,11 +877,8 @@ TEST_CASE("Sampling executor clamps active measurement dust to branch one") {
 }
 
 TEST_CASE("Sampling executor receives no identity rotation actions") {
-    clifft::HirModule hir(1, 1);
-    hir.append_tgate(false, [](clifft::MutablePauliMaskView slot) {
-        slot.z().bit_set(0, true);
-        slot.set_sign(true);
-    });
+    clifft::HirModule hir(1);
+    hir.append_tgate(false, clifft::PauliMask(uint64_t{0}, uint64_t{1}, true));
     const ExecutablePlan executable(clifft::sampling::plan_sampling(hir));
     REQUIRE(executable.num_actions() == 0);
     Executor executor(executable);

@@ -1,7 +1,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pauli_axis.h"
-#include "clifft/optimizer/wide_phase_region.h"
+#include "clifft/optimizer/phase_region.h"
 
 #include <algorithm>
 #include <array>
@@ -14,7 +14,7 @@ using namespace clifft;
 
 namespace {
 
-using phase_detail::wide::Mask;
+using Mask = BitMask<128>;
 constexpr uint32_t width = 65;
 
 Mask bit(uint32_t q) {
@@ -60,7 +60,7 @@ PauliString graph_product(const std::vector<Mask>& neighbors, Mask selected) {
     return result;
 }
 
-std::vector<PhaseTerm> decode(const phase_detail::wide::Rewrite& rewrite,
+std::vector<PhaseTerm> decode(const phase_detail::WideRewrite& rewrite,
                               const std::vector<Mask>& neighbors) {
     std::vector<PhaseTerm> terms;
     for (const auto& [axis, coefficient] : rewrite.phases) {
@@ -97,7 +97,7 @@ TEST_CASE("Output aligned wide phase rewrites preserve signed eigenphases", "[op
     for (uint32_t q = 0; q < width; ++q) {
         clifford += "H " + std::to_string(q) + "\n";
     }
-    HirModule hir(width, 8 * width + 15 * (width - 9) + 42);
+    HirModule hir(width);
     hir.final_tableau = trace(parse(clifford)).final_tableau;
     std::vector<PhaseTerm> original;
     const auto emit = [&](Mask parity, bool dagger) {
@@ -109,8 +109,7 @@ TEST_CASE("Output aligned wide phase rewrites preserve signed eigenphases", "[op
         // Paired sign and dagger flips preserve the intended nonconstant phase.
         dagger ^= negative;
         original.push_back({parity, uint8_t(dagger ? 7 : 1), negative});
-        hir.append_tgate(
-            dagger, [&](MutablePauliMaskView mask) { optimizer_detail::write_axis(mask, axis); });
+        hir.append_tgate(dagger, PauliMask(axis.x(), axis.z(), axis.sign()));
     };
 
     // Identity rotations establish a full collection basis whose coordinates
@@ -184,16 +183,26 @@ TEST_CASE("Output aligned wide phase rewrites preserve signed eigenphases", "[op
     const optimizer_detail::CliffordAbsorption frame;
     auto without_output = hir;
     without_output.final_tableau.reset();
-    phase_detail::wide::Budget ordinary_budget, aligned_budget;
+    phase_detail::WideBudget ordinary_budget, aligned_budget;
     const auto ordinary =
-        phase_detail::wide::try_region(without_output, 0, fixed, frame, 128, ordinary_budget);
-    const auto aligned = phase_detail::wide::try_region(hir, 0, fixed, frame, 128, aligned_budget);
+        phase_detail::try_wide_region(without_output, 0, fixed, frame, 128, ordinary_budget);
+    const auto aligned = phase_detail::try_wide_region(hir, 0, fixed, frame, 128, aligned_budget);
     REQUIRE(ordinary);
     REQUIRE(aligned);
-    REQUIRE_FALSE(ordinary_budget.exhausted);
-    REQUIRE_FALSE(aligned_budget.exhausted);
+    REQUIRE_FALSE(ordinary_budget.work_exhausted);
+    REQUIRE_FALSE(aligned_budget.work_exhausted);
     REQUIRE(aligned->end == hir.ops.size());
     REQUIRE(aligned->t_count < ordinary->t_count);
+
+    // Allow the collected-basis rewrite to finish, then exhaust the allowance
+    // during output alignment. Its signed phases and covered rotations survive.
+    phase_detail::WideBudget limited;
+    limited.max_updates = ordinary_budget.updates;
+    const auto incumbent = phase_detail::try_wide_region(hir, 0, fixed, frame, 128, limited);
+    REQUIRE(limited.work_exhausted);
+    REQUIRE(incumbent);
+    REQUIRE(incumbent->rotations == ordinary->rotations);
+    REQUIRE(incumbent->phases == ordinary->phases);
 
     const auto rewritten = decode(*aligned, neighbors);
     const unsigned global_phase = (evaluate(original, {}) + 8 - evaluate(rewritten, {})) & 7;

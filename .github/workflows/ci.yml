@@ -434,6 +434,16 @@ jobs:
             --parallel \
             --timeout 300
         shell: bash
+      - name: Run C++ smoke tests (scalar ISA)
+        env:
+          CLIFFT_FORCE_ISA: scalar
+        run: |
+          ctest --test-dir build \
+            --build-config ${{ env.CMAKE_BUILD_TYPE }} \
+            --output-on-failure \
+            --parallel \
+            --timeout 300
+        shell: bash
 
       - name: Setup uv and Python
         uses: astral-sh/setup-uv@v6
@@ -463,6 +473,16 @@ jobs:
 
       - name: Run Python tests (optimized extension)
         run: .smoke-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 --dist=worksteal -v --durations=20
+      - name: Run Python SIMD and shared tests (scalar ISA, PR)
+        if: github.event_name != 'push'
+        env:
+          CLIFFT_FORCE_ISA: scalar
+        run: .smoke-venv/bin/python -m pytest tests/python/test_shared_sampling.py tests/python/test_wide_phase.py tests/python/test_sampling_outputs.py -m "not expensive" -q
+      - name: Run Python tests (scalar ISA, main only)
+        if: github.event_name == 'push'
+        env:
+          CLIFFT_FORCE_ISA: scalar
+        run: .smoke-venv/bin/python -m pytest tests/python/ -n logical --maxprocesses 4 --dist=worksteal -m "not expensive" -v --durations=20
 
       # Run a small QEMU-emulated CPU matrix against the release-baseline
       # Python install. Catches AVX-512 leakage into the AVX-2 dispatch
@@ -484,6 +504,16 @@ jobs:
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx auto pass avx512
       - name: SDE smoke -- Skylake-X + FORCE_ISA=avx512
         run: PYTHON=$(pwd)/.smoke-venv/bin/python .github/scripts/wheel_smoke.sh sde skx avx512 pass avx512 intra-shot
+      - name: SDE C++ suite -- Skylake-X + FORCE_ISA=avx512
+        env:
+          CLIFFT_FORCE_ISA: avx512
+        run: |
+          "$SDE64" -skx -- ./build/tests/clifft_tests "~[expensive]~[large-schedule]"
+      - name: SDE Python SIMD and shared tests -- Skylake-X + FORCE_ISA=avx512
+        env:
+          CLIFFT_FORCE_ISA: avx512
+        run: |
+          "$SDE64" -skx -- .smoke-venv/bin/python -m pytest tests/python/test_shared_sampling.py tests/python/test_wide_phase.py tests/python/test_sampling_outputs.py -m "not expensive" -q
 
   # Source and sdist consumers commonly build with the system GCC. Exercise
   # its optimized -ffast-math behavior without duplicating the shipping-wheel

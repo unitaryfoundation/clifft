@@ -23,7 +23,7 @@ class CompilerProfile:
 
     def compile(self, source: str) -> Any:
         # Pass instances may carry mutable state; never cache a pass manager.
-        return clifft.compile(source, hir_passes=self.make_passes())
+        return clifft.compile(source, hir_passes=self.make_passes(), reconstruction=False)
 
 
 def fusion_squeeze_passes() -> clifft.HirPassManager:
@@ -77,6 +77,8 @@ class CpuSamplingMode:
 
     @staticmethod
     def compile(source: str, **kwargs: Any) -> Any:
+        # Exercise each executor on the plan requested by the conformance case.
+        kwargs.setdefault("reconstruction", False)
         return clifft.compile(source, **kwargs)
 
     def sample(self, program: Any, shots: int, seed: int | None = None) -> Any:
@@ -396,3 +398,36 @@ def assert_joint_distribution(measurements: npt.NDArray[np.uint8], expected: npt
         f"Joint distribution differs: expected={probabilities}, "
         f"observed={frequencies}, tolerance={tolerance}"
     )
+
+
+def unpack_bits(packed: npt.NDArray[np.uint8], columns: int) -> npt.NDArray[np.uint8]:
+    """Unpack little-endian bit-packed rows to `columns` binary uint8 columns."""
+    assert columns >= 0
+    if columns == 0:
+        return np.empty((packed.shape[0], 0), dtype=np.uint8)
+    return np.unpackbits(packed, axis=1, bitorder="little")[:, :columns]
+
+
+def assert_two_sample_close(
+    counts_a: npt.ArrayLike,
+    shots_a: int,
+    counts_b: npt.ArrayLike,
+    shots_b: int,
+    *,
+    sigma: float = 7.0,
+    floor_counts: float = 12.0,
+) -> None:
+    """Compare Bernoulli event counts from two independent shot budgets."""
+    assert shots_a > 0 and shots_b > 0
+    a = np.asarray(counts_a, dtype=np.float64)
+    b = np.asarray(counts_b, dtype=np.float64)
+    assert np.all(np.isfinite(a)) and np.all(np.isfinite(b))
+    assert np.all((a >= 0) & (a <= shots_a)) and np.all((b >= 0) & (b <= shots_b))
+    p_a = a / shots_a
+    p_b = b / shots_b
+    pooled = (a + b) / (shots_a + shots_b)
+    se = np.sqrt(pooled * np.maximum(1.0 - pooled, 0.0) * (1.0 / shots_a + 1.0 / shots_b))
+    tol = sigma * se + floor_counts / min(shots_a, shots_b)
+    assert np.all(
+        np.abs(p_a - p_b) <= tol
+    ), f"Two-sample rates differ: p_a={p_a}, p_b={p_b}, tol={tol}"

@@ -93,10 +93,11 @@ class TestTerminalMeasurementPhaseElimination:
     def test_measure_reset_corrections_preserve_distribution(self) -> None:
         """Disjoint MR corrections can be crossed without changing outputs."""
         exact_circuit = "H 0 1\nR_Z(0.3) 0 1\nMR 0 1"
-        exact_baseline = clifft.compile(exact_circuit, hir_passes=None)
+        exact_baseline = clifft.compile(exact_circuit, hir_passes=None, reconstruction=False)
         exact_optimized = clifft.compile(
             exact_circuit,
             hir_passes=_peephole_pass_manager(),
+            reconstruction=False,
         )
         assert exact_baseline.peak_active_width == 2
         assert exact_optimized.peak_active_width == 0
@@ -117,10 +118,11 @@ class TestTerminalMeasurementPhaseElimination:
             "DETECTOR rec[-2] rec[-1]\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        baseline = clifft.compile(noisy_circuit, hir_passes=None)
+        baseline = clifft.compile(noisy_circuit, hir_passes=None, reconstruction=False)
         optimized = clifft.compile(
             noisy_circuit,
             hir_passes=_peephole_pass_manager(),
+            reconstruction=False,
         )
         assert baseline.peak_active_width == 2
         assert optimized.peak_active_width == 0
@@ -153,10 +155,11 @@ class TestTerminalMeasurementPhaseElimination:
         branch = f"{pauli_branch}\n" if pauli_branch else ""
         circuit = "H 0\n" "R_Z(0.37) 0\n" f"{branch}" "M 0\n" "CX rec[-1] 1\n" "M 1"
         records = ["00", "01", "10", "11"]
-        baseline = clifft.compile(circuit, hir_passes=None)
+        baseline = clifft.compile(circuit, hir_passes=None, reconstruction=False)
         optimized = clifft.compile(
             circuit,
             hir_passes=_peephole_pass_manager(),
+            reconstruction=False,
         )
 
         np.testing.assert_allclose(
@@ -180,10 +183,11 @@ class TestTerminalMeasurementPhaseElimination:
             "M 2\n"
             "OBSERVABLE_INCLUDE(0) rec[-1]"
         )
-        baseline = clifft.compile(circuit, hir_passes=None)
+        baseline = clifft.compile(circuit, hir_passes=None, reconstruction=False)
         optimized = clifft.compile(
             circuit,
             hir_passes=_peephole_pass_manager(),
+            reconstruction=False,
         )
         assert baseline.peak_active_width == 2
         assert optimized.peak_active_width == 0
@@ -585,8 +589,10 @@ class TestPauliRotationAbsorption:
 
     def test_fused_pauli_residue_preserves_record_probabilities(self) -> None:
         circuit = "H 0\nR_Z(0.3) 0\nR_Z(0.7) 0\nH 0\nM 0"
-        baseline = clifft.compile(circuit, hir_passes=None)
-        optimized = clifft.compile(circuit, hir_passes=_peephole_pass_manager())
+        baseline = clifft.compile(circuit, hir_passes=None, reconstruction=False)
+        optimized = clifft.compile(
+            circuit, hir_passes=_peephole_pass_manager(), reconstruction=False
+        )
 
         np.testing.assert_allclose(
             clifft.record_probabilities(optimized, ["0", "1"]),

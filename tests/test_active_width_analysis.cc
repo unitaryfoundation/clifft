@@ -662,12 +662,13 @@ TEST_CASE("Dormant commutation queries agree across word boundaries", "[active_w
             REQUIRE(subspace.commutes_with_all(p) == expected);
             // Reuse hints across basis changes and unrelated queries, as
             // speculative scheduler branches do. Invalid hints are safe too.
-            REQUIRE(subspace.commutes_with_all(p.x(), p.z(), &hint) == expected);
+            const PauliMask body(p.x(), p.z(), false);
+            REQUIRE(subspace.commutes_with_all(body, &hint) == expected);
             uint32_t invalid_hint = n + 1;
-            REQUIRE(subspace.commutes_with_all(p.x(), p.z(), &invalid_hint) == expected);
+            REQUIRE(subspace.commutes_with_all(body, &invalid_hint) == expected);
             for (const auto& g : generators) {
                 REQUIRE(subspace.commutes_with_all(g));
-                REQUIRE(subspace.commutes_with_all(g.x(), g.z(), &hint));
+                REQUIRE(subspace.commutes_with_all(PauliMask(g.x(), g.z(), false), &hint));
             }
             if (step % 3 == 0) {
                 subspace.apply_rotation(p);
@@ -709,8 +710,8 @@ TEST_CASE("Dormant updates agree with an embedded small reference across word bo
             const PauliString query = random_pauli_string(rng, 8);
             REQUIRE(subspace.commutes_with_all(embed(query)) == reference.commutes_with_all(query));
             const PauliString wide_query = embed(query);
-            REQUIRE(subspace.commutes_with_all(wide_query.x(), wide_query.z(), &hint) ==
-                    reference.commutes_with_all(query));
+            REQUIRE(subspace.commutes_with_all(PauliMask(wide_query.x(), wide_query.z(), false),
+                                               &hint) == reference.commutes_with_all(query));
             REQUIRE(subspace.contains(embed(query)) == reference.contains(query));
         }
     }
@@ -742,10 +743,11 @@ TEST_CASE("DormantSubspace maintains row-column invariants and exact rollback ac
                         spec.set_pauli(q, (bits & 1U) != 0, (bits & 2U) != 0);
                     }
                 }
+                const PauliMask body(spec.x(), spec.z(), false);
                 if ((rng() & 1U) != 0) {
-                    subspace.apply_rotation(spec.x(), spec.z(), &undo);
+                    subspace.apply_rotation(body, &undo);
                 } else {
-                    subspace.apply_measurement(spec.x(), spec.z(), &undo);
+                    subspace.apply_measurement(body, &undo);
                 }
                 REQUIRE_NOTHROW(subspace.verify_invariants());
             }
@@ -772,6 +774,66 @@ TEST_CASE("DormantSubspace maintains row-column invariants and exact rollback ac
                 subspace.apply_measurement(committed);
             }
             REQUIRE_NOTHROW(subspace.verify_invariants());
+        }
+    }
+}
+
+TEST_CASE("DormantSubspace snapshots restore the exact basis into any subspace of the same width",
+          "[active_width]") {
+    for (const uint32_t n : {0u, 1u, 63u, 64u, 65u, 128u, 195u}) {
+        Xoshiro256PlusPlus rng(0x5A47C0DEU + n);
+        const auto random_update = [&](DormantSubspace& target) {
+            PauliString body(n);
+            if (n > 0) {
+                const uint32_t weight = 1 + static_cast<uint32_t>(rng() % 5);
+                for (uint32_t w = 0; w < weight; ++w) {
+                    const uint64_t bits = rng();
+                    body.set_pauli(static_cast<uint32_t>(rng() % n), (bits & 1U) != 0,
+                                   (bits & 2U) != 0);
+                }
+            }
+            if ((rng() & 1U) != 0) {
+                target.apply_rotation(body);
+            } else {
+                target.apply_measurement(body);
+            }
+        };
+
+        DormantSubspace subspace(n);
+        // A second subspace that has diverged, as another beam state would.
+        DormantSubspace other(n);
+        for (uint32_t step = 0; step < 40; ++step) {
+            CAPTURE(n, step);
+            for (uint32_t i = 0; i < 1 + rng() % 4; ++i) {
+                random_update(subspace);
+                random_update(other);
+            }
+            const DormantSubspace::Snapshot saved = subspace.snapshot();
+            const std::vector<PauliString> generators = subspace.generators();
+            const uint32_t width = subspace.active_width();
+
+            // Restoring replaces whatever the target held, including itself
+            // after further updates.
+            other.restore(saved);
+            REQUIRE_NOTHROW(other.verify_invariants());
+            REQUIRE(other.active_width() == width);
+            REQUIRE(other.generators() == generators);
+
+            for (uint32_t i = 0; i < 1 + rng() % 4; ++i) {
+                random_update(subspace);
+            }
+            subspace.restore(saved);
+            REQUIRE_NOTHROW(subspace.verify_invariants());
+            REQUIRE(subspace.active_width() == width);
+            REQUIRE(subspace.generators() == generators);
+
+            // Both copies evolve identically from the restored state.
+            PauliString probe(n);
+            if (n > 0) {
+                probe.set_pauli(static_cast<uint32_t>(rng() % n), true, (rng() & 1U) != 0);
+            }
+            REQUIRE(subspace.apply_measurement(probe) == other.apply_measurement(probe));
+            REQUIRE(subspace.generators() == other.generators());
         }
     }
 }

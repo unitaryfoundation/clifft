@@ -123,28 +123,32 @@ it to skip the circuit.
 
 `max_variables` is a hard ceiling on independent phase variables analyzed
 together (default `128`, range `0` to `128`; zero disables the pass). Circuits
-can have more physical qubits than this limit. Collection starts at
-`min(32, max_variables)`, then tries a complete region up to
-`min(64, max_variables)`. `max_variables=32` disables expansion, and
-`max_variables=64` restricts collection to one-word regions.
+can have more physical qubits than this limit. Regions of up to 64 variables
+use one machine word. Larger regions can use two words when wide search is
+enabled. If expansion fails, the pass can still rewrite a prefix of up to
+32 variables.
 
-When `max_variables > 64` and the 64-variable attempt is capped, the pass can
-try a complete contiguous commuting T region up to `max_variables` using
-two-word coordinates. This path keeps an
-ordinary-basis candidate and tries one basis derived from the final Clifford
-tableau. It crosses no measurement, feedback, noise, or instrument boundaries.
-Synthesis still supports at most 64 core variables and searches at most 128 odd
-parity terms. A signature-rank precheck rejects unsupported cores before cubic
-polynomial expansion.
+Both widths keep each XOR parity as one term. A linear phase directly gives
+the replacement rotations. For a nonlinear phase, TOHPE searches up to 128
+odd parity columns. Larger tables, and wide searches that cannot afford
+TOHPE, retain their projected columns. The wide search tries the collected
+basis first. If its T count exceeds the core rank, a basis derived from the
+final Clifford tableau can improve it. It considers the first wide boundary,
+linear prefixes at intervening observers, and the complete region.
+When a reduced region reaches the final observer, the pass can omit the
+rotations left after that observer.
 
 `max_wide_work` (default `50000000`) bounds deterministic work units shared by
 all wide attempts and both basis candidates in one pass. The units include
 polynomial updates, charged row operations, and an allowance for synthesis.
 Work units are not a wall-clock limit; their cost depends on the polynomial.
-`max_wide_terms` (default `200000`) bounds each polynomial's size. Setting either
-to zero (or setting `max_variables <= 64`) disables the two-word path. Exhaustion retains a completed valid
-candidate or falls back to the ordinary smaller-region policy. These limits
-control compiler effort and do not change the execution representation.
+`max_wide_terms` (default `200000`) bounds the number of distinct parities in
+each wide phase table. Setting either budget to zero (or setting
+`max_variables <= 64`) disables the two-word path.
+At the variable or parity limit, the pass finishes the collected prefix with
+the work still available. Later regions can use the remaining work budget.
+If work runs out, the pass keeps its best completed rewrite or falls back
+to smaller regions.
 
 Larger complete regions can uncover additional reductions, at extra compilation
 cost. The pass rejects rewrites that increase T count
@@ -183,20 +187,20 @@ After a run, `regions_examined` and `regions_capped` describe the attempted sear
 
 {% if p['name'] == 'ActiveWidthSchedulePass' %}
 See [Compiling Circuits](../guide/compilation.md#active-width-scheduling) for
-setup and guidance on when to enable this pass.
+how the default pipeline bounds this pass and how to override or disable it.
 
 | Option | Default | Meaning |
 |---|---|---|
 | `beam_width` | `8` | Positive number of partial schedules to retain. Larger beams explore more alternatives but do not guarantee better results. |
-| `search_budget` | `16.0` | Search executions per HIR operation before switching to greedy continuation. `0` requests greedy continuation after the initial sweep; `None` disables budget-driven narrowing. |
+| `search_budget` | `16.0` | Search executions per HIR operation, capped at `max(65536, num_ops)` on large circuits, before switching to greedy continuation. `0` requests greedy continuation after the initial sweep; `None` disables budget-driven narrowing and the probe backstop. |
 | `noise_transparent` | `True` | Allow crossings of Pauli noise, with symbolic sign correction. |
 | `sink_neutral_rotations` | `True` | Delay width-neutral rotations where legal to reduce dense work and expose fusion opportunities. |
+| `min_equal_width` | `13` | Minimum incumbent peak width at which equal-width schedules are accepted for lower estimated dense work. `0` accepts equal-width improvements at any width. |
 
-The search narrows to one retained candidate at half the execution budget.
-Ongoing sweeps and replays finish, so the thresholds can be exceeded. This
-budget does not bound classification probes or wall time: probe counts can
-grow quadratically on circuits with many independent rotations, and each
-probe's cost also depends on the qubit count. Budgets must be finite and
+With a finite `search_budget`, the search narrows to one retained candidate at
+half the execution budget and switches to greedy continuation after the full
+budget or a fixed classification-probe backstop. Ongoing sweeps and replays
+finish, so the thresholds can be exceeded. Budgets must be finite and
 nonnegative, or `None`.
 
 After a run, `incumbent_peak` and `result_peak` report peak active width before

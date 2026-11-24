@@ -13,6 +13,7 @@
 #include <array>
 #include <bit>
 #include <cassert>
+#include <compare>
 #include <cstddef>
 #include <cstdint>
 
@@ -86,6 +87,14 @@ struct BitMask {
         return true;
     }
     constexpr bool operator!=(const BitMask& o) const { return !(*this == o); }
+
+    constexpr std::strong_ordering operator<=>(const BitMask& o) const {
+        for (size_t i = kWords; i-- > 0;) {
+            if (auto order = w[i] <=> o.w[i]; order != 0)
+                return order;
+        }
+        return std::strong_ordering::equal;
+    }
 
     // -- Queries --
 

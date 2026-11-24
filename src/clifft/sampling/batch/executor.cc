@@ -6,6 +6,7 @@
 #include <array>
 #include <bit>
 #include <cassert>
+#include <cmath>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -37,6 +38,7 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_
                              const batch_detail::BatchWorkerStorageLayout& storage,
                              const PreparedBatchNoise* noise)
     : BatchClassicalState(plan, output_mode, sampling_mode, storage, noise),
+      kernels_(&interleaved_kernels(plan.backend_)),
       state_(storage.peak_active_width, storage.initial_active_width, storage.lane_capacity),
       exp_vals_(checked_size(storage.exp_value_entries, "expectation"), 0.0),
       compaction_sources_(storage.compaction_source_entries),
@@ -102,16 +104,16 @@ void BatchExecutor::execute_actions() noexcept {
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteRotation& action) noexcept {
     const std::span<const uint64_t> signs = evaluate(action.sign);
-    prepare_interleaved_rotation_sines(std::span<double>(signed_sines_).first(active_lanes()),
-                                       action.rotation.sine, signs);
-    apply_interleaved_rotation(state_, action.rotation, signed_sines_);
+    kernels_->prepare_rotation_sines(std::span<double>(signed_sines_).first(active_lanes()),
+                                     action.rotation.sine, signs);
+    kernels_->apply_rotation(state_, action.rotation, signed_sines_);
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFusedRotation& action) noexcept {
     assert(action.rotation_index < plan_->fused_rotations_.size() &&
            "fused rotation action must reference prepared execution");
-    apply_interleaved_fused_rotation(state_,
-                                     plan_->fused_rotations_[action.rotation_index].rotation());
+    kernels_->apply_fused_rotation(state_,
+                                   plan_->fused_rotations_[action.rotation_index].rotation());
 }
 
 void BatchExecutor::execute_action(
@@ -139,7 +141,7 @@ void BatchExecutor::execute_action(
         assert(variant < rotation.variants.size() && "dynamic sign must select a prepared variant");
         lane_bytes_[lane] = static_cast<uint8_t>(variant);
     }
-    apply_interleaved_dynamic_fused_rotation(
+    kernels_->apply_dynamic_fused_rotation(
         state_,
         std::span<const PreparedFusedRotation* const>(variants).first(rotation.variants.size()),
         std::span<const uint8_t>(lane_bytes_).first(active_lanes()));
@@ -147,16 +149,16 @@ void BatchExecutor::execute_action(
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecutePromotion& action) noexcept {
     const std::span<const uint64_t> signs = evaluate(action.sign);
-    prepare_interleaved_rotation_sines(std::span<double>(signed_sines_).first(active_lanes()),
-                                       action.promotion.sine, signs);
-    apply_interleaved_promotion(state_, action.promotion, signed_sines_);
+    kernels_->prepare_rotation_sines(std::span<double>(signed_sines_).first(active_lanes()),
+                                     action.promotion.sine, signs);
+    kernels_->apply_promotion(state_, action.promotion, signed_sines_);
 }
 
 void BatchExecutor::execute_action(
     const ExecutablePlan::ExecuteActiveMeasurement& action) noexcept {
     const std::span<const uint64_t> corrections = evaluate(action.correction);
-    interleaved_measurement_probabilities(state_, action.measurement, probability_zero_,
-                                          probability_one_);
+    kernels_->measurement_probabilities(state_, action.measurement, probability_zero_,
+                                        probability_one_);
     std::ranges::fill(scratch_words_, uint64_t{0});
     for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         const MeasurementProbabilities probabilities{probability_zero_[lane],
@@ -181,11 +183,12 @@ void BatchExecutor::execute_action(
         if (branch) {
             scratch_words_[lane >> 6] |= uint64_t{1} << (lane & 63);
         }
-        lane_values_[lane] = probabilities.for_branch(branch);
+        // The collapse scale is the same for every basis state of a lane.
+        lane_values_[lane] = 1.0 / std::sqrt(probabilities.for_branch(branch));
     }
-    collapse_interleaved_measurement(state_, action.measurement,
-                                     std::span<const uint8_t>(lane_bytes_).first(active_lanes()),
-                                     std::span<const double>(lane_values_).first(active_lanes()));
+    kernels_->collapse_measurement(state_, action.measurement,
+                                   std::span<const uint8_t>(lane_bytes_).first(active_lanes()),
+                                   std::span<const double>(lane_values_).first(active_lanes()));
     propagate_symbol(action.branch, scratch_words_);
     if (records_.num_columns() != 0) {
         records_.assign_xor(action.record, scratch_words_, corrections, live_words_);
@@ -228,7 +231,7 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteExpectation& act
         return;
     }
     const std::span<const uint64_t> signs = evaluate(action.active->sign);
-    interleaved_expectation_values(state_, action.active->projection, lane_values_);
+    kernels_->expectation_values(state_, action.active->projection, lane_values_);
     for (uint32_t lane = 0; lane < active_lanes(); ++lane) {
         if (is_live(lane)) {
             output[lane] = lane_bit(signs, lane) ? -lane_values_[lane] : lane_values_[lane];

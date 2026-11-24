@@ -210,7 +210,7 @@ def define_env(env: Any) -> None:
         {
             "name": "ActiveWidthSchedulePass",
             "kind": "HIR",
-            "default_enabled": False,
+            "default_enabled": True,
             "preserves_record_order": False,
             "preserves_instrument_prefix": False,
             "python_name": "ActiveWidthSchedulePass",
@@ -218,15 +218,9 @@ def define_env(env: Any) -> None:
             "detail": (
                 "Searches legal reorderings of the HIR for one that lowers peak active "
                 "width first and an estimated dense-work cost second. "
-                "It accepts a new order when peak width falls, or when peak width is "
-                "unchanged and estimated dense work falls; otherwise the HIR is left "
-                "untouched. "
-                "A deterministic work budget limits search executions, but does not bound "
-                "classification probes or wall time. "
-                "Opt in to reduce sampling work at extra compilation cost. "
-                "Run it after "
-                "PeepholeFusionPass and StatevectorSqueezePass: reordering across noise "
-                "can prevent subsequent peephole fusion."
+                "The default search bounds speculative sweeps and classification probes "
+                "and keeps narrow equal-width schedules in their original order. Supply an "
+                "explicit pass to customize search options and inspect its statistics."
             ),
         },
         {

@@ -28,6 +28,7 @@ struct SamplingExecution {
 };
 
 struct BatchTuningTrial {
+    bool sharing = false;
     uint32_t batch_size = 1;
     uint32_t shot_workers = 1;
     uint64_t warmup_shots = 0;
@@ -47,6 +48,7 @@ struct BatchTuningTrial {
 };
 
 struct BatchTuningReport {
+    bool sharing = false;
     uint32_t batch_size = 1;
     uint32_t baseline_batch_size = 1;
     uint32_t shot_workers = 1;

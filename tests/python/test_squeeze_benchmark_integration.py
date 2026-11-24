@@ -50,8 +50,8 @@ def _compile_pipeline_variants(name: str, *, schedule: bool) -> _PipelineProgram
 
     return _PipelinePrograms(
         circuit=circuit,
-        unoptimized=clifft.compile(circuit, hir_passes=None),
-        peephole_only=clifft.compile(circuit, hir_passes=peephole),
+        unoptimized=clifft.compile(circuit, hir_passes=None, reconstruction=False),
+        peephole_only=clifft.compile(circuit, hir_passes=peephole, reconstruction=False),
         squeezed=FUSION_SQUEEZE.compile(circuit),
         scheduled=scheduled,
     )
