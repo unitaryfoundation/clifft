@@ -70,19 +70,20 @@ They are not part of the published wheels or selected automatically.
 
 ## Performance
 
-**Clifft reaches millions of attempted shots per second** on several complete
-near-Clifford circuits using one CPU core. Its compiler keeps the dense quantum
-state small so that exact near-Clifford simulation can approach the throughput
-usually associated with specialized Clifford tools.
+**Clifft reaches millions to hundreds of millions of attempted shots per
+second** on complete near-Clifford circuits across one and eight CPU cores. Its
+compiler keeps the active quantum state small and shares state evolution across
+shots following the same trajectory, scaling cleanly across CPU cores.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-dark.png">
-  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-light.png" alt="Clifft v0.13, SymFT, xtim, Stim, and Tsim attempted shots per second across fourteen CPU workloads, grouped on independent logarithmic scales">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/eeff4d28344f2c95d7b80e76db4f4513eed28dec/reporting/figures/web/simulator-throughput-packed-dark.png">
+  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/eeff4d28344f2c95d7b80e76db4f4513eed28dec/reporting/figures/web/simulator-throughput-packed-light.png" alt="Packed detector and observable sample throughput in attempted shots per second for Clifft 0.14, xtim, Stim, and Tsim on one and eight physical CPU cores side by side">
 </picture>
 
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)
-for comparisons with other simulators, release history, dense Quantum Volume
-results, and measurement details.
+for the interactive throughput chart (including postselected survivor counts,
+simulator filtering, and per-workload details), release-over-release gains, and
+historical trends.
 
 ## Installation
 
