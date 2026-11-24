@@ -521,7 +521,7 @@ TEST_CASE("Native automatic sharing without postselection bounds trajectory dive
         REQUIRE_FALSE(shares(frequent));
 
         // Frequent faults that only flip records leave the estimate unchanged.
-        const auto record_noise = compile(noisy_layers(0.01, 5, 20));
+        const auto record_noise = compile(noisy_layers(0.01, 5, 40));
         REQUIRE(record_noise.expected_noise_faults() > 1.0);
         REQUIRE(std::abs(record_noise.trajectory_divergence().expected_sign_faults - 0.2) < 1e-9);
         REQUIRE(shares(record_noise));
