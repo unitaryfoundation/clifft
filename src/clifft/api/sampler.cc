@@ -26,9 +26,8 @@ SharedWorkerKey shared_worker_key(const ExecutablePlan& plan, const SamplingExec
         .output_mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors,
         .noise_mode = *execution.noise_preparation,
         .lane_capacity = execution.batch_size,
-        .max_worker_state_bytes =
-            plan.peak_active_width() == 0 ? 0 : *execution.max_worker_state_bytes,
-        .group_by_noise = plan.peak_active_width() == 0 ? false : execution.group_by_noise,
+        .max_worker_state_bytes = shares_groups(plan) ? *execution.max_worker_state_bytes : 0,
+        .group_by_noise = shares_groups(plan) && execution.group_by_noise,
     };
 }
 
@@ -51,7 +50,7 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
         return result;
     }
     const auto& noise = preparation.noise(*execution.noise_preparation);
-    const auto* checks = plan.peak_active_width() == 0 ? nullptr : &preparation.checks();
+    const auto* checks = shares_groups(plan) ? &preparation.checks() : nullptr;
     const auto* key = execution.group_by_noise ? &preparation.sharing_key() : nullptr;
     const auto worker_key = shared_worker_key(plan, execution, outputs);
     const uint32_t capacity = execution.batch_size;
@@ -157,13 +156,14 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             ? ThreadLayout{.shot_workers = std::min(shots, resolve_thread_budget(options.threads)),
                            .intra_shot_workers = 1}
             : resolve_thread_layout(compiled, shots, options.threads, options.thread_layout);
-    // A plan with a runtime Clifford frame runs on the scalar executor only.
-    // An explicit packed capacity falls back to it; controls that only shared
-    // or packed execution can honor are rejected.
-    const bool scalar_only = compiled.uses_runtime_frame();
-    if (scalar_only && (options.sharing == true || options.noise_preparation.has_value())) {
+    // A plan with a runtime Clifford frame runs on the scalar executor unless
+    // the call asks for shared execution. Packed execution cannot run it: an
+    // explicit packed capacity falls back to scalar, and noise preparation
+    // without sharing has nothing to prepare.
+    const bool frame = compiled.uses_runtime_frame();
+    if (frame && options.noise_preparation.has_value() && options.sharing != true) {
         throw std::invalid_argument(
-            "sharing=True and noise_preparation are incompatible with runtime Clifford frames");
+            "noise_preparation on a runtime Clifford frame plan requires sharing=True");
     }
     if (options.noise_preparation.has_value()) {
         if (options.batch_size == 1) {
@@ -194,12 +194,13 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             throw std::invalid_argument("sharing=True is incompatible with intra-shot workers");
         }
     }
-    const bool supported = kPackedBatchExecutionAvailable && !scalar_only &&
+    const bool supported = kPackedBatchExecutionAvailable &&
                            !(outputs.expectations() && compiled.num_exp_vals() != 0) &&
                            options.batch_size != 1 && layout.intra_shot_workers == 1;
 
     const uint32_t workers = std::max(uint32_t{1}, layout.shot_workers);
     const uint32_t width = compiled.peak_active_width();
+    const bool grouped = shares_groups(compiled);
     const auto mode = outputs.rows() ? BatchOutputMode::Rows : BatchOutputMode::AggregateSurvivors;
     const auto tuning_start = options.tuning_budget_seconds
                                   ? std::chrono::steady_clock::now()
@@ -209,10 +210,15 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         shared =
             should_share_sampling(compiled, shots, outputs, layout, options.max_worker_state_bytes);
     }
-    const bool compare_executors = !options.sharing && supported && width != 0 && shots > 1 &&
-                                   options.tuning_budget_seconds.value_or(0) > 0;
-    const bool fits_states = !(shared || compare_executors) || width == 0 ||
-                             options.max_worker_state_bytes / State::storage_bytes(width) >= 2;
+    // Calibration compares shared and ordinary execution except on a frame
+    // plan, which shares by request only.
+    const bool compare_executors = !options.sharing && supported && width != 0 && !frame &&
+                                   shots > 1 && options.tuning_budget_seconds.value_or(0) > 0;
+    const bool fits_states =
+        !(shared || compare_executors) || !grouped ||
+        options.max_worker_state_bytes /
+                SharingExecutor::group_storage_bytes(compiled, compiled.initial_capacity_width()) >=
+            2;
     if (!fits_states) {
         if (options.sharing == true) {
             throw std::invalid_argument(
@@ -230,7 +236,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         assert(shared_preparation->plan().peak_active_width() == width &&
                "output preparation must preserve compiled peak active width");
         const auto& noise = shared_preparation->noise(shared_noise_mode);
-        const auto* key = width != 0 && options.group_by_noise.value_or(false)
+        const auto* key = grouped && options.group_by_noise.value_or(false)
                               ? &shared_preparation->sharing_key()
                               : nullptr;
         safe = max_safe_shared_capacity(shared_preparation->plan(), noise, key,
@@ -250,7 +256,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         const PreparedBatchNoise* noise = nullptr;
         const bool tuning_packed =
             budget.value_or(0) > 0 && shots > 1 && layout.intra_shot_workers == 1;
-        if (shots != 0 && capacity != 1 && !scalar_only &&
+        if (shots != 0 && capacity != 1 && !frame &&
             (capacity || tuning_packed ||
              automatic_batch_eligible(preparation.plan(), shots, layout.intra_shot_workers,
                                       mode))) {
@@ -273,10 +279,10 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
 
     const auto& preparation = *shared_preparation;
     SamplingExecution execution;
-    execution.executor = width == 0 ? SamplingExecutor::Packed : SamplingExecutor::Shared;
+    execution.executor = grouped ? SamplingExecutor::Shared : SamplingExecutor::Packed;
     execution.sharing = true;
     execution.outputs = outputs;
-    if (width != 0) {
+    if (grouped) {
         execution.max_worker_state_bytes = options.max_worker_state_bytes;
         execution.group_by_noise = options.group_by_noise.value_or(false);
     }
@@ -408,7 +414,8 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
                            uint64_t max_worker_state_bytes) noexcept {
     using namespace sampling;
     const uint32_t width = compiled.peak_active_width();
-    if (width == 0 || layout.intra_shot_workers != 1 ||
+    // Shared execution of a runtime Clifford frame is by request only.
+    if (width == 0 || compiled.uses_runtime_frame() || layout.intra_shot_workers != 1 ||
         (outputs.expectations() && compiled.num_exp_vals() != 0)) {
         return false;
     }

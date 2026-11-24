@@ -2,7 +2,8 @@
 
 The planner option is internal. These tests reach it through the private
 ``_lower_runtime_frame`` binding and compare its programs with ordinary ones
-and with Qiskit Aer through the public sampling functions.
+and with Qiskit Aer through the public sampling functions, on the scalar
+executor and with ``sharing=True``.
 """
 
 import numpy as np
@@ -60,7 +61,7 @@ def _postselected_pairs(active_qubits: int) -> str:
     lines += [f"T {a}\nT_DAG {b}" for a, b in pairs]
     lines += [f"T {q}" for q in others]
     lines += [f"MPP X{a}*X{b}\nDETECTOR rec[-1]" for a, b in pairs]
-    lines += [f"H {q}\nM {q}" for q in others]
+    lines += [f"H {q}\nM {q}\nOBSERVABLE_INCLUDE(0) rec[-1]" for q in others]
     return "\n".join(lines) + "\n"
 
 
@@ -97,11 +98,13 @@ def test_frame_plan_needs_no_active_coordinate() -> None:
     assert "FRAME_CLIFFORD" not in fixed.inspect()
 
 
-def test_sample_follows_the_ordinary_plan() -> None:
+@pytest.mark.parametrize("sharing", [False, True])
+def test_sample_follows_the_ordinary_plan(sharing: bool) -> None:
     fixed, frame = _programs(SIGNED_PAIR)
     shots = 40_000
     expected = clifft.sample(fixed, shots, seed=11)
-    actual = clifft.sample(frame, shots, seed=12)
+    actual = clifft.sample(frame, shots, seed=12, sharing=sharing)
+    assert actual.execution.executor == ("shared" if sharing else "scalar")
     _assert_same_distribution(expected.measurements, actual.measurements)
     _assert_same_distribution(
         np.hstack([expected.detectors, expected.observables]),
@@ -164,11 +167,20 @@ def test_record_probabilities_match_qiskit(
         str(index >> num_qubits) + "".join(str((index >> q) & 1) for q in range(num_qubits))
         for index in range(2 << num_qubits)
     ]
-    actual = clifft.record_probabilities(frame, records)
-    np.testing.assert_allclose(actual, np.abs(amplitudes) ** 2, atol=1e-12)
+    expected = np.abs(amplitudes) ** 2
+    np.testing.assert_allclose(clifft.record_probabilities(frame, records), expected, atol=1e-12)
+
+    # Shared execution keeps the random parity outcome in each shot's sign bits.
+    shots = 100_000
+    rows = clifft.sample(frame, shots, seed=9, sharing=True).measurements
+    weights = np.array([1 << num_qubits] + [1 << q for q in range(num_qubits)])
+    frequencies = np.bincount(rows @ weights, minlength=2 << num_qubits) / shots
+    sigma = np.sqrt(expected * (1 - expected) / shots)
+    assert np.all(np.abs(frequencies - expected) <= 6 * sigma + 1e-12)
 
 
-def test_noisy_region_matches_qiskit_density_matrix() -> None:
+@pytest.mark.parametrize("sharing", [False, True])
+def test_noisy_region_matches_qiskit_density_matrix(sharing: bool) -> None:
     """A bit flip decides whether the CCZ acts as a CZ or as the identity."""
     preparation, gates, flip = "H 0 2\nCX 0 1", "CCZ 0 1 2\nH 0 1 2", 0.3
     fixed, frame = _programs(f"{preparation}\nX_ERROR({flip}) 1\n{gates}\nM 0 1 2")
@@ -182,7 +194,8 @@ def test_noisy_region_matches_qiskit_density_matrix() -> None:
     expected = np.asarray(result.data()["probabilities"])
 
     shots = 200_000
-    frequencies = _pattern_counts(clifft.sample(frame, shots, seed=7).measurements) / shots
+    rows = clifft.sample(frame, shots, seed=7, sharing=sharing).measurements
+    frequencies = _pattern_counts(rows) / shots
     sigma = np.sqrt(expected * (1 - expected) / shots)
     assert np.all(np.abs(frequencies - expected) <= 6 * sigma)
 
@@ -200,7 +213,7 @@ def test_calibration_keeps_frame_plans_on_the_scalar_executor() -> None:
 
 
 @pytest.mark.parametrize("active_qubits", [0, 1])
-def test_sampling_selection_keeps_frame_plans_on_the_scalar_executor(active_qubits: int) -> None:
+def test_automatic_selection_keeps_frame_plans_on_the_scalar_executor(active_qubits: int) -> None:
     _, frame = _programs(_postselected_pairs(active_qubits), postselection_mask=[1] * 8)
     assert frame.peak_active_width == active_qubits
     assert "FRAME_CLIFFORD" in frame.inspect()
@@ -209,9 +222,71 @@ def test_sampling_selection_keeps_frame_plans_on_the_scalar_executor(active_qubi
     assert automatic.execution.executor == "scalar"
     assert automatic.execution.sharing is False
     assert automatic.passed_shots == scalar.passed_shots
-    for controls in ({"sharing": True}, {"noise_preparation": clifft.NoisePreparation.DENSE}):
-        with pytest.raises(ValueError, match="runtime Clifford frame"):
-            clifft.sample_survivors(frame, 64, seed=5, **controls)
+    # Packed execution cannot run a frame, so without sharing there is no noise to prepare.
+    with pytest.raises(ValueError, match="sharing=True"):
+        clifft.sample_survivors(frame, 64, seed=5, noise_preparation=clifft.NoisePreparation.DENSE)
+
+
+@pytest.mark.parametrize("active_qubits", [0, 1])
+@pytest.mark.parametrize(
+    "controls",
+    [
+        {},
+        {"keep_records": True},
+        {"group_by_noise": True},
+        {"batch_size": 96},
+        {"noise_preparation": clifft.NoisePreparation.DENSE},
+        {"batch_size": "tune", "tuning_budget_seconds": 0.05},
+    ],
+    ids=["default", "rows", "noise-groups", "capacity", "dense-noise", "tuned"],
+)
+def test_shared_survivor_sampling_follows_the_ordinary_plan(
+    active_qubits: int, controls: dict
+) -> None:
+    fixed, frame = _programs(_postselected_pairs(active_qubits), postselection_mask=[1] * 8)
+    shots = 40_000
+    expected = clifft.sample_survivors(fixed, shots, seed=51)
+    actual = clifft.sample_survivors(frame, shots, seed=52, sharing=True, **controls)
+    assert actual.execution.executor == "shared"
+    assert actual.execution.sharing is True
+    _assert_same_survivor_counts(expected, actual, shots)
+    if active_qubits:
+        assert actual.logical_errors > 0
+    if controls.get("keep_records"):
+        assert actual.measurements.shape == (actual.passed_shots, 8 + active_qubits)
+        assert not actual.detectors.any()
+    # A seeded call repeats at the capacity it reports.
+    replayed = {
+        name: value
+        for name, value in controls.items()
+        if name not in ("batch_size", "tuning_budget_seconds")
+    }
+    again = clifft.sample_survivors(
+        frame, shots, seed=52, sharing=True, batch_size=actual.execution.batch_size, **replayed
+    )
+    assert again.passed_shots == actual.passed_shots
+    assert again.logical_errors == actual.logical_errors
+
+
+def test_shared_frame_sampling_does_not_depend_on_the_worker_count() -> None:
+    _, frame = _programs(_postselected_pairs(1), postselection_mask=[1] * 8)
+    one, three = (
+        clifft.sample_survivors(
+            frame, 20_000, seed=9, sharing=True, batch_size=512, threads=threads, keep_records=True
+        )
+        for threads in (1, 3)
+    )
+    assert one.passed_shots == three.passed_shots
+    np.testing.assert_array_equal(one.measurements, three.measurements)
+    np.testing.assert_array_equal(one.observables, three.observables)
+
+
+def test_shared_frame_sampling_needs_room_for_two_groups() -> None:
+    # The frame needs no active coordinate, but each group still holds a tableau.
+    _, frame = _programs(SIGNED_PAIR)
+    assert frame.peak_active_width == 0
+    with pytest.raises(ValueError, match="at least two shared states"):
+        clifft.sample(frame, 64, seed=1, sharing=True, max_worker_state_bytes=4096)
 
 
 @pytest.mark.parametrize("k", [0, 1])
