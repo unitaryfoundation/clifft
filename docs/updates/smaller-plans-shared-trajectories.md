@@ -34,15 +34,42 @@ scheduling) already shrink $k$ substantially, but they preserve the full
 circuit's exact state evolution step by step.
 
 When you only need sampled outcomes—measurements, detectors, observables, or
-postselected survivor counts—you do not need to preserve intermediate states
-that no requested output can observe. Global reconstruction rewrites the
-circuit for the requested output mode while keeping the exact joint output
-distribution and postselection acceptance intact.
+postselected survivor counts—you do not need to replay the circuit's original
+gate-by-gate timeline. Global reconstruction steps outside that sequential
+order: it folds the circuit's Clifford gates, noise propagation, and any
+pure-Clifford tail (such as cultivation's surface-code escape stage) into a
+compact sampling problem over the initial $|0\dots 0\rangle$ state, then
+reorders the surviving quantum operations measurement-first to keep active
+width as small as possible.
 
-On `Cultivation d5` (`p = 1e-3`, postselected survivor counts), global
-reconstruction drops peak active width from **10 to 6**—cutting the peak dense
-state from 1,024 amplitudes to 64 (**16x smaller**) and lowering estimated dense
-work by **17.8x**:
+Because Clifft tracks only the exact outputs you requested—either full
+measurement records or just detectors and observables—through that folded
+frame, it can prove algebraically which intermediate details cannot change the
+output distribution and drop them safely:
+
+- **Dead faults and fixed axes:** Pauli faults on qubits discarded before any
+  measurement, and coordinates that remain fixed in $|0\rangle$, are removed.
+- **Unobservable commuting checks:** Intermediate projections that commute with
+  every remaining non-Clifford rotation and every requested output have no
+  effect on the sampled outcomes and are dropped.
+- **Merged noise channels:** Independent noise sites that flip the exact same
+  set of rotations and outputs are combined into a single channel.
+
+This shares the same closed-output idea and measurement-first scheduling that
+[Tsim](https://github.com/QuEraComputing/tsim/pull/203) pioneered with
+ZX-calculus diagrams. Whereas Tsim converts a circuit into a ZX graph, applies
+ZX rewrites to expose a smaller set of phase gadgets, and extracts a narrower
+circuit, Clifft performs the analogous reduction natively in its own
+stabilizer-tableau algebra—avoiding a separate ZX engine and feeding the result
+straight back into Clifft's existing optimizer and executor.
+
+![Four-stage global sampling reconstruction pipeline: 1 Original circuit in fixed gate order, 2 Fold Cliffords and pure-Clifford tails into a stabilizer tableau frame over |0...0>, 3 Drop dead faults, fixed |0> axes, commuting checks, and merge equivalent noise channels while keeping exact output distributions, 4 Reschedule surviving operations measurement-first into a narrower HIR sampling plan](../assets/updates/reconstruction-pipeline-v014-light.svg#only-light)
+![Four-stage global sampling reconstruction pipeline: 1 Original circuit in fixed gate order, 2 Fold Cliffords and pure-Clifford tails into a stabilizer tableau frame over |0...0>, 3 Drop dead faults, fixed |0> axes, commuting checks, and merge equivalent noise channels while keeping exact output distributions, 4 Reschedule surviving operations measurement-first into a narrower HIR sampling plan](../assets/updates/reconstruction-pipeline-v014-dark.svg#only-dark)
+
+On `Cultivation d5` (`p = 1e-3`, postselected survivor counts), that rewrite
+drops peak active width from **10 to 6**—cutting the peak dense state from
+1,024 amplitudes to 64 (**16x smaller**) and lowering estimated dense work by
+**17.8x**:
 
 ![Active width across quantum operations on Cultivation d5 before and after global reconstruction: peak width falls from 10 (1,024 amplitudes) to 6 (64 amplitudes), a 16x reduction in peak state size](../assets/updates/reconstruction-width-v014-light.svg#only-light)
 ![Active width across quantum operations on Cultivation d5 before and after global reconstruction: peak width falls from 10 (1,024 amplitudes) to 6 (64 amplitudes), a 16x reduction in peak state size](../assets/updates/reconstruction-width-v014-dark.svg#only-dark)
