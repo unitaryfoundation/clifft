@@ -1,10 +1,11 @@
 """Tests for sampling programs planned with a runtime Clifford frame.
 
-The planner option is internal. These tests reach it through the private
-``_lower_runtime_frame`` binding and compare its programs with ordinary ones
-and with Qiskit Aer through the public sampling functions, on the scalar
-executor and with ``sharing=True``.
+These tests compare programs compiled with ``runtime_frame=True`` with
+ordinary ones and with Qiskit Aer through the public sampling functions, on
+the scalar executor and with ``sharing=True``.
 """
+
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -13,7 +14,6 @@ from qiskit_aer.noise import pauli_error
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
-from clifft._clifft_core import _lower_runtime_frame
 
 # A Bell pair whose T and T_DAG cancel unless the fault flips one sign.
 SIGNED_PAIR = (
@@ -44,8 +44,18 @@ PARITY_CASES = {
 
 
 def _programs(text: str, postselection_mask: list[int] | None = None) -> tuple:
-    hir = clifft.trace(clifft.parse(text), postselection_mask=postselection_mask or [])
-    return clifft.lower(hir), _lower_runtime_frame(hir)
+    """The ordinary and the runtime-frame program of one unoptimized circuit."""
+    ordinary, frame = (
+        clifft.compile(
+            text,
+            postselection_mask=postselection_mask,
+            hir_passes=None,
+            reconstruction=False,
+            runtime_frame=runtime_frame,
+        )
+        for runtime_frame in (False, True)
+    )
+    return ordinary, frame
 
 
 def _postselected_pairs(active_qubits: int) -> str:
@@ -62,6 +72,23 @@ def _postselected_pairs(active_qubits: int) -> str:
     lines += [f"T {q}" for q in others]
     lines += [f"MPP X{a}*X{b}\nDETECTOR rec[-1]" for a, b in pairs]
     lines += [f"H {q}\nM {q}\nOBSERVABLE_INCLUDE(0) rec[-1]" for q in others]
+    return "\n".join(lines) + "\n"
+
+
+def _signed_pairs(pairs: int, plain: int, probability: float = 0.05) -> str:
+    """Signed pairs, each with one check, and plain qubits with a T gate.
+
+    A pair needs an active qubit in the ordinary plan and none on a runtime
+    frame. A plain qubit needs one either way.
+    """
+    wires = [(2 * p, 2 * p + 1) for p in range(pairs)]
+    others = range(2 * pairs, 2 * pairs + plain)
+    lines = [f"H {a}\nCX {a} {b}\nX_ERROR({probability}) {a}" for a, b in wires]
+    lines += [f"H {q}" for q in others]
+    lines += [f"T {a}\nT_DAG {b}" for a, b in wires]
+    lines += [f"T {q}" for q in others]
+    lines += [f"MPP X{a}*X{b}\nDETECTOR rec[-1]" for a, b in wires]
+    lines += [f"H {q}\nM {q}" for q in others]
     return "\n".join(lines) + "\n"
 
 
@@ -112,14 +139,16 @@ def test_sample_follows_the_ordinary_plan(sharing: bool) -> None:
     )
 
 
-def test_sample_is_repeatable_and_ignores_batch_size() -> None:
+def test_sample_is_repeatable_and_a_packed_capacity_runs_scalar() -> None:
     _, frame = _programs(SIGNED_PAIR)
     first = clifft.sample(frame, 512, seed=5)
     again = clifft.sample(frame, 512, seed=5)
     np.testing.assert_array_equal(first.measurements, again.measurements)
-    # Frame plans always run on the scalar executor.
+    # Packed execution cannot run a frame, so a packed capacity runs scalar.
+    scalar = clifft.sample(frame, 512, seed=5, batch_size=1)
     batched = clifft.sample(frame, 512, seed=5, batch_size=64)
-    np.testing.assert_array_equal(first.measurements, batched.measurements)
+    assert batched.execution.executor == "scalar"
+    np.testing.assert_array_equal(scalar.measurements, batched.measurements)
 
 
 @pytest.mark.parametrize("keep_records", [False, True])
@@ -200,31 +229,154 @@ def test_noisy_region_matches_qiskit_density_matrix(sharing: bool) -> None:
     assert np.all(np.abs(frequencies - expected) <= 6 * sigma)
 
 
-def test_calibration_keeps_frame_plans_on_the_scalar_executor() -> None:
+def test_calibration_tunes_the_shared_capacity_of_a_frame_plan() -> None:
     _, frame = _programs(SIGNED_PAIR, postselection_mask=[1])
     result = clifft.sample_survivors(
         frame, 4096, seed=5, batch_size="tune", tuning_budget_seconds=0.05
     )
     report = result.batch_tuning
-    assert report.batch_size == 1
-    assert report.stop_reason == "single_candidate"
-    pinned = clifft.sample_survivors(frame, 4096, seed=5)
-    assert result.passed_shots == pinned.passed_shots
+    assert report.sharing is True
+    assert result.execution.executor == "shared"
+    repeated = clifft.sample_survivors(
+        frame, 4096, seed=5, sharing=True, batch_size=report.batch_size
+    )
+    assert result.passed_shots == repeated.passed_shots
 
 
 @pytest.mark.parametrize("active_qubits", [0, 1])
-def test_automatic_selection_keeps_frame_plans_on_the_scalar_executor(active_qubits: int) -> None:
+def test_automatic_selection_shares_postselected_frame_plans(active_qubits: int) -> None:
     _, frame = _programs(_postselected_pairs(active_qubits), postselection_mask=[1] * 8)
     assert frame.peak_active_width == active_qubits
-    assert "FRAME_CLIFFORD" in frame.inspect()
-    scalar = clifft.sample_survivors(frame, 16384, seed=5, threads=1, batch_size=1)
+    assert frame.original_plan.uses_runtime_frame
     automatic = clifft.sample_survivors(frame, 16384, seed=5, threads=1)
-    assert automatic.execution.executor == "scalar"
-    assert automatic.execution.sharing is False
-    assert automatic.passed_shots == scalar.passed_shots
+    assert automatic.execution.executor == "shared"
+    requested = clifft.sample_survivors(frame, 16384, seed=5, threads=1, sharing=True)
+    assert automatic.passed_shots == requested.passed_shots
+    # A short call, an explicit refusal and a packed capacity all run scalar.
+    for controls in ({"shots": 63}, {"sharing": False}, {"batch_size": 96}):
+        shots = controls.pop("shots", 16384)
+        scalar = clifft.sample_survivors(frame, shots, seed=5, threads=1, **controls)
+        assert scalar.execution.executor == "scalar"
+        assert scalar.execution.sharing is False
     # Packed execution cannot run a frame, so without sharing there is no noise to prepare.
     with pytest.raises(ValueError, match="sharing=True"):
         clifft.sample_survivors(frame, 64, seed=5, noise_preparation=clifft.NoisePreparation.DENSE)
+
+
+def test_automatic_selection_without_postselection_follows_the_expected_sign_faults() -> None:
+    # Rare faults leave most shots on one frame, so the batch shares it.
+    rare = _signed_pairs(pairs=8, plain=1, probability=0.01)
+    _, frame = _programs(rare)
+    assert clifft.sample(frame, 4096, seed=1).execution.executor == "shared"
+    # A fair coin per pair decides its signs, so nearly every shot has its own frame.
+    coins = "".join(
+        f"H {a} {b}\nMPP Z{a}*Z{b}\nT {a}\nT_DAG {b}\nH {a} {b}\nM {a} {b}\n"
+        for a, b in ((2 * p, 2 * p + 1) for p in range(12))
+    )
+    _, frame = _programs(coins)
+    assert frame.original_plan.uses_runtime_frame
+    assert clifft.sample(frame, 4096, seed=1).execution.executor == "scalar"
+
+
+def test_runtime_frame_is_off_unless_requested() -> None:
+    text = _signed_pairs(pairs=4, plain=0)
+    default = clifft.compile(text)
+    assert not default.original_plan.uses_runtime_frame
+    assert default.runtime_frame_fallback_reason
+    frame = clifft.compile(text, runtime_frame=True)
+    assert frame.original_plan.uses_runtime_frame
+    assert frame.runtime_frame_fallback_reason == ""
+    assert frame.original_plan.peak_active_width == 0
+    assert default.original_plan.peak_active_width > 0
+    with pytest.raises(ValueError, match="runtime_frame"):
+        clifft.compile(text, runtime_frame="always")  # type: ignore[arg-type]
+    shots = 40_000
+    expected = clifft.sample(default, shots, seed=3, keep_records="syndromes").detectors
+    actual = clifft.sample(frame, shots, seed=4, keep_records="syndromes").detectors
+    _assert_same_distribution(expected, actual)
+
+
+def test_runtime_frame_true_keeps_the_ordinary_plan_where_no_sign_varies() -> None:
+    text = "H 0 1\nT 0 1\nCX 0 1\nT 1\nH 0 1\nM 0 1\n"
+    ordinary = clifft.compile(text)
+    frame = clifft.compile(text, runtime_frame=True)
+    assert not frame.original_plan.uses_runtime_frame
+    assert frame.runtime_frame_fallback_reason
+    assert frame.original_plan.inspect() == ordinary.original_plan.inspect()
+
+
+@pytest.mark.parametrize(
+    ("pairs", "plain", "selected"),
+    [(16, 0, True), (15, 0, False), (4, 12, True), (3, 13, False)],
+    ids=["wide", "narrow", "four-fewer", "three-fewer"],
+)
+def test_automatic_runtime_frame_needs_a_wide_plan_and_a_clear_reduction(
+    pairs: int, plain: int, selected: bool
+) -> None:
+    # Without passes the ordinary plan holds every pair and plain qubit at once.
+    text = _signed_pairs(pairs, plain)
+    ordinary = clifft.compile(text, hir_passes=None, reconstruction=False)
+    assert ordinary.original_plan.peak_active_width == pairs + plain
+    forced = clifft.compile(text, hir_passes=None, reconstruction=False, runtime_frame=True)
+    assert forced.original_plan.peak_active_width == plain
+    automatic = clifft.compile(text, hir_passes=None, reconstruction=False, runtime_frame="auto")
+    assert automatic.original_plan.uses_runtime_frame is selected
+    assert (automatic.runtime_frame_fallback_reason == "") is selected
+    chosen = forced if selected else ordinary
+    assert automatic.original_plan.inspect() == chosen.original_plan.inspect()
+
+
+def test_runtime_frame_plans_a_circuit_too_wide_for_the_ordinary_plan() -> None:
+    text = _signed_pairs(pairs=70, plain=0)
+    with pytest.raises(OverflowError):
+        clifft.compile(text, hir_passes=None, reconstruction=False)
+    choices: tuple[bool | Literal["auto"], ...] = (True, "auto")
+    for runtime_frame in choices:
+        program = clifft.compile(
+            text, hir_passes=None, reconstruction=False, runtime_frame=runtime_frame
+        )
+        assert program.original_plan.uses_runtime_frame
+        assert program.original_plan.peak_active_width == 0
+    result = clifft.sample(program, 256, seed=2, keep_records="syndromes")
+    assert result.detectors.shape == (256, 70)
+
+
+def test_runtime_frame_is_planned_before_the_default_passes() -> None:
+    text = _signed_pairs(pairs=4, plain=2)
+    frame = clifft.compile(text, reconstruction=False, runtime_frame=True)
+    unoptimized = clifft.compile(text, hir_passes=None, reconstruction=False, runtime_frame=True)
+    assert frame.original_plan.inspect() == unoptimized.original_plan.inspect()
+    # The passes reorder this circuit, so a frame planned after them differs.
+    optimized = clifft.compile(
+        text,
+        hir_passes=clifft.default_hir_pass_manager(),
+        reconstruction=False,
+        runtime_frame=True,
+    )
+    assert optimized.original_plan.inspect() != frame.original_plan.inspect()
+
+
+def test_explicit_passes_apply_to_the_runtime_frame_plan() -> None:
+    text = _signed_pairs(pairs=4, plain=0)
+    assert clifft.compile(text, runtime_frame=True).original_plan.uses_runtime_frame
+    # Without its noise the circuit has no sign that varies between shots.
+    passes = clifft.HirPassManager()
+    passes.add(clifft.RemoveNoisePass())
+    noiseless = clifft.compile(text, hir_passes=passes, runtime_frame=True)
+    assert not noiseless.original_plan.uses_runtime_frame
+
+
+def test_runtime_frame_keeps_normalized_syndromes() -> None:
+    # The pair check reads one without noise; normalization makes that zero.
+    text = "X 0\n" + _signed_pairs(pairs=3, plain=0, probability=0.02)
+    frame = clifft.compile(text, normalize_syndromes=True, runtime_frame=True)
+    assert frame.original_plan.uses_runtime_frame
+    ordinary = clifft.compile(text, normalize_syndromes=True)
+    shots = 20_000
+    expected = clifft.sample(ordinary, shots, seed=8, keep_records="syndromes").detectors
+    actual = clifft.sample(frame, shots, seed=9, keep_records="syndromes").detectors
+    assert actual.mean() < 0.2
+    _assert_same_distribution(expected, actual)
 
 
 @pytest.mark.parametrize("active_qubits", [0, 1])

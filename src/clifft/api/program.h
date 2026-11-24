@@ -5,7 +5,9 @@
 // measurement records, plus the sampling preparation derived from them on
 // first use. Copies share both, including bounded idle shared-worker storage
 // checked out exclusively by each call. State queries, exact probabilities,
-// replay, and fixed-fault sampling require the original plan.
+// replay, and fixed-fault sampling require the original plan. On request the
+// original plan carries a runtime Clifford frame, which keeps signed T regions
+// at the active width of their fixed-sign core.
 
 #include "clifft/optimizer/global_reconstruction.h"
 #include "clifft/sampling/executable_plan.h"
@@ -31,10 +33,17 @@ class Program {
   public:
     explicit Program(sampling::ExecutablePlan original);
 
+    // An unset reconstruction or runtime_frame selects automatically. With
+    // runtime_frame true or unset, frame_hir (original_hir when null) is also
+    // planned on a runtime Clifford frame. When that plan carries a frame it
+    // becomes the original plan: always for true, and for the automatic
+    // choice when the ordinary plan is unavailable or enough wider.
     [[nodiscard]] static Program compile(const Circuit& source, const HirModule& original_hir,
                                          std::optional<bool> reconstruction = std::nullopt,
                                          bool passes_preserve_sampling = true,
-                                         const ReconstructionLimits& limits = {});
+                                         const ReconstructionLimits& limits = {},
+                                         std::optional<bool> runtime_frame = false,
+                                         const HirModule* frame_hir = nullptr);
 
     [[nodiscard]] bool has_original() const noexcept;
     [[nodiscard]] bool has_sampling_plan(bool keep_records) const noexcept;
@@ -42,6 +51,8 @@ class Program {
     [[nodiscard]] const sampling::ExecutablePlan& sampling_plan(bool keep_records) const;
     [[nodiscard]] bool uses_reconstruction(bool keep_records) const noexcept;
     [[nodiscard]] const std::string& reconstruction_fallback_reason(bool keep_records) const;
+    // Why the original plan carries no runtime Clifford frame; empty when it does.
+    [[nodiscard]] const std::string& runtime_frame_fallback_reason() const noexcept;
 
     [[nodiscard]] uint32_t num_qubits() const noexcept;
     [[nodiscard]] uint32_t num_visible_records() const noexcept;

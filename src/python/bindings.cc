@@ -271,13 +271,11 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
     return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
 }
 
-clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
-                                               std::span<const uint8_t> postselection_mask,
-                                               bool normalize_syndromes,
-                                               clifft::HirPassManager* hir_passes,
-                                               std::vector<uint8_t>& expected_detectors,
-                                               std::vector<uint8_t>& expected_observables,
-                                               bool allow_reconstruction = false) {
+clifft::HirModule prepare_circuit_for_lowering(
+    const clifft::Circuit& circuit, std::span<const uint8_t> postselection_mask,
+    bool normalize_syndromes, clifft::HirPassManager* hir_passes,
+    std::vector<uint8_t>& expected_detectors, std::vector<uint8_t>& expected_observables,
+    bool allow_reconstruction = false, std::optional<clifft::HirModule>* before_passes = nullptr) {
     if (normalize_syndromes && (!expected_detectors.empty() || !expected_observables.empty())) {
         throw std::invalid_argument(
             "Cannot provide expected parities when normalize_syndromes=True");
@@ -295,6 +293,9 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
     hir.postselection.mask.assign(postselection_mask.begin(), postselection_mask.end());
     hir.postselection.expected_detectors = expected_detectors;
     hir.postselection.expected_observables = expected_observables;
+    if (before_passes != nullptr) {
+        before_passes->emplace(hir);
+    }
     if (hir_passes != nullptr) {
         hir_passes->run(hir);
     }
@@ -304,6 +305,10 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         expected_observables = std::move(reference.observables);
         hir.postselection.expected_detectors = expected_detectors;
         hir.postselection.expected_observables = expected_observables;
+        if (before_passes != nullptr) {
+            (*before_passes)->postselection.expected_detectors = expected_detectors;
+            (*before_passes)->postselection.expected_observables = expected_observables;
+        }
     }
     return hir;
 }
@@ -1548,7 +1553,11 @@ NB_MODULE(_clifft_core, m) {
         "its Program alive. Pass the Program to sampling and exact-query functions.")
         .def_prop_ro(
             "peak_active_width", [](const PyPlanView& v) { return v.plan->peak_active_width(); },
-            "Largest active width reached by this executable.")
+            "Largest active width reached by this executable. With a runtime Clifford frame "
+            "this is an upper bound; shots can stay narrower.")
+        .def_prop_ro(
+            "uses_runtime_frame", [](const PyPlanView& v) { return v.plan->uses_runtime_frame(); },
+            "Whether this executable keeps a runtime Clifford frame.")
         .def_prop_ro(
             "num_actions", [](const PyPlanView& v) { return v.plan->num_actions(); },
             "Number of actions in this executable.")
@@ -1605,6 +1614,10 @@ NB_MODULE(_clifft_core, m) {
         .def_prop_ro("num_exp_vals", [](const clifft::Program& p) { return p.num_exp_vals(); })
         .def_prop_ro("has_postselection",
                      [](const clifft::Program& p) { return p.has_postselection(); })
+        .def_prop_ro(
+            "runtime_frame_fallback_reason",
+            [](const clifft::Program& p) { return p.runtime_frame_fallback_reason(); },
+            "Why the original plan keeps no runtime Clifford frame. Empty when it keeps one.")
         .def_prop_ro(
             "num_actions",
             [](const clifft::Program& p) { return p.sampling_plan(true).num_actions(); },
@@ -1687,11 +1700,11 @@ NB_MODULE(_clifft_core, m) {
             return text + ")";
         });
 
-    const auto lower = [](bool runtime_frame) {
-        return [runtime_frame](const clifft::HirModule& hir,
-                               std::optional<std::vector<uint8_t>> postselection_mask,
-                               std::optional<std::vector<uint8_t>> expected_detectors,
-                               std::optional<std::vector<uint8_t>> expected_observables) {
+    m.def(
+        "lower",
+        [](const clifft::HirModule& hir, std::optional<std::vector<uint8_t>> postselection_mask,
+           std::optional<std::vector<uint8_t>> expected_detectors,
+           std::optional<std::vector<uint8_t>> expected_observables) {
             nb::gil_scoped_release release;
             static constexpr uint8_t kZeroFlag = 0;
             auto to_span = [&](const std::optional<std::vector<uint8_t>>& opt) {
@@ -1704,30 +1717,20 @@ NB_MODULE(_clifft_core, m) {
                 return std::span<const uint8_t>(*opt);
             };
             return clifft::Program(clifft::sampling::ExecutablePlan(clifft::sampling::plan_sampling(
-                hir, {.postselection_mask = to_span(postselection_mask),
-                      .expected_detectors = to_span(expected_detectors),
-                      .expected_observables = to_span(expected_observables),
-                      .runtime_frame = runtime_frame})));
-        };
-    };
-
-    // Lowers like lower(), planning signed T regions on a runtime Clifford
-    // frame where that needs fewer active coordinates.
-    m.def("_lower_runtime_frame", lower(true), nb::arg("hir"),
-          nb::arg("postselection_mask") = nb::none(), nb::arg("expected_detectors") = nb::none(),
-          nb::arg("expected_observables") = nb::none());
-
-    m.def("lower", lower(false), nb::arg("hir"), nb::arg("postselection_mask") = nb::none(),
-          nb::arg("expected_detectors") = nb::none(), nb::arg("expected_observables") = nb::none(),
-          "Lower a Heisenberg IR module to an executable sampling program.\n\n"
-          "Args:\n"
-          "    hir: The Heisenberg IR module to lower.\n"
-          "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
-          "        Defaults to hir.postselection_mask when None.\n"
-          "    expected_detectors: Optional noiseless reference parities for detectors.\n"
-          "        Defaults to hir.expected_detectors when None.\n"
-          "    expected_observables: Optional noiseless reference parities for observables.\n"
-          "        Defaults to hir.expected_observables when None.\n");
+                hir, {to_span(postselection_mask), to_span(expected_detectors),
+                      to_span(expected_observables)})));
+        },
+        nb::arg("hir"), nb::arg("postselection_mask") = nb::none(),
+        nb::arg("expected_detectors") = nb::none(), nb::arg("expected_observables") = nb::none(),
+        "Lower a Heisenberg IR module to an executable sampling program.\n\n"
+        "Args:\n"
+        "    hir: The Heisenberg IR module to lower.\n"
+        "    postselection_mask: Optional list of uint8 flags, one per detector.\n"
+        "        Defaults to hir.postselection_mask when None.\n"
+        "    expected_detectors: Optional noiseless reference parities for detectors.\n"
+        "        Defaults to hir.expected_detectors when None.\n"
+        "    expected_observables: Optional noiseless reference parities for observables.\n"
+        "        Defaults to hir.expected_observables when None.\n");
 
     m.def(
         "_prepare_hir_for_lowering",
@@ -1754,9 +1757,12 @@ NB_MODULE(_clifft_core, m) {
         [](const std::string& stim_text, std::vector<uint8_t> postselection_mask,
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
            bool normalize_syndromes, clifft::HirPassManager* hir_passes,
-           const BoolOrAutoOption& reconstruction_option, const std::string& input_format) {
+           const BoolOrAutoOption& reconstruction_option, const std::string& input_format,
+           const BoolOrAutoOption& runtime_frame_option, bool frame_before_passes) {
             const auto reconstruction =
                 parse_bool_or_auto_option(reconstruction_option, "reconstruction");
+            const auto runtime_frame =
+                parse_bool_or_auto_option(runtime_frame_option, "runtime_frame");
             if (input_format != "stim" && input_format != "qasm2") {
                 throw std::invalid_argument("input_format must be 'stim' or 'qasm2'");
             }
@@ -1765,10 +1771,13 @@ NB_MODULE(_clifft_core, m) {
                                                         : clifft::parse_qasm2(stim_text).circuit;
             const bool preserves_sampling =
                 hir_passes == nullptr || hir_passes->preserves_sampling_distribution();
+            std::optional<clifft::HirModule> unoptimized;
             const auto hir = prepare_circuit_for_lowering(
                 circuit, postselection_mask, normalize_syndromes, hir_passes, expected_detectors,
-                expected_observables, reconstruction != false && preserves_sampling);
-            return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling);
+                expected_observables, reconstruction != false && preserves_sampling,
+                runtime_frame != false && frame_before_passes ? &unoptimized : nullptr);
+            return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling, {},
+                                            runtime_frame, unoptimized ? &*unoptimized : nullptr);
         },
         nb::arg("stim_text"), nb::arg("postselection_mask") = std::vector<uint8_t>{},
         nb::arg("expected_detectors") = std::vector<uint8_t>{},
@@ -1776,6 +1785,7 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(), nb::kw_only(),
         nb::arg("reconstruction") = BoolOrAutoOption(std::string("auto")),
         nb::arg("input_format") = std::string("stim"),
+        nb::arg("runtime_frame") = BoolOrAutoOption(false), nb::arg("frame_before_passes") = false,
         "Compile a quantum circuit string to an executable program.\n\n"
         "Compilation plans optimized HIR and prepares it for Clifft's sampler.\n"
         "\n"
@@ -1801,7 +1811,11 @@ NB_MODULE(_clifft_core, m) {
         "        estimated work without harming postselected rejection. True uses\n"
         "        the full reconstruction budget for strictly narrower plans; False\n"
         "        uses the original plan for all outputs.\n"
-        "    input_format: 'stim' (default) or 'qasm2'.\n");
+        "    input_format: 'stim' (default) or 'qasm2'.\n"
+        "    runtime_frame: False (default), True, or 'auto'. Plans signed T\n"
+        "        regions on a runtime Clifford frame; see clifft.compile().\n"
+        "    frame_before_passes: If True, the runtime-frame plan is built from\n"
+        "        the HIR before hir_passes run.\n");
 
     m.def(
         "sample",

@@ -463,6 +463,89 @@ TEST_CASE(
     REQUIRE_FALSE(should_share_sampling(plan, 63, false, {1, 1}, kDefaultSharedWorkerStateBudget));
 }
 
+TEST_CASE("Native automatic selection shares runtime Clifford frame plans") {
+    // Each pair's T and T_DAG cancel unless its X error flips one sign, which
+    // a frame plan applies as a conditional Clifford. `prefix` runs before the
+    // rotations of each pair.
+    const auto pairs_plan = [](uint32_t pairs, const std::string& error, bool postselect) {
+        std::string source;
+        for (uint32_t p = 0; p < pairs; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            source += "H " + a + "\nCX " + a + " " + b + "\n" + error + " " + a + "\nT " + a +
+                      "\nT_DAG " + b + "\nMPP X" + a + "*X" + b + "\nDETECTOR rec[-1]\n";
+        }
+        auto hir = trace(parse(source));
+        hir.postselection.mask.assign(pairs, postselect ? 1 : 0);
+        return ExecutablePlan(plan_sampling(hir, {.runtime_frame = true}));
+    };
+    const auto shares = [](const ExecutablePlan& plan, uint32_t shots,
+                           uint64_t state_bytes = kDefaultSharedWorkerStateBudget) {
+        return should_share_sampling(plan, shots, plan.has_postselection(), {1, 1}, state_bytes);
+    };
+
+    SECTION("a postselected frame plan shares from the usual batch size") {
+        const ExecutablePlan plan = pairs_plan(8, "X_ERROR(0.3)", true);
+        REQUIRE(plan.uses_runtime_frame());
+        REQUIRE(plan.peak_active_width() == 0);
+        REQUIRE(shares(plan, 64));
+        REQUIRE_FALSE(shares(plan, 63));
+        const Program program{pairs_plan(8, "X_ERROR(0.3)", true)};
+        const auto automatic = clifft::sample_survivors(program, 4096, 7, true, {});
+        REQUIRE(automatic.execution.executor == SamplingExecutor::Shared);
+        const auto scalar = clifft::sample_survivors(program, 4096, 7, true, {.sharing = false});
+        REQUIRE(scalar.execution.executor == SamplingExecutor::Scalar);
+    }
+    SECTION("without postselection the expected sign faults decide") {
+        // The condition of a conditional Clifford counts as a sign.
+        const ExecutablePlan rare = pairs_plan(8, "X_ERROR(0.01)", false);
+        REQUIRE(std::abs(rare.trajectory_divergence().expected_sign_faults - 0.08) < 1e-9);
+        REQUIRE(shares(rare, 4096));
+        const ExecutablePlan frequent = pairs_plan(8, "X_ERROR(0.3)", false);
+        REQUIRE(std::abs(frequent.trajectory_divergence().expected_sign_faults - 2.4) < 1e-9);
+        REQUIRE_FALSE(shares(frequent, 4096));
+    }
+    SECTION("an automatic call fits every group at the plan's width bound") {
+        // A second T layer acts on qubits the frame already covers, so each of
+        // its rotations may add an active qubit: the plan bounds its width by
+        // eight while its states start without coefficients. The one
+        // postselected detector always passes.
+        std::string source = "M 16\nDETECTOR rec[-1]\n";
+        std::string evens;
+        for (uint32_t p = 0; p < 8; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            source += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(0.3) " + a + "\nT " + a +
+                      "\nT_DAG " + b + "\n";
+            evens += " " + a;
+        }
+        source += "H" + evens + "\nT" + evens + "\nH" + evens + "\nM" + evens + "\n";
+        auto hir = trace(parse(source));
+        hir.postselection.mask.assign(1, 1);
+        const auto make_plan = [&] {
+            return ExecutablePlan(plan_sampling(hir, {.runtime_frame = true}));
+        };
+        const ExecutablePlan plan = make_plan();
+        REQUIRE(plan.uses_runtime_frame());
+        REQUIRE(plan.initial_capacity_width() == 0);
+        const uint32_t bound = plan.peak_active_width();
+        REQUIRE(bound == 8);
+        const uint64_t at_bound = SharingExecutor::group_storage_bytes(plan, bound);
+        REQUIRE(shares(plan, 4096, 2 * at_bound));
+        REQUIRE_FALSE(shares(plan, 4096, 2 * at_bound - 1));
+        // Sized where the frame begins, the same budget would hold more groups
+        // than it can keep once they widen.
+        constexpr uint32_t kGroups = 8;
+        REQUIRE(kGroups * at_bound / SharingExecutor::group_storage_bytes(plan, 0) > kGroups);
+        const Program program{make_plan()};
+        const auto automatic = clifft::sample_survivors(
+            program, 4096, 7, true, {.max_worker_state_bytes = kGroups * at_bound});
+        REQUIRE(automatic.execution.executor == SamplingExecutor::Shared);
+        REQUIRE(automatic.execution.batch_size == kGroups);
+        REQUIRE(automatic.passed_shots == 4096);
+    }
+}
+
 TEST_CASE("Native automatic sharing without postselection bounds trajectory divergence") {
     const auto compile = [](const std::string& source) {
         return ExecutablePlan(plan_sampling(trace(parse(source))));

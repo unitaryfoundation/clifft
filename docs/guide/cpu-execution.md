@@ -208,6 +208,14 @@ when the measurements all precede the non-Clifford work. Pass `sharing=True` to
 share a circuit the rule declines, or `sharing=False` to keep ordinary
 execution for one that qualifies.
 
+Plans with a [runtime Clifford frame](compilation.md#runtime-clifford-frame-for-noisy-t-regions)
+follow the postselected and few-trajectories cases at any width, because their
+shots share frame updates as well as coefficients. The condition of each
+conditional Clifford counts as a rotation sign there, and the state budget is
+checked at the plan's active-width bound. Packed batch execution cannot run a
+frame, so a numeric `batch_size` without `sharing=True` runs the scalar
+executor, and `noise_preparation` requires `sharing=True`.
+
 All three require `max_worker_state_bytes` to hold at least two shared states. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
 checks, and any grouping key. Repeated calls on a `Program` with the same

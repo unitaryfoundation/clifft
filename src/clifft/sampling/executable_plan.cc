@@ -76,7 +76,7 @@ bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
                 } else if constexpr (std::is_same_v<T, ExecuteFrameClifford> ||
                                      std::is_same_v<T, ExecuteFrameRotation> ||
                                      std::is_same_v<T, ExecuteFrameMeasurement>) {
-                    // Shared execution of a runtime Clifford frame is by request only.
+                    // A frame action is not part of a unitary prefix.
                     return true;
                 } else {
                     static_assert(!sizeof(T*), "Unhandled ExecutablePlan action alternative");
@@ -162,7 +162,7 @@ std::vector<AffineBool> ExecutablePlan::affine_registers() const {
     return expressions;
 }
 
-std::vector<uint8_t> ExecutablePlan::rotation_sign_registers() const {
+std::vector<uint8_t> ExecutablePlan::rotation_sign_registers(bool frame_signs) const {
     std::vector<uint8_t> required(num_expression_registers());
     for (const auto& action : actions_) {
         std::visit(
@@ -171,6 +171,11 @@ std::vector<uint8_t> ExecutablePlan::rotation_sign_registers() const {
                 if constexpr (std::is_same_v<T, ExecuteRotation> ||
                               std::is_same_v<T, ExecutePromotion>) {
                     required[typed.sign.register_id] = 1;
+                } else if constexpr (std::is_same_v<T, ExecuteFrameRotation>) {
+                    required[typed.sign.register_id] |= frame_signs;
+                } else if constexpr (std::is_same_v<T, ExecuteFrameClifford>) {
+                    required[typed.condition.register_id] |=
+                        frame_signs && typed.rotation != CliffordRotation::IDENTITY;
                 } else if constexpr (std::is_same_v<T, ExecuteDynamicFusedRotation>) {
                     for (const auto& sign :
                          dynamic_fused_rotations_[typed.rotation_index].sign_basis) {
@@ -196,7 +201,7 @@ std::vector<uint8_t> ExecutablePlan::rotation_sign_registers() const {
 }
 
 ExecutablePlan::TrajectoryDivergence ExecutablePlan::measure_trajectory_divergence() const {
-    const auto sign_registers = rotation_sign_registers();
+    const auto sign_registers = rotation_sign_registers(/*frame_signs=*/true);
     const auto feeds_sign = [&](uint32_t symbol) {
         return std::ranges::any_of(expression_dependencies_.dependent_registers(symbol),
                                    [&](uint32_t reg) { return sign_registers[reg] != 0; });
@@ -239,17 +244,21 @@ ExecutablePlan::TrajectoryDivergence ExecutablePlan::measure_trajectory_divergen
         } else if (std::holds_alternative<ExecuteActiveMeasurement>(action) &&
                    index < coefficient_work_end) {
             ++divergence.mid_circuit_active_measurements;
+        } else if (const auto* frame = std::get_if<ExecuteFrameMeasurement>(&action)) {
+            divergence.mid_circuit_active_measurements += feeds_sign(frame->branch) ? 1 : 0;
         }
     }
     return divergence;
 }
 
 bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noexcept {
-    // Narrower plans have too little coefficient work to share.
+    // Narrower plans have too little coefficient work to share, unless their
+    // shots also share the tableau work of a runtime Clifford frame.
     constexpr uint32_t kMinWidth = 3;
     // At one expected sign fault per shot about 63% of a batch leaves the
     // fault-free trajectory. Sharing then breaks even with AVX-512 packed
-    // batches and is ahead at narrower vector widths.
+    // batches and is ahead at narrower vector widths. Frame plans, whose
+    // alternative is the scalar executor, break even between one and two.
     constexpr double kMaxExpectedSignFaults = 1.0;
     // Every dormant sign measurement, and every mid-circuit active measurement
     // whose outcome is random, doubles the trajectories. With all of them
@@ -264,7 +273,7 @@ bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noe
     const TrajectoryDivergence& divergence = trajectory_divergence_;
     const uint64_t branching =
         uint64_t{divergence.sign_dormant_measurements} + divergence.mid_circuit_active_measurements;
-    return peak_active_width_ >= kMinWidth &&
+    return (peak_active_width_ >= kMinWidth || uses_runtime_frame()) &&
            divergence.expected_sign_faults <= kMaxExpectedSignFaults &&
            branching <= kMaxBranchingMeasurements &&
            (lanes >> divergence.sign_dormant_measurements) >= kMinLanesPerDormantBranch;

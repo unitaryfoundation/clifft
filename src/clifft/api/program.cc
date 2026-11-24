@@ -66,6 +66,7 @@ struct Program::Data {
 
     std::optional<sampling::ExecutablePlan> original;
     std::string original_overflow_reason;
+    std::string runtime_frame_fallback_reason = "runtime_frame is disabled";
     // Prepared once during compilation, then immutable for concurrent sampling.
     std::array<SamplingVariant, 2> variants;
     std::array<OutputPreparations, 4> preparations;
@@ -78,16 +79,59 @@ Program::Program(std::shared_ptr<const Data> data) : data_(std::move(data)) {}
 
 Program Program::compile(const Circuit& source, const HirModule& original_hir,
                          std::optional<bool> reconstruction, bool passes_preserve_sampling,
-                         const ReconstructionLimits& limits) {
-    if (reconstruction == false) {
-        return Program(sampling::ExecutablePlan(sampling::plan_sampling(original_hir)));
-    }
+                         const ReconstructionLimits& limits, std::optional<bool> runtime_frame,
+                         const HirModule* frame_hir) {
     std::shared_ptr<Data> data;
     try {
         data =
             std::make_shared<Data>(sampling::ExecutablePlan(sampling::plan_sampling(original_hir)));
     } catch (const std::overflow_error& overflow) {
+        if (reconstruction == false && runtime_frame == false) {
+            throw;
+        }
         data = std::make_shared<Data>(original_hir, overflow.what());
+    }
+    if (runtime_frame != false) {
+        // The automatic choice compares a frame plan's upper bound on the
+        // active width with the ordinary plan's width. Below this ordinary
+        // width, coefficient work costs less than maintaining the frame; at
+        // it, one state holds a MiB of coefficients.
+        constexpr uint32_t kMinOrdinaryWidthForRuntimeFrame = 16;
+        // With this much less width, a frame plan on the scalar executor
+        // still samples faster than the ordinary plan shared or packed.
+        constexpr uint32_t kMinRuntimeFrameWidthReduction = 4;
+        std::string& reason = data->runtime_frame_fallback_reason;
+        reason.clear();
+        try {
+            sampling::ExecutablePlan frame(sampling::plan_sampling(
+                frame_hir != nullptr ? *frame_hir : original_hir, {.runtime_frame = true}));
+            if (!frame.uses_runtime_frame()) {
+                reason = "no signed T region is narrower on a runtime Clifford frame";
+            } else if (!runtime_frame.has_value() && data->original &&
+                       data->original->peak_active_width() < kMinOrdinaryWidthForRuntimeFrame) {
+                reason = "ordinary plan is narrower than " +
+                         std::to_string(kMinOrdinaryWidthForRuntimeFrame);
+            } else if (!runtime_frame.has_value() && data->original &&
+                       frame.peak_active_width() + kMinRuntimeFrameWidthReduction >
+                           data->original->peak_active_width()) {
+                reason = "runtime Clifford frame reduces peak active width by fewer than " +
+                         std::to_string(kMinRuntimeFrameWidthReduction);
+            } else {
+                data->num_hidden_records = frame.num_hidden_records();
+                data->original.emplace(std::move(frame));
+                data->original_overflow_reason.clear();
+            }
+        } catch (const std::overflow_error& overflow) {
+            reason = overflow.what();
+        }
+    }
+    if (reconstruction == false) {
+        if (!data->original) {
+            throw std::overflow_error(
+                data->original_overflow_reason +
+                " (runtime frame fallback: " + data->runtime_frame_fallback_reason + ")");
+        }
+        return Program(std::move(data));
     }
 
     const uint32_t width_limit =
@@ -252,6 +296,10 @@ bool Program::uses_reconstruction(bool keep_records) const noexcept {
 
 const std::string& Program::reconstruction_fallback_reason(bool keep_records) const {
     return data_->variants[keep_records].fallback_reason;
+}
+
+const std::string& Program::runtime_frame_fallback_reason() const noexcept {
+    return data_->runtime_frame_fallback_reason;
 }
 
 uint32_t Program::num_qubits() const noexcept {

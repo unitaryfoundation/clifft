@@ -156,10 +156,10 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             ? ThreadLayout{.shot_workers = std::min(shots, resolve_thread_budget(options.threads)),
                            .intra_shot_workers = 1}
             : resolve_thread_layout(compiled, shots, options.threads, options.thread_layout);
-    // A plan with a runtime Clifford frame runs on the scalar executor unless
-    // the call asks for shared execution. Packed execution cannot run it: an
-    // explicit packed capacity falls back to scalar, and noise preparation
-    // without sharing has nothing to prepare.
+    // A plan with a runtime Clifford frame runs on the scalar or the shared
+    // executor. Packed execution cannot run it: an explicit packed capacity
+    // falls back to scalar, and noise preparation without sharing has nothing
+    // to prepare.
     const bool frame = compiled.uses_runtime_frame();
     if (frame && options.noise_preparation.has_value() && options.sharing != true) {
         throw std::invalid_argument(
@@ -206,12 +206,12 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                                   ? std::chrono::steady_clock::now()
                                   : std::chrono::steady_clock::time_point{};
     bool shared = options.sharing.value_or(false);
-    if (!options.sharing && !options.batch_size && supported && width != 0) {
+    if (!options.sharing && !options.batch_size && supported && grouped) {
         shared =
             should_share_sampling(compiled, shots, outputs, layout, options.max_worker_state_bytes);
     }
-    // Calibration compares shared and ordinary execution except on a frame
-    // plan, which shares by request only.
+    // Calibration compares shared with ordinary execution, which on a frame
+    // plan is the scalar executor and has no capacity to calibrate.
     const bool compare_executors = !options.sharing && supported && width != 0 && !frame &&
                                    shots > 1 && options.tuning_budget_seconds.value_or(0) > 0;
     const bool fits_states =
@@ -241,6 +241,14 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                               : nullptr;
         safe = max_safe_shared_capacity(shared_preparation->plan(), noise, key,
                                         options.max_worker_state_bytes, mode);
+        if (frame && options.sharing != true) {
+            // An explicit request sizes groups for the width where the frame
+            // begins and reports a budget that later growth exceeds. An
+            // automatic call must not fail that way.
+            safe = static_cast<uint32_t>(std::min<uint64_t>(
+                safe, options.max_worker_state_bytes /
+                          SharingExecutor::group_storage_bytes(compiled, width)));
+        }
         if (safe < 2) {
             if (options.sharing == true) {
                 throw std::invalid_argument(
@@ -414,13 +422,18 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
                            uint64_t max_worker_state_bytes) noexcept {
     using namespace sampling;
     const uint32_t width = compiled.peak_active_width();
-    // Shared execution of a runtime Clifford frame is by request only.
-    if (width == 0 || compiled.uses_runtime_frame() || layout.intra_shot_workers != 1 ||
+    // A plan without coefficients has nothing to share unless its shots share
+    // the tableau of a runtime Clifford frame.
+    if (!shares_groups(compiled) || layout.intra_shot_workers != 1 ||
         (outputs.expectations() && compiled.num_exp_vals() != 0)) {
         return false;
     }
     constexpr uint32_t kMinSharedStates = 2;
-    const uint64_t state_capacity = max_worker_state_bytes / State::storage_bytes(width);
+    // A frame plan's width is an upper bound that its shots may not reach.
+    // Sizing every group for it keeps an automatic call within the budget
+    // however far the states grow.
+    const uint64_t state_capacity =
+        max_worker_state_bytes / SharingExecutor::group_storage_bytes(compiled, width);
     if (state_capacity < kMinSharedStates) {
         return false;
     }

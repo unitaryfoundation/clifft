@@ -193,6 +193,42 @@ Clifft uses its own static constraint analysis and
 [Merlin acknowledgment](../acknowledgments.md#merlin) for the design influence
 and reused validation circuits.
 
+### Rotations Whose Signs Vary Between Shots
+
+The rewrites above need fixed signs. When a Pauli fault, a readout flip on
+feedback, or a random stabilizer outcome can flip a T rotation's sign, the
+constraint that would cancel it no longer holds in every shot, and the planner
+promotes an active coordinate for it. A T rotation with either sign differs
+from the fixed-sign one by a Clifford:
+
+$$
+\exp\!\left(-i\tfrac{\pi}{8}(-1)^{t} P\right)
+= \exp\!\left(+i\tfrac{\pi}{4}\, t\, P\right)\exp\!\left(-i\tfrac{\pi}{8} P\right)
+$$
+
+With `runtime_frame`, the planner uses this split on a region of commuting T
+rotations. It reduces the fixed-sign rotations against the stabilizers of the
+noiseless reference, exactly as the phase-polynomial pass does, and keeps the
+factors $\exp(+i\tfrac{\pi}{4} t P)$ as Clifford rotations conditioned on the
+sign bit $t$. Those Cliffords differ from shot to shot, so the coordinate map
+fixed at compile time cannot absorb them. Each shot instead keeps a Clifford
+frame over the $r$ coordinates the region touches, stored as a tableau of $2r$
+Pauli rows, and applies a conditional Clifford by updating rows. No coordinate
+becomes active for it. The dense state holds only the $k$ coordinates of the
+reduced core, with $k \le r$.
+
+Operations after the region act through the frame. A measurement maps its
+Pauli through the tableau; when the image lies outside the active coordinates
+its outcome is a known sign or a fair coin and the coefficients are untouched.
+A later T rotation on frame coordinates is applied one at a time and can make
+a coordinate active in the shots where its image requires one, so the plan
+states an upper bound on the active width from the first frame action on.
+
+In shared-trajectory execution, shots share a tableau as well as a coefficient
+state. A tableau update does not depend on row signs, so each shot keeps one
+sign bit per row, and shots take a separate tableau only where a conditional
+quarter turn applies to some of them and not others.
+
 ### Conservative Analysis and Bounded Search
 
 Constraints tracked by `SymbolicStabilizers` must hold for every trajectory and

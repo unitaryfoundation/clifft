@@ -95,6 +95,91 @@ TEST_CASE("Program preserves the original plan across bounded reconstruction fai
     }
 }
 
+// `pairs` Bell pairs whose T and T_DAG cancel unless an X error flips one sign,
+// and `plain` qubits with one T gate. Planned in this order, a pair needs an
+// active qubit in the ordinary plan and none on a runtime Clifford frame; a
+// plain qubit needs one either way.
+Circuit signed_pairs(uint32_t pairs, uint32_t plain) {
+    std::string prepare;
+    std::string rotate;
+    std::string measure;
+    for (uint32_t p = 0; p < pairs; ++p) {
+        const std::string a = std::to_string(2 * p);
+        const std::string b = std::to_string(2 * p + 1);
+        prepare += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(0.05) " + a + "\n";
+        rotate += "T " + a + "\nT_DAG " + b + "\n";
+        measure += "MPP X" + a + "*X" + b + "\n";
+    }
+    for (uint32_t q = 2 * pairs; q < 2 * pairs + plain; ++q) {
+        prepare += "H " + std::to_string(q) + "\n";
+        rotate += "T " + std::to_string(q) + "\n";
+        measure += "H " + std::to_string(q) + "\nM " + std::to_string(q) + "\n";
+    }
+    return parse(prepare + rotate + measure);
+}
+
+TEST_CASE("Program keeps a runtime Clifford frame plan on request") {
+    const Circuit source = signed_pairs(4, 1);
+    const HirModule hir = trace(source);
+    const auto compile = [&](std::optional<bool> runtime_frame) {
+        return Program::compile(source, hir, false, true, {}, runtime_frame);
+    };
+    const Program ordinary = compile(false);
+    REQUIRE_FALSE(ordinary.original().uses_runtime_frame());
+    REQUIRE(ordinary.original().peak_active_width() == 5);
+    REQUIRE_FALSE(ordinary.runtime_frame_fallback_reason().empty());
+
+    const Program frame = compile(true);
+    REQUIRE(frame.original().uses_runtime_frame());
+    REQUIRE(frame.original().peak_active_width() == 1);
+    REQUIRE(frame.runtime_frame_fallback_reason().empty());
+    REQUIRE(frame.num_visible_records() == ordinary.num_visible_records());
+    REQUIRE(&frame.sampling_plan(true) == &frame.original());
+
+    // The frame plan is built from frame_hir when one is given.
+    HirModule optimized = hir;
+    default_hir_pass_manager().run(optimized);
+    const Program before_passes = Program::compile(source, optimized, false, true, {}, true, &hir);
+    REQUIRE(before_passes.original().inspect() == frame.original().inspect());
+
+    // A circuit without a sign that varies keeps its ordinary plan.
+    const Circuit fixed = parse("H 0 1\nT 0 1\nCX 0 1\nT 1\nH 0 1\nM 0 1\n");
+    const HirModule fixed_hir = trace(fixed);
+    const Program unchanged = Program::compile(fixed, fixed_hir, false, true, {}, true);
+    REQUIRE_FALSE(unchanged.original().uses_runtime_frame());
+    REQUIRE_FALSE(unchanged.runtime_frame_fallback_reason().empty());
+    REQUIRE(unchanged.original().inspect() ==
+            Program::compile(fixed, fixed_hir, false).original().inspect());
+}
+
+TEST_CASE("Automatic runtime frame selection needs a wide plan and a clear reduction") {
+    struct Case {
+        uint32_t pairs;
+        uint32_t plain;
+        bool selected;
+    };
+    // The ordinary width is pairs + plain and the frame's is plain.
+    const Case cases[] = {{16, 0, true}, {15, 0, false}, {4, 12, true}, {3, 13, false}};
+    for (const Case& c : cases) {
+        CAPTURE(c.pairs, c.plain);
+        const Circuit source = signed_pairs(c.pairs, c.plain);
+        const HirModule hir = trace(source);
+        const Program automatic = Program::compile(source, hir, false, true, {}, std::nullopt);
+        REQUIRE(automatic.original().uses_runtime_frame() == c.selected);
+        REQUIRE(automatic.runtime_frame_fallback_reason().empty() == c.selected);
+        REQUIRE(automatic.original().peak_active_width() ==
+                (c.selected ? c.plain : c.pairs + c.plain));
+    }
+    // An ordinary plan too wide for a dense state leaves only the frame plan.
+    const Circuit wide = signed_pairs(70, 0);
+    const HirModule wide_hir = trace(wide);
+    REQUIRE_THROWS_AS(Program::compile(wide, wide_hir, false), std::overflow_error);
+    const Program rescued = Program::compile(wide, wide_hir, false, true, {}, std::nullopt);
+    REQUIRE(rescued.has_original());
+    REQUIRE(rescued.original().uses_runtime_frame());
+    REQUIRE(rescued.original().peak_active_width() == 0);
+}
+
 TEST_CASE("Program optimizes tied reconstruction schedules after lowering", "[reconstruction]") {
     const auto source = parse("H 0\nT 0\nT_DAG 0\nH 0\nM 0\nDETECTOR rec[-1]\n");
     const auto hir = trace(source);
