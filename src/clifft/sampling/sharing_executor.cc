@@ -1,6 +1,7 @@
 #include "clifft/sampling/sharing_executor.h"
 
 #include "clifft/sampling/measurement_branch.h"
+#include "clifft/util/mask_view.h"
 #include "clifft/util/numeric.h"
 
 #include <algorithm>
@@ -159,9 +160,15 @@ uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatc
     // The sampler retains one observable counter per output alongside the executor.
     const uint64_t counter_bytes =
         saturating_multiply_u64(plan.num_observables(), sizeof(uint64_t));
-    while (capacity > 1 && saturating_add_u64(SharingExecutor::classical_storage_bytes(
-                                                  plan, noise, key, capacity, output_mode),
-                                              counter_bytes) > kMaxAutoSharedWorkerClassicalBytes) {
+    // A width-zero worker is a packed executor without the sharing arrays.
+    const auto worker_bytes = [&](uint32_t lanes) {
+        return width == 0
+                   ? batch_detail::batch_worker_storage_bytes(plan, lanes, output_mode,
+                                                              BatchSamplingMode::Ordinary, &noise)
+                   : SharingExecutor::classical_storage_bytes(plan, noise, key, lanes, output_mode);
+    };
+    while (capacity > 1 && saturating_add_u64(worker_bytes(capacity), counter_bytes) >
+                               kMaxAutoSharedWorkerClassicalBytes) {
         capacity /= 2;
     }
     return capacity;
@@ -418,13 +425,11 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
         placed += end_[group];
         end_[group] = begin_[group];
     }
-    for (uint32_t shot = 0; shot < shots; ++shot) {
-        if (!is_live(shot))
-            continue;
+    for_each_set_bit(MaskView{std::span<const uint64_t>(live_words_)}, [&](uint32_t shot) {
         const uint32_t group = group_of_[shot];
         position_[shot] = end_[group];
         order_[end_[group]++] = shot;
-    }
+    });
     free_count_ = 0;
     if (group_count_ > states_.size()) {
         ++storage_boundaries_;
@@ -536,6 +541,23 @@ void SharingExecutor::split_by_sign(std::span<const uint64_t> values) noexcept {
             }
         }
 #endif
+        return;
+    }
+    if (group_count_ == live_count_) {
+        // Every group holds one lane.
+        return;
+    }
+    if (live_count_ < live_words_.size()) {
+        // Few lanes remain, so walking them costs less than scanning the sign
+        // words of the whole batch.
+        const uint32_t original_group_count = group_count_;
+        for (uint32_t index = 0; index < original_group_count; ++index) {
+            const uint32_t group = groups_[index];
+            for (uint32_t shot : lanes(group)) {
+                choices_[shot] = lane_bit(values, shot);
+            }
+            (void)split(group);
+        }
         return;
     }
     // A group separates exactly when some, but not all, of its lanes carry the

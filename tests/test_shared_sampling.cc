@@ -202,23 +202,29 @@ TEST_CASE("Shared sign splits match independent lanes for either majority sign")
     uint64_t splits = 0;
     uint32_t peak_groups = 0;
     for (uint64_t seed = 0; seed < 8; ++seed) {
-        const auto root = seed_root_from_seed(seed);
-        shared.run_batch(root, 5, kLanes);
-        independent.run_batch(root, 5, kLanes);
-        splits += shared.num_splits();
-        peak_groups = std::max(peak_groups, shared.peak_groups());
-        const auto compare = [&](const PackedBitColumns& actual, const PackedBitColumns& expected) {
-            REQUIRE(actual.num_columns() == expected.num_columns());
-            for (size_t column = 0; column < actual.num_columns(); ++column) {
-                for (size_t word = 0; word < shared.survivor_mask().size(); ++word) {
-                    const uint64_t difference =
-                        actual.column(column)[word] ^ expected.column(column)[word];
-                    REQUIRE((difference & shared.survivor_mask()[word]) == 0);
-                }
+        // A batch of three lanes takes the walk used when few lanes remain.
+        for (uint32_t shots : {kLanes, uint32_t{3}}) {
+            const auto root = seed_root_from_seed(seed);
+            shared.run_batch(root, 5, shots);
+            independent.run_batch(root, 5, shots);
+            splits += shared.num_splits();
+            if (shots == kLanes) {
+                peak_groups = std::max(peak_groups, shared.peak_groups());
             }
-        };
-        compare(shared.record_columns(), independent.record_columns());
-        compare(shared.observable_columns(), independent.observable_columns());
+            const auto compare = [&](const PackedBitColumns& actual,
+                                     const PackedBitColumns& expected) {
+                REQUIRE(actual.num_columns() == expected.num_columns());
+                for (size_t column = 0; column < actual.num_columns(); ++column) {
+                    for (size_t word = 0; word < shared.survivor_mask().size(); ++word) {
+                        const uint64_t difference =
+                            actual.column(column)[word] ^ expected.column(column)[word];
+                        REQUIRE((difference & shared.survivor_mask()[word]) == 0);
+                    }
+                }
+            };
+            compare(shared.record_columns(), independent.record_columns());
+            compare(shared.observable_columns(), independent.observable_columns());
+        }
     }
     REQUIRE(splits > 0);
     if (flip_probability != 0.5) {
@@ -576,6 +582,29 @@ TEST_CASE("Safe shared capacity halves until classical buffers fit their bound")
     const uint64_t retained_bytes = packed_bit_columns_storage_bytes(plan.num_observables(), 64) +
                                     plan.num_actions() * sizeof(uint32_t);
     REQUIRE(SharingExecutor::classical_storage_bytes(plan, noise, nullptr, 64) >= retained_bytes);
+}
+
+TEST_CASE("Safe shared capacity sizes a width-zero worker as a packed executor") {
+    // 64000 packed observable columns leave a few bytes per lane under the
+    // bound at full capacity, less than the sharing arrays would add.
+    std::string text = "H 0\nM 0\nOBSERVABLE_INCLUDE(63999) rec[-1]\n";
+    const ExecutablePlan plan(plan_sampling(trace(parse(text))));
+    REQUIRE(plan.peak_active_width() == 0);
+    const PreparedBatchNoise noise(plan, BatchNoiseMode::SiteSparse);
+    const uint64_t counter_bytes = plan.num_observables() * sizeof(uint64_t);
+    const auto packed_bytes = [&](uint32_t lanes) {
+        return batch_detail::batch_worker_storage_bytes(plan, lanes,
+                                                        BatchOutputMode::AggregateSurvivors,
+                                                        BatchSamplingMode::Ordinary, &noise) +
+               counter_bytes;
+    };
+    REQUIRE(packed_bytes(kMaxAutoSharedBatchShots) <= kMaxAutoSharedWorkerClassicalBytes);
+    REQUIRE(
+        SharingExecutor::classical_storage_bytes(plan, noise, nullptr, kMaxAutoSharedBatchShots) +
+            counter_bytes >
+        kMaxAutoSharedWorkerClassicalBytes);
+    REQUIRE(max_safe_shared_capacity(plan, noise, nullptr, kDefaultSharedWorkerStateBudget) ==
+            kMaxAutoSharedBatchShots);
 }
 
 TEST_CASE("Safe shared capacity includes the worker observable counters") {
