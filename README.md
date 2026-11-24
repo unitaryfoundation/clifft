@@ -72,9 +72,8 @@ They are not part of the published wheels or selected automatically.
 
 **Clifft reaches millions to hundreds of millions of attempted shots per
 second** on complete near-Clifford circuits across one and eight CPU cores. Its
-compiler builds narrow output-specific sampling plans and shares coefficient
-evolution across equivalent quantum trajectories so exact near-Clifford
-simulation scales cleanly with CPU cores.
+compiler keeps the active quantum state small and shares state evolution across
+shots following the same trajectory, scaling cleanly across CPU cores.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/eeff4d28344f2c95d7b80e76db4f4513eed28dec/reporting/figures/web/simulator-throughput-packed-dark.png">

@@ -27,44 +27,31 @@ throughput_circuits:
 # Performance
 
 Clifft is built for fast, exact simulation of near-Clifford circuits. Its
-compiler resolves Clifford coordinates, symbolic dependencies, and
-output-specific sampling plans ahead of time, then executes only the remaining
-branch values and dense active-state operations—sharing coefficient evolution
-across shots that follow the same quantum trajectory.
+compiler simplifies the Clifford structure of a circuit ahead of time so each
+shot only evolves a small active quantum state (with $2^k$ amplitudes, where
+$k$ is the *active width*) rather than the full qubit register. During
+sampling, shots that follow the same quantum trajectory share state evolution.
 
-The measurements below cover three questions: how Clifft compares with peer CPU
+This page answers three questions: how Clifft compares with other CPU
 simulators on one and eight cores, how throughput changed in v0.14, and how
-Clifft's throughput has progressed since v0.1.
+Clifft's speed has progressed since v0.1.
 
 ## CPU simulator throughput
 
 The [`clifft-bench`](https://github.com/unitaryfoundation/clifft-bench)
-suite measures attempted shots per second for 18 complete circuits on one and
-eight pinned physical CPU cores across two output endpoints:
+suite measures attempted shots per second across 18 complete circuits on one
+and eight physical CPU cores in two common sampling modes:
 
 - **Packed samples (postselection off):** return bit-packed detector and
-  observable records for every attempted shot across all 18 workloads.
-- **Survivor counts (postselection on):** discard shots that fail postselected
-  detectors and return aggregate survivor and logical-error counts across the
-  10 postselected workloads.
+  observable records for every shot (all 18 circuits).
+- **Survivor counts (postselection on):** discard shots that trigger
+  postselected detectors and return accepted and logical-error counts (10
+  postselected circuits).
 
-Clifft uses its public default compiler (`clifft.compile()` with automatic
-[global reconstruction](compilation.md#global-reconstruction-for-sampling) and
-bounded [active-width scheduling](compilation.md#active-width-scheduling)) and
-automatic sampling selection (`batch_size="auto"`, `sharing="auto"`), with no
-per-circuit manual tuning.
-
-{{ throughput_widget() }}
-
-Use the controls above to switch between **Packed samples** and **Survivor
-counts**, toggle between **1 core** and **8 cores**, or filter simulators.
-**Each panel uses its own logarithmic scale**, and scales remain fixed as
-simulators are toggled. The collapsible table retains every measurement,
-compile time, first-call warmup, and 8-core speedup.
-
-Each cell below counts peer-compared workloads where Clifft recorded higher
-median attempted shots/s out of those measured by both tools (a dash means no
-paired measurement):
+Clifft runs with its default compiler and sampling settings (`clifft.compile()`,
+`batch_size="auto"`, `sharing="auto"`) and no per-circuit manual tuning. Each
+cell below counts how many circuits Clifft won out of those measured by both
+simulators (a dash means no paired measurement):
 
 | Peer | Packed samples, 1 core | Packed samples, 8 cores | Survivor counts, 1 core | Survivor counts, 8 cores |
 | --- | ---: | ---: | ---: | ---: |
@@ -73,43 +60,51 @@ paired measurement):
 | SymFT 2026.10.8 | — | — | 7/7 | 7/7 |
 | Stim 1.16.0 | 1/1 | — | — | — |
 
-Compiler simplification drives the largest margins on distillation and
-Reed–Muller (where active width collapses to `0` or `1`), while global
-reconstruction, shared trajectory execution, and multi-core scaling account for
-Clifft's leads on cultivation, fold-transversal, coherent-noise, and Quantum
-Volume workloads. Where peers lead on 1 core—such as xtim on packed cultivation
-(on circuits where xtim supports raw reference parity) or Tsim on the
-fixed-input Draper adder and Cain `d=9`—Clifft's eight-core scaling narrows the
-gap or moves ahead. For an earlier 16-core study comparing Clifft against
-dedicated statevector simulators (`Qiskit Aer`, `qsim`, and `Qulacs`) up to
-`QV28`, see the
+On distillation and Reed–Muller circuits, compiler simplification eliminates
+nearly all non-Clifford work (reducing active width to `0` or `1`). On
+cultivation, fold-transversal, coherent-noise, and Quantum Volume circuits,
+narrower compiled plans, shared trajectory execution, and multi-core scaling
+drive Clifft's lead. Where peers are faster on one core—such as xtim on packed
+cultivation circuits it supports, or Tsim on the fixed-input Draper adder and
+Cain `d=9`—Clifft's eight-core scaling narrows the gap or pulls ahead. For an
+earlier 16-core comparison against dedicated statevector simulators (`Qiskit
+Aer`, `qsim`, and `Qulacs`) up to `QV28`, see the
 [Quantum Volume experiment](https://github.com/unitaryfoundation/clifft-bench/blob/566924f2638a04d87cffa5930a91f3b4b3a48ee7/experiments/qv/README.md).
+
+Explore individual circuits below: switch between **Packed samples** and
+**Survivor counts**, toggle **1 core** or **8 cores**, or filter simulators.
+**Each panel uses its own logarithmic scale** (kept fixed as you toggle
+simulators). Hover, focus, or tap any point for compile time, warmup, active
+width, and 8-core speedup, or open the table below the chart for every
+measurement.
+
+{{ throughput_widget() }}
 
 ### Comparing with Stim on Clifford circuits
 
-On the pure-Clifford `Surface code d7, r7` workload, Clifft and the other
+On the pure-Clifford `Surface code d7, r7` circuit, Clifft and the other
 compiled samplers outpace Stim on steady-state throughput, which can be
 misleading without the setup tradeoff. Stim's `compile_detector_sampler()`
-propagates a Pauli frame through the circuit's gate layers per batch with very
-low preparation cost (~1 ms, single-threaded), whereas Clifft precomputes the
-exact fault-to-detector/observable maps ahead of time and samples sparse noise
-directly at active width `0` (and can scale across cores or prune rejected shots
-early in survivor-count mode). Compiled fault-map sampling therefore wins on
-large shot counts, while Stim avoids compilation overhead on small shot counts
-or one-off circuits.
+propagates a Pauli frame through the circuit's gate layers per batch with
+minimal setup (~1 ms, single-threaded), whereas Clifft precomputes the exact
+fault-to-detector and observable maps ahead of time and samples sparse noise
+directly at active width `0` (and can scale across cores or discard failing
+shots early in survivor-count mode). Compiled fault-map sampling therefore wins
+on large shot counts, while Stim avoids compilation overhead on small shot
+counts or one-off circuits.
 
 ### Measurement setup
 
-Rates count median attempted shots per second over three timed repetitions of
-at least 15 seconds each, measured after compilation and one full warmup
-sampling call (both reported separately in the widget details and data table).
-Any later lazy planning remains inside the timed window. Each case runs in a
-fresh worker process with thread caps applied before simulator imports.
+Rates report median attempted shots per second across three timed repetitions
+of at least 15 seconds each, measured after compilation and one full warmup
+call (both reported separately in the widget details and data table). Work
+deferred until later calls, such as lazy plan construction, remains inside the
+timed window.
 
-Benchmarks run on AWS `m7a.4xlarge` instances (AMD EPYC 9R14, Ubuntu 24.04)
-using one or eight pinned physical CPU cores and a 32 GiB memory limit. The
-comparison covers **Clifft 0.14**, **Tsim 1.0.0**, **xtim 4.1.2**, **SymFT
-2026.10.8**, and **Stim 1.16.0**; see the
+Each case runs in a fresh worker process pinned to one or eight physical CPU
+cores on AWS `m7a.4xlarge` (AMD EPYC 9R14, Ubuntu 24.04) with a 32 GiB memory
+limit. The comparison covers **Clifft 0.14**, **Tsim 1.0.0**, **xtim 4.1.2**,
+**SymFT 2026.10.8**, and **Stim 1.16.0**; see the
 [Clifft v0.14 results](https://github.com/unitaryfoundation/clifft-bench/tree/eeff4d28344f2c95d7b80e76db4f4513eed28dec/results/release-clifft/0.14.0rc3-20261124-0148),
 [peer simulator results](https://github.com/unitaryfoundation/clifft-bench/tree/eeff4d28344f2c95d7b80e76db4f4513eed28dec/results/release-v1/0.14.0rc1-20261120-2134),
 [review summary](https://github.com/unitaryfoundation/clifft-bench/blob/eeff4d28344f2c95d7b80e76db4f4513eed28dec/results/release-clifft/0.14.0rc3-20261124-0148/report/review.md),
@@ -121,7 +116,7 @@ for exact software commits, environments, and timing boundaries.
 ![Clifft v0.14 survivor-count throughput ratios over v0.13 on one and eight cores side by side: gains on all nine paired circuits, ranging from 1.08x to 65.0x](../assets/performance/release-change-light.png#only-light)
 ![Clifft v0.14 survivor-count throughput ratios over v0.13 on one and eight cores side by side: gains on all nine paired circuits, ranging from 1.08x to 65.0x](../assets/performance/release-change-dark.png#only-dark)
 
-Across all nine paired workloads in survivor-count mode, Clifft v0.14 achieves
+Across all nine paired circuits in survivor-count mode, Clifft v0.14 achieves
 a **11.1x median speedup** on one core (`1.74x`–`65.0x`) and **9.83x** on eight
 cores (`1.08x`–`58.2x`) over v0.13. Fold-transversal `d=5` appears in the peer
 comparison above; its v0.13 survivor baselines were omitted because of their
@@ -130,49 +125,43 @@ runtime.
 Three changes drive the v0.14 gains:
 
 1. **[Global sampling reconstruction](compilation.md#global-reconstruction-for-sampling)**
-   (`reconstruction="auto"` by default) builds narrower output-specific sampling
-   plans, cutting peak active width on circuits such as `d=5` cultivation from
-   10 to 6 and folding redundant rotations.
+   (now on by default) builds narrower sampling plans tailored to the requested
+   outputs—cutting peak active width on `d=5` cultivation from 10 to 6—and
+   folds redundant rotations.
 2. **[Shared trajectory execution](cpu-execution.md#shared-trajectory-execution)**
-   (`sharing="auto"` by default) reuses quantum state evolution across shots
-   following equivalent trajectories, prunes postselected shots early, packs
-   shared states into contiguous slabs, and reuses idle worker pools across
-   calls.
-3. **Runtime SIMD dispatch and default scheduling:** packed batch kernels
-   dispatch to AVX2 and AVX-512 at runtime, and `clifft.compile()` now enables
-   a bounded [active-width scheduler](compilation.md#active-width-scheduling)
-   by default.
+   (now on by default) avoids repeating quantum state evolution for shots that
+   follow the same trajectory, drops rejected postselected shots early, and
+   reuses worker memory across calls.
+3. **Runtime SIMD dispatch and default scheduling:** packed CPU kernels
+   automatically use AVX2 or AVX-512 when available, and `clifft.compile()` now
+   enables [active-width scheduling](compilation.md#active-width-scheduling) by
+   default.
 
 ## Performance over time
 
-While the release chart above compares v0.14 against v0.13 on the expanded
-nine-workload paired suite, the historical series below tracks the fixed
-six-workload QEC core present in every campaign from v0.1 through v0.14.
-Clifft's compiler-and-executor separation allows each release to improve
-circuit optimization, symbolic planning, executable preparation, or
-active-state kernels without moving circuit analysis back into the per-shot
-loop.
+The series below tracks the six core QEC circuits present in every benchmark
+campaign from v0.1 through v0.14. Because Clifft separates ahead-of-time
+compilation from per-shot sampling, each release can shrink active states or
+optimize sampling kernels without adding circuit analysis to the sampling loop.
 
 ![Median chained Clifft throughput from v0.1 through v0.14 relative to v0.1: 134x median chained speedup across the six-workload QEC core](../assets/performance/performance-over-time-light.png#only-light)
 ![Median chained Clifft throughput from v0.1 through v0.14 relative to v0.1: 134x median chained speedup across the six-workload QEC core](../assets/performance/performance-over-time-dark.png#only-dark)
 
-The curve reflects four major steps: [v0.8](../updates/symbolic-sampling.md)
-replaced the original localized-Pauli virtual machine with symbolic plans;
-[v0.10](../updates/packed-sampling.md) added compiler width reduction and
-packed sampling; [v0.11](../updates/less-work-per-shot.md) added operation
-scheduling and deferred noise sampling; and v0.14 added global reconstruction
-and shared trajectory execution, reaching a **134x median chained speedup over
-v0.1**.
+Four releases drove the largest jumps: [v0.8](../updates/symbolic-sampling.md)
+introduced symbolic sampling plans; [v0.10](../updates/packed-sampling.md)
+added compiler width reduction and packed batching;
+[v0.11](../updates/less-work-per-shot.md) added operation scheduling and
+deferred noise sampling; and v0.14 added global reconstruction and shared
+trajectory execution, reaching a **134x median chained speedup over v0.1**.
 
 The v0.1 through v0.9 points come from a common
 [history execution](https://github.com/unitaryfoundation/clifft-bench/tree/eeff4d28344f2c95d7b80e76db4f4513eed28dec/results/clifft-history-v1/clifft-history-v1-20260902),
-and v0.10 through v0.14 chain each workload's paired single-core survivor-count
+and v0.10 through v0.14 chain each circuit's paired single-core survivor-count
 `current / previous` ratio onto that baseline before taking the median across
 the six circuits (see
 [`scripts/render_history.py`](https://github.com/unitaryfoundation/clifft-bench/blob/eeff4d28344f2c95d7b80e76db4f4513eed28dec/scripts/render_history.py)).
 Pairing runs both releases on the same host and protocol within each step,
 though speedup magnitude still reflects the campaign protocol—in particular,
-the v0.14 campaign moved from `m7a.xlarge` to `m7a.4xlarge`, increased
-call sizes on circuits such as coherent `d=5, r=5`, and switched Clifft from
-explicit batch calibration and opt-in scheduling to default automatic
-execution.
+the v0.14 campaign moved from `m7a.xlarge` to `m7a.4xlarge`, increased call
+sizes on circuits such as coherent `d=5, r=5`, and switched Clifft from manual
+batch calibration and opt-in scheduling to default automatic execution.
