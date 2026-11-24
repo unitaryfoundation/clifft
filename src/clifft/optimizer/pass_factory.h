@@ -12,8 +12,9 @@ namespace clifft {
 /// Create an HIR pass by name. Throws std::invalid_argument if unknown.
 std::unique_ptr<HirPass> make_hir_pass(std::string_view name);
 
-/// Build an HirPassManager with all default-enabled HIR passes.
-HirPassManager default_hir_pass_manager();
+/// Build an HirPassManager with default-enabled HIR passes.
+/// Set include_schedule=false for pipelines whose HIR is already scheduled.
+HirPassManager default_hir_pass_manager(bool include_schedule = true);
 
 /// Serialize the pass registry to a JSON string.
 /// Format: [{"name":"...","kind":"hir","default":true|false}, ...]

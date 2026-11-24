@@ -15,26 +15,27 @@ namespace {
 
 // TOHPE has cubic worst-case cost in the number of columns. A fixed search
 // bound keeps the default compiler inexpensive; projection still works above it.
-constexpr size_t kMaxTerms = 128;
-using Selection = std::bitset<kMaxTerms>;
+using Selection = std::bitset<kMaxTohpeColumns>;
 
 struct Row {
     std::vector<uint64_t> features;
     Selection selection;
 };
 
-Selection dependency(const std::vector<uint64_t>& columns, uint32_t width) {
+template <size_t N>
+Selection dependency(const std::vector<BitMask<N>>& columns, uint32_t width) {
     const size_t feature_count = width * (width + 1) / 2;
     std::vector<std::optional<Row>> pivots(feature_count);
     for (size_t i = 0; i < columns.size(); ++i) {
         Row row{std::vector<uint64_t>((feature_count + 63) / 64), {}};
         row.selection.set(i);
-        row.features[0] = columns[i];
-        for (uint64_t bits = columns[i]; bits; bits &= bits - 1) {
-            const auto a = std::countr_zero(bits);
-            for (uint64_t lower = columns[i] & ((uint64_t{1} << a) - 1); lower;
-                 lower &= lower - 1) {
-                const size_t feature = width + a * (a - 1) / 2 + std::countr_zero(lower);
+        std::copy_n(columns[i].w.begin(), (width + 63) / 64, row.features.begin());
+        for (auto bits = columns[i]; !bits.is_zero();) {
+            const auto low = bits.lowest_bit();
+            bits.clear_lowest_bit();
+            for (auto rest = bits; !rest.is_zero(); rest.clear_lowest_bit()) {
+                const auto high = rest.lowest_bit();
+                const size_t feature = width + high * (high - 1) / 2 + low;
                 row.features[feature / 64] |= uint64_t{1} << (feature % 64);
             }
         }
@@ -70,9 +71,10 @@ Selection dependency(const std::vector<uint64_t>& columns, uint32_t width) {
 
 }  // namespace
 
-std::vector<uint64_t> tohpe(std::vector<uint64_t> columns, uint32_t core_width) {
-    assert(core_width <= 64);
-    if (columns.size() <= core_width || columns.size() > kMaxTerms) {
+template <size_t N>
+std::vector<BitMask<N>> tohpe(std::vector<BitMask<N>> columns, uint32_t core_width) {
+    assert(core_width <= N);
+    if (columns.size() <= core_width || columns.size() > kMaxTohpeColumns) {
         return columns;
     }
     std::ranges::sort(columns);
@@ -85,7 +87,7 @@ std::vector<uint64_t> tohpe(std::vector<uint64_t> columns, uint32_t core_width) 
             break;
         }
         const bool odd = selected.count() % 2;
-        std::map<uint64_t, size_t> scores;
+        std::map<BitMask<N>, size_t> scores;
         for (size_t i = 0; i < columns.size(); ++i) {
             // A translated column can vanish, or cancel the extra odd column.
             scores[columns[i]] += selected[i] ? 1 : 2 * odd;
@@ -95,7 +97,7 @@ std::vector<uint64_t> tohpe(std::vector<uint64_t> columns, uint32_t core_width) 
                 }
             }
         }
-        uint64_t shift = 0;
+        BitMask<N> shift;
         size_t best = odd;
         for (const auto& [candidate, score] : scores) {
             if (score > best) {
@@ -103,7 +105,7 @@ std::vector<uint64_t> tohpe(std::vector<uint64_t> columns, uint32_t core_width) 
                 shift = candidate;
             }
         }
-        if (!shift) {
+        if (shift.is_zero()) {
             break;
         }
         [[maybe_unused]] const size_t before = columns.size();
@@ -122,7 +124,7 @@ std::vector<uint64_t> tohpe(std::vector<uint64_t> columns, uint32_t core_width) 
             while (end < columns.size() && columns[end] == columns[i]) {
                 ++end;
             }
-            if (columns[i] && (end - i) % 2) {
+            if (!columns[i].is_zero() && (end - i) % 2) {
                 columns[written++] = columns[i];
             }
             i = end;
@@ -132,5 +134,8 @@ std::vector<uint64_t> tohpe(std::vector<uint64_t> columns, uint32_t core_width) 
     }
     return columns;
 }
+
+template std::vector<BitMask<64>> tohpe(std::vector<BitMask<64>>, uint32_t);
+template std::vector<BitMask<128>> tohpe(std::vector<BitMask<128>>, uint32_t);
 
 }  // namespace clifft::phase_detail

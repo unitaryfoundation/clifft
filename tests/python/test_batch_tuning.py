@@ -1,11 +1,13 @@
 """Calibration is extra work before one complete production sampling call."""
 
 import warnings
+from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
 import pytest
 import stim
+from conftest import binomial_tolerance
 from utils_conformance import assert_joint_distribution, unitary_reference
 
 import clifft
@@ -41,6 +43,7 @@ def sampling_call(request: pytest.FixtureRequest) -> Any:
     def call(shots: int, **kwargs: Any) -> clifft.SampleResult:
         return cast(clifft.SampleResult, getattr(clifft, name)(program, shots, **options, **kwargs))
 
+    call.supports_sharing = "k" not in options  # type: ignore[attr-defined]
     return call
 
 
@@ -59,13 +62,18 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
     measured_sizes = {trial.batch_size for trial in report.trials if trial.shots_per_second > 0}
     assert report.baseline_batch_size in measured_sizes
     assert len(measured_sizes) >= 2
-    assert report.batch_size in {1, 64, 256, 1024, 2048}
+    assert report.sharing == result.execution.sharing
+    if report.sharing:
+        assert 2 <= report.batch_size <= shots
+    else:
+        assert report.batch_size in {1, 64, 256, 1024, 2048}
     assert report.intra_shot_workers == 1
     assert 1 <= report.shot_workers <= threads
     assert report.elapsed_seconds >= 0
     assert report.trial_shots == sum(t.shots + t.warmup_shots for t in report.trials)
     for trial in report.trials:
         assert isinstance(trial, clifft.BatchTuningTrial)
+        assert isinstance(trial.sharing, bool)
         assert trial.shots_per_second >= 0
         assert trial.setup_seconds >= 0
         assert trial.warmup_seconds >= 0
@@ -75,7 +83,13 @@ def test_tuning_runs_requested_shots_and_reports_reusable_configuration(
                 trial.warmup_shots / trial.warmup_seconds
             )
 
-    pinned = sampling_call(shots, seed=82, threads=threads, batch_size=report.batch_size)
+    replay: dict[str, Any] = {"batch_size": report.batch_size}
+    if sampling_call.supports_sharing:
+        if result.execution.sharing:
+            replay["sharing"] = True
+        if result.execution.noise_preparation is not None:
+            replay["noise_preparation"] = result.execution.noise_preparation
+    pinned = sampling_call(shots, seed=82, threads=threads, **replay)
     assert pinned.batch_tuning is None
     for field in ("measurements", "detectors", "observables", "exp_vals", "observable_ones"):
         np.testing.assert_array_equal(getattr(result, field), getattr(pinned, field))
@@ -137,11 +151,11 @@ def test_insufficient_tuning_warns_and_still_returns_complete_results(sampling_c
 
 def test_wide_circuit_skips_calibration_without_a_budget_warning() -> None:
     qubits = " ".join(map(str, range(14)))
-    program = clifft.compile(f"H {qubits}\nT {qubits}\nM 0", hir_passes=None)
+    program = clifft.compile(f"H {qubits}\nT {qubits}\nM 0", hir_passes=None, reconstruction=False)
     assert program.peak_active_width == 14
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        result = clifft.sample(program, 65, batch_size="tune")
+        result = clifft.sample(program, 65, batch_size="tune", sharing=False)
     report = result.batch_tuning
     assert report.stop_reason == "single_candidate"
     assert report.trial_shots == 0
@@ -216,11 +230,18 @@ def test_shared_row_tuning_reports_when_the_baseline_exceeds_the_output_budget()
         "H 0 1 2 3 4 5 6 7\nT 0 1 2 3 4 5 6 7\nM 0 1 2 3 4 5 6 7\n"
         "OBSERVABLE_INCLUDE(127) rec[-1]",
         hir_passes=None,
+        reconstruction=False,
     )
     assert program.peak_active_width == 8
     with pytest.warns(RuntimeWarning):
         result = clifft.sample(
-            program, 65536, seed=42, threads=8, batch_size="tune", tuning_budget_seconds=0.1
+            program,
+            65536,
+            seed=42,
+            threads=8,
+            batch_size="tune",
+            tuning_budget_seconds=0.1,
+            sharing=True,
         )
     assert result.batch_tuning.stop_reason == "output_budget"
     assert result.batch_tuning.trial_shots == 0
@@ -228,3 +249,104 @@ def test_shared_row_tuning_reports_when_the_baseline_exceeds_the_output_budget()
     assert result.batch_tuning.shot_workers == 8
     assert result.measurements.shape == (65536, 8)
     assert result.observables.shape == (65536, 128)
+
+
+def test_auto_sharing_tuning_compares_ordinary_and_shared_candidates() -> None:
+    source = (Path(__file__).parents[1] / "fixtures" / "msc_d3.stim").read_text()
+    mask = [1] * clifft.trace(clifft.parse(source)).num_detectors
+    program = clifft.compile(source, postselection_mask=mask)
+    result = clifft.sample_survivors(
+        program, 4096, seed=91, threads=1, batch_size="tune", tuning_budget_seconds=0.25
+    )
+    report = result.batch_tuning
+    assert report is not None
+    assert report.sufficient_measurements
+    assert {trial.sharing for trial in report.trials} == {False, True}
+    assert report.sharing == result.execution.sharing
+    replay = clifft.sample_survivors(
+        program,
+        4096,
+        seed=91,
+        threads=result.execution.shot_workers,
+        batch_size=result.execution.batch_size,
+        sharing=result.execution.sharing,
+        noise_preparation=result.execution.noise_preparation,
+    )
+    assert replay.passed_shots == result.passed_shots
+    assert replay.logical_errors == result.logical_errors
+    np.testing.assert_array_equal(replay.observable_ones, result.observable_ones)
+
+
+def _build_auto_sharing_tune_circuit(z0: bool, x1: bool, *, noisy: bool) -> str:
+    lines = [
+        "H 0 1",
+        "R_Z(0.19) 0",
+        "CX 0 1",
+        "R_Z(0.27) 1",
+        "H 1",
+        "R_Z(0.15) 1",
+        "CX 1 2",
+    ]
+    if noisy:
+        lines += ["Z_ERROR(0.15) 0", "X_ERROR(0.25) 1"]
+    else:
+        if z0:
+            lines.append("Z 0")
+        if x1:
+            lines.append("X 1")
+    lines += ["CX 1 2", "H 0 1"]
+    if noisy:
+        lines += ["M 0 1 2", "DETECTOR rec[-1]", "OBSERVABLE_INCLUDE(0) rec[-3] rec[-2]"]
+    return "\n".join(lines)
+
+
+def test_auto_sharing_tuning_matches_exact_oracle() -> None:
+    probs = np.zeros(8, dtype=np.float64)
+    for b0, p0 in ((False, 0.85), (True, 0.15)):
+        for b1, p1 in ((False, 0.75), (True, 0.25)):
+            probs += (
+                p0
+                * p1
+                * (
+                    np.abs(unitary_reference(_build_auto_sharing_tune_circuit(b0, b1, noisy=False)))
+                    ** 2
+                )
+            )
+
+    idx = np.arange(8)
+    keep_mask = ((idx >> 2) & 1) == 0
+    obs0 = ((idx >> 0) & 1) ^ ((idx >> 1) & 1)
+    p_pass = float(probs[keep_mask].sum())
+    p_obs = float(probs[keep_mask & (obs0 == 1)].sum())
+
+    shots = 16384
+    program = clifft.compile(
+        _build_auto_sharing_tune_circuit(False, False, noisy=True), postselection_mask=[1]
+    )
+    result = clifft.sample_survivors(
+        program,
+        shots,
+        seed=97,
+        threads=1,
+        keep_records=True,
+        batch_size="tune",
+        tuning_budget_seconds=0.5,
+    )
+    report = result.batch_tuning
+    assert report is not None
+    assert report.sufficient_measurements
+    assert {trial.sharing for trial in report.trials} == {False, True}
+    assert result.execution is not None
+    assert report.sharing == result.execution.sharing
+
+    assert result.passed_shots is not None and result.logical_errors is not None
+    assert result.observable_ones is not None
+    assert abs(result.passed_shots / shots - p_pass) < binomial_tolerance(p_pass, shots) + 1e-14
+    assert result.logical_errors == int(result.observable_ones[0])
+    assert abs(result.observable_ones[0] / shots - p_obs) < binomial_tolerance(p_obs, shots) + 1e-14
+
+    assert not result.detectors.any()
+    np.testing.assert_array_equal(
+        result.observables[:, 0], result.measurements[:, 0] ^ result.measurements[:, 1]
+    )
+    assert_joint_distribution(result.measurements, np.where(keep_mask, probs, 0.0) / p_pass)

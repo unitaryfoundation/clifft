@@ -20,19 +20,6 @@ namespace clifft::sampling {
 namespace {
 
 #if !defined(__EMSCRIPTEN__)
-// Admission limits for classical-heavy fixed workloads, not a prediction of
-// kernel timing. Wider or sustained quantum work still needs explicit tuning.
-// The factor was validated with an unweighted scalar input-step count, including
-// resets and explicit status probes but excluding final-status output writes.
-// Retuning must account for the workload's mix of cheap and expensive steps.
-constexpr uint32_t kMaxExternalInputBatchWidth = 8;
-constexpr uint64_t kMaxBatchLaneWorkPerExternalInput = 16;
-
-// Classical dispatch and parity work can amortize wider packed kernels when
-// detectors cannot skip coefficient work. Sustained quantum plans stay scalar.
-constexpr uint32_t kMaxClassicalBatchWidth = 8;
-constexpr uint64_t kMaxBatchLaneWorkPerAction = 32;
-
 [[nodiscard]] uint32_t batch_worker_count(uint32_t shots, uint32_t shot_workers,
                                           uint32_t lane_capacity) noexcept {
     const uint64_t batches = (static_cast<uint64_t>(shots) + lane_capacity - 1) / lane_capacity;
@@ -147,48 +134,23 @@ uint64_t batch_worker_classical_bytes(const ExecutablePlan& plan, uint32_t lane_
 #endif
 
 bool automatic_batch_eligible(const ExecutablePlan& plan, uint32_t shots,
-                              uint32_t intra_shot_workers, BatchOutputMode output_mode,
-                              BatchSamplingMode sampling_mode,
-                              uint64_t external_input_steps) noexcept {
+                              uint32_t intra_shot_workers, BatchOutputMode output_mode) noexcept {
 #if defined(__EMSCRIPTEN__)
     (void)plan;
     (void)shots;
     (void)intra_shot_workers;
     (void)output_mode;
-    (void)sampling_mode;
-    (void)external_input_steps;
     return false;
 #else
-    if (intra_shot_workers > 1 || plan.has_instruments() || plan.uses_runtime_frame()) {
+    if (intra_shot_workers > 1 || plan.has_instruments() || plan.uses_runtime_frame() ||
+        shots < kDefaultMinAutoBatchShots) {
         return false;
     }
-    if (shots < kDefaultMinAutoBatchShots) {
-        return false;
-    }
-    const bool early_postselection = plan.has_early_postselection(output_mode);
-    if (early_postselection && plan.peak_active_width() >= 5) {
-        return false;
-    }
-    // Packed status/input generation can repay the wider quantum kernels, but
-    // merely having a transition says nothing about sustained coefficient work.
-    // Bound both width and total coefficient visits relative to scalar input
-    // steps; the existing memory limits still determine the batch capacity.
-    const bool amortizes_external_inputs =
-        sampling_mode == BatchSamplingMode::ExternalInputs && !early_postselection &&
-        external_input_steps != 0 && plan.peak_active_width() <= kMaxExternalInputBatchWidth &&
-        plan.estimated_batch_lane_work(output_mode) <=
-            saturating_multiply_u64(external_input_steps, kMaxBatchLaneWorkPerExternalInput);
-    const bool amortizes_classical_actions =
-        !early_postselection && plan.peak_active_width() <= kMaxClassicalBatchWidth &&
-        plan.estimated_batch_lane_work(output_mode) <=
-            saturating_multiply_u64(plan.num_actions(), kMaxBatchLaneWorkPerAction);
-    if (!amortizes_external_inputs && !amortizes_classical_actions &&
-        (plan.peak_active_width() > 5 ||
-         (plan.peak_active_width() == 5 && plan.estimated_width_five_batch_lane_work(output_mode) >
-                                               kDefaultMaxWidthFiveBatchLaneWork))) {
-        return false;
-    }
-    return true;
+    // Packed SIMD kernels beat scalar through width 8; when an explicit
+    // non-shared call faces early postselection, cap packed width at 4 so
+    // rejected lanes do not carry wide coefficient work.
+    const uint32_t max_width = plan.has_early_postselection(output_mode) ? 4 : kMaxAutoBatchWidth;
+    return plan.peak_active_width() <= max_width;
 #endif
 }
 
@@ -207,8 +169,7 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
     BatchSamplingMode sampling_mode, uint64_t additional_worker_bytes,
-    uint64_t additional_worker_bit_columns, uint64_t external_input_steps,
-    const PreparedBatchNoise* noise) {
+    uint64_t additional_worker_bit_columns, const PreparedBatchNoise* noise) {
     if (requested_batch_size.has_value() && *requested_batch_size == 0) {
         throw std::invalid_argument("batch_size must be a positive integer or 'auto'");
     }
@@ -221,7 +182,6 @@ BatchExecutionPolicy resolve_batch_execution_policy(
     (void)sampling_mode;
     (void)additional_worker_bytes;
     (void)additional_worker_bit_columns;
-    (void)external_input_steps;
     (void)noise;
     if (intra_shot_workers > 1 && requested_batch_size.value_or(1) > 1) {
         throw std::invalid_argument("packed batch_size is incompatible with intra-shot workers");
@@ -250,8 +210,7 @@ BatchExecutionPolicy resolve_batch_execution_policy(
         return {.lane_capacity = capacity,
                 .worker_count = batch_worker_count(shots, shot_workers, capacity)};
     }
-    if (!automatic_batch_eligible(plan, shots, intra_shot_workers, output_mode, sampling_mode,
-                                  external_input_steps)) {
+    if (!automatic_batch_eligible(plan, shots, intra_shot_workers, output_mode)) {
         return {};
     }
     // Narrow postselected plans keep batches small so rejected lanes carry

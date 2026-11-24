@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
 import pytest
+from utils_conformance import assert_joint_distribution, unpack_bits
 
 import clifft
 
@@ -34,12 +35,6 @@ def counts(result: clifft.SampleResult) -> tuple[int, int, int, tuple[int, ...]]
         result.logical_errors,
         tuple(int(x) for x in result.observable_ones),
     )
-
-
-def unpack_bits(packed: np.ndarray, columns: int) -> np.ndarray:
-    if columns == 0:
-        return np.empty((packed.shape[0], 0), dtype=np.uint8)
-    return np.unpackbits(packed, axis=1, bitorder="little")[:, :columns]
 
 
 @pytest.mark.parametrize("group_by_noise", [False, True])
@@ -754,3 +749,134 @@ def test_shared_tuning_respects_worker_budget_and_replays_selected_execution() -
     )
     assert single_replay.execution == single.execution
     assert counts(single_replay) == counts(single)
+
+
+def test_shared_worker_reuse_across_repeated_and_concurrent_calls() -> None:
+    def make_program() -> clifft.Program:
+        return clifft.compile(UNPOSTSELECTED_SOURCE)
+
+    reference_ungrouped = clifft.sample(
+        make_program(),
+        4096,
+        seed=31,
+        threads=4,
+        batch_size=512,
+        sharing=True,
+        keep_records="syndromes",
+        bit_packed=True,
+    )
+    reference_grouped = clifft.sample(
+        make_program(),
+        4096,
+        seed=31,
+        threads=4,
+        batch_size=256,
+        sharing=True,
+        group_by_noise=True,
+        keep_records="syndromes",
+        bit_packed=True,
+    )
+
+    program = make_program()
+    for _ in range(4):
+        repeated = clifft.sample(
+            program,
+            4096,
+            seed=31,
+            threads=4,
+            batch_size=512,
+            sharing=True,
+            keep_records="syndromes",
+            bit_packed=True,
+        )
+        np.testing.assert_array_equal(repeated.detectors, reference_ungrouped.detectors)
+        np.testing.assert_array_equal(repeated.observables, reference_ungrouped.observables)
+
+    def run_task(index: int) -> tuple[bool, clifft.SampleResult]:
+        grouped = index % 2 == 1
+        return grouped, clifft.sample(
+            program,
+            4096,
+            seed=31,
+            threads=2,
+            batch_size=256 if grouped else 512,
+            sharing=True,
+            group_by_noise=grouped,
+            keep_records="syndromes",
+            bit_packed=True,
+        )
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        outcomes = list(pool.map(run_task, range(16)))
+    for grouped, result in outcomes:
+        expected = reference_grouped if grouped else reference_ungrouped
+        np.testing.assert_array_equal(result.detectors, expected.detectors)
+        np.testing.assert_array_equal(result.observables, expected.observables)
+
+
+def test_bare_default_width_eight_shared_sampling_matches_exact_records() -> None:
+    meas_lines = [
+        *[f"U3(0.{31 + q},0.{17 + q},-0.{23 + q}) {q}" for q in range(8)],
+        "CX 0 1 2 3 4 5 6 7",
+        *[f"U3(0.{41 + q},-0.{19 + q},0.{29 + q}) {q}" for q in range(8)],
+        "CX 1 2 3 4 5 6 7 0",
+        *[f"U3(0.{53 + q},0.{11 + q},-0.{37 + q}) {q}" for q in range(8)],
+        "CX 0 4 1 5 2 6 3 7",
+        *[f"U3(0.{27 + q},-0.{31 + q},0.{19 + q}) {q}" for q in range(8)],
+        "CX 0 2 1 3 4 6 5 7",
+        *[f"U3(0.{37 + q},0.{23 + q},-0.{13 + q}) {q}" for q in range(8)],
+        "M 0 1",
+        "CX rec[-2] 2",
+        "CZ rec[-1] 3",
+        "R_Z(0.17) 2 3",
+        "H 2 3",
+        "M 2 3 4 5 6 7",
+    ]
+    syn_lines = meas_lines + [
+        "DETECTOR rec[-8] rec[-6] rec[-4] rec[-2]",
+        "DETECTOR rec[-7] rec[-5] rec[-3] rec[-1]",
+        "OBSERVABLE_INCLUDE(0) rec[-8] rec[-7] rec[-2] rec[-1]",
+    ]
+
+    meas_prog = clifft.compile("\n".join(meas_lines))
+    meas_base = clifft.compile("\n".join(meas_lines), hir_passes=None, reconstruction=False)
+    records = ["".join(str((k >> i) & 1) for i in range(8)) for k in range(256)]
+    expected = clifft.record_probabilities(meas_base, records)
+    np.testing.assert_allclose(
+        clifft.record_probabilities(meas_prog, records), expected, atol=1e-12, rtol=0
+    )
+
+    program = clifft.compile("\n".join(syn_lines))
+    assert program.peak_active_width == 8
+
+    shots = 16384
+    serial = clifft.sample(program, shots, seed=41)
+    assert serial.execution is not None
+    assert serial.execution.executor == "shared"
+    assert serial.execution.sharing is True
+
+    threaded = clifft.sample(program, shots, seed=43, threads=2)
+    assert threaded.execution is not None
+    assert threaded.execution.executor == "shared"
+    assert threaded.execution.sharing is True
+
+    scalar = clifft.sample(program, shots, seed=47, batch_size=1, sharing=False)
+    assert scalar.execution is not None
+    assert scalar.execution.executor == "scalar"
+
+    packed = clifft.sample(program, shots, seed=41, keep_records="syndromes", bit_packed=True)
+    assert packed.execution is not None
+    assert packed.execution.executor == "shared"
+    assert packed.execution.sharing is True
+
+    for result in (serial, threaded, scalar):
+        assert_joint_distribution(result.measurements, expected)
+        m = result.measurements
+        np.testing.assert_array_equal(result.detectors[:, 0], m[:, 0] ^ m[:, 2] ^ m[:, 4] ^ m[:, 6])
+        np.testing.assert_array_equal(result.detectors[:, 1], m[:, 1] ^ m[:, 3] ^ m[:, 5] ^ m[:, 7])
+        np.testing.assert_array_equal(
+            result.observables[:, 0], m[:, 0] ^ m[:, 1] ^ m[:, 6] ^ m[:, 7]
+        )
+
+    np.testing.assert_array_equal(unpack_bits(packed.detectors, 2), serial.detectors)
+    np.testing.assert_array_equal(unpack_bits(packed.observables, 1), serial.observables)

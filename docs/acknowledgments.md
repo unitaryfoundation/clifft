@@ -160,6 +160,10 @@ in:
 - Jeongwan Haah and Matthew B. Hastings, ["Codes and Protocols for Distilling T, controlled-S, and Toffoli Gates"](https://arxiv.org/abs/1709.02832),
   *Quantum* 2, 71 (2018).
 
+Clifft benchmarks the active width of detector-only and full-record reconstruction
+using external [Bravyi–Haah circuits from Magna](https://github.com/itpyi/magna/tree/01ae9c2/examples)
+and their [Stim translations](https://github.com/rafaelha/tsim-bench/tree/78298f4bf9203c6bcaabb09657431cc0d8354795/papers/2610.22315_magna).
+
 ## MQT Bench
 
 Clifft's fixed-input 32-qubit Draper QFT adder fixture was generated with

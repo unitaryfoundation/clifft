@@ -3,6 +3,7 @@
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/batch/policy.h"
+#include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/util/fault_sampling.h"
 #include "clifft/util/shot_seed.h"
@@ -33,7 +34,7 @@ using clifft::sampling::BatchSamplingMode;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExecutablePlan;
 using clifft::sampling::ExpValSlot;
-using clifft::sampling::kDefaultMaxWidthFiveBatchLaneWork;
+using clifft::sampling::kMaxAutoBatchWidth;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::RecordClassical;
@@ -600,73 +601,26 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
         resolve_batch_execution_policy(interleaved, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
             .lane_capacity == 1024);
 
-    SamplingPlan sustained_plan;
-    sustained_plan.num_qubits = 5;
-    sustained_plan.initial_active_width = 5;
-    sustained_plan.peak_active_width = 5;
-    sustained_plan.num_exp_vals = 200;
-    for (uint32_t probe = 0; probe < sustained_plan.num_exp_vals; ++probe) {
-        sustained_plan.actions.push_back(
-            PlannedAction{5, 5,
-                          WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
-                                                ExpValSlot{probe}}});
+    for (uint32_t width : {5u, 6u, 8u, 9u}) {
+        SamplingPlan plan_source;
+        plan_source.num_qubits = width;
+        plan_source.initial_active_width = width;
+        plan_source.peak_active_width = width;
+        plan_source.num_exp_vals = 200;
+        for (uint32_t probe = 0; probe < plan_source.num_exp_vals; ++probe) {
+            plan_source.actions.push_back(PlannedAction{
+                width, width,
+                WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
+                                      ExpValSlot{probe}}});
+        }
+        const ExecutablePlan sustained(plan_source);
+        const auto rows_policy = resolve_batch_execution_policy(
+            sustained, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt);
+        REQUIRE((rows_policy.lane_capacity > 1) == (width <= kMaxAutoBatchWidth));
+        REQUIRE(resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows,
+                                               uint32_t{64})
+                    .lane_capacity == 64);
     }
-    const ExecutablePlan sustained(sustained_plan);
-    REQUIRE(sustained.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) >
-            kDefaultMaxWidthFiveBatchLaneWork);
-    REQUIRE(sustained.estimated_width_five_batch_lane_work(BatchOutputMode::AggregateSurvivors) ==
-            0);
-    REQUIRE(
-        resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt)
-            .lane_capacity == 1);
-    REQUIRE(resolve_batch_execution_policy(sustained, 4096, 1, 1,
-                                           BatchOutputMode::AggregateSurvivors, std::nullopt)
-                .lane_capacity == 1024);
-    REQUIRE(
-        resolve_batch_execution_policy(sustained, 4096, 1, 1, BatchOutputMode::Rows, uint32_t{64})
-            .lane_capacity == 64);
-
-    sustained_plan.num_visible_records = 1024;
-    for (uint32_t record = 0; record < sustained_plan.num_visible_records; ++record) {
-        sustained_plan.actions.push_back(
-            PlannedAction{5, 5, RecordClassical{AffineBool{}, RecordSlot{record}}});
-    }
-    const ExecutablePlan classical_heavy(sustained_plan);
-    REQUIRE(classical_heavy.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) >
-            kDefaultMaxWidthFiveBatchLaneWork);
-    REQUIRE(resolve_batch_execution_policy(classical_heavy, 4096, 8, 1, BatchOutputMode::Rows,
-                                           std::nullopt)
-                .lane_capacity == 1024);
-
-    SamplingPlan brief_width_five_plan;
-    brief_width_five_plan.num_qubits = 5;
-    brief_width_five_plan.initial_active_width = 5;
-    brief_width_five_plan.peak_active_width = 5;
-    brief_width_five_plan.num_visible_records = 2104;
-    brief_width_five_plan.symbols.assign(4, SymbolKind::Branch);
-    for (uint32_t measurement = 0; measurement < 4; ++measurement) {
-        const uint32_t active_before = 5 - measurement;
-        const uint32_t pivot = active_before - 1;
-        const SymbolId branch{measurement};
-        brief_width_five_plan.actions.push_back(
-            PlannedAction{active_before, active_before - 1,
-                          MeasureActivePauli{ActivePauli{uint64_t{1} << pivot, 0}, pivot, branch,
-                                             AffineBool::symbol(branch), RecordSlot{measurement}}});
-    }
-    for (uint32_t cycle = 0; cycle < 2100; ++cycle) {
-        brief_width_five_plan.actions.push_back(
-            PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}});
-        brief_width_five_plan.actions.push_back(
-            PlannedAction{1, 1, RecordClassical{AffineBool{}, RecordSlot{cycle + 4}}});
-    }
-    const ExecutablePlan brief_width_five(brief_width_five_plan);
-    REQUIRE(brief_width_five.estimated_batch_lane_work(BatchOutputMode::Rows) >
-            kDefaultMaxWidthFiveBatchLaneWork);
-    REQUIRE(brief_width_five.estimated_width_five_batch_lane_work(BatchOutputMode::Rows) <
-            kDefaultMaxWidthFiveBatchLaneWork);
-    REQUIRE(resolve_batch_execution_policy(brief_width_five, 4096, 1, 1, BatchOutputMode::Rows,
-                                           std::nullopt)
-                .lane_capacity > 1);
 
     const ExecutablePlan noisy = compile_batch_test_plan();
     REQUIRE(noisy.num_batch_noise_carriers() == 0);
@@ -680,39 +634,38 @@ TEST_CASE("Packed capacity policy bounds worker state footprint") {
                 .lane_capacity == 1);
 }
 
-TEST_CASE("External input work can justify wider automatic packing") {
-    const uint32_t width = GENERATE(5, 6, 8, 9);
+TEST_CASE("Automatic packing admits widths through eight unless early postselection applies") {
+    const uint32_t width = GENERATE(4, 5, 6, 8, 9);
     SamplingPlan source;
     source.num_qubits = width;
     source.initial_active_width = width;
     source.peak_active_width = width;
-    source.num_exp_vals = 200;
+    source.num_exp_vals = 16;
     for (uint32_t probe = 0; probe < source.num_exp_vals; ++probe) {
         source.actions.push_back(
             PlannedAction{width, width,
                           WriteExpectationValue{ActiveExpectation{ActivePauli{1, 0}, AffineBool{}},
                                                 ExpValSlot{probe}}});
     }
-    const ExecutablePlan sustained(source);
-    const auto capacity = [&](BatchSamplingMode mode, uint64_t inputs) {
-        return resolve_batch_execution_policy(sustained, 4097, 1, 1, BatchOutputMode::Rows,
-                                              std::nullopt, mode, 0, 0, inputs)
+    const ExecutablePlan ordinary(source);
+    const auto capacity = [&](const ExecutablePlan& plan, BatchSamplingMode mode) {
+        return resolve_batch_execution_policy(plan, 4097, 1, 1, BatchOutputMode::Rows, std::nullopt,
+                                              mode)
             .lane_capacity;
     };
-    CHECK(capacity(BatchSamplingMode::Ordinary, 100000) == 1);
-    CHECK(capacity(BatchSamplingMode::FixedFaults, 100000) == 1);
-    CHECK(capacity(BatchSamplingMode::ExternalInputs, 0) == 1);
-    CHECK(capacity(BatchSamplingMode::ExternalInputs, 1) == 1);
-    CHECK((capacity(BatchSamplingMode::ExternalInputs, 100000) > 1) == (width <= 8));
+    CHECK((capacity(ordinary, BatchSamplingMode::Ordinary) > 1) == (width <= kMaxAutoBatchWidth));
+    CHECK((capacity(ordinary, BatchSamplingMode::FixedFaults) > 1) ==
+          (width <= kMaxAutoBatchWidth));
+    CHECK((capacity(ordinary, BatchSamplingMode::ExternalInputs) > 1) ==
+          (width <= kMaxAutoBatchWidth));
 
     source.num_detectors = 1;
-    source.actions.push_back(
+    source.actions.insert(
+        source.actions.begin(),
         PlannedAction{width, width, WriteDetector{RecordParity{}, DetectorSlot{0}, true}});
-    const ExecutablePlan postselected(source);
-    CHECK((resolve_batch_execution_policy(postselected, 4097, 1, 1, BatchOutputMode::Rows,
-                                          std::nullopt, BatchSamplingMode::ExternalInputs, 0, 0,
-                                          100000)
-               .lane_capacity > 1) == (width <= 8));
+    const ExecutablePlan early_postselected(source);
+    REQUIRE(early_postselected.has_early_postselection(BatchOutputMode::Rows));
+    CHECK((capacity(early_postselected, BatchSamplingMode::Ordinary) > 1) == (width <= 4));
 }
 
 TEST_CASE("Wider automatic external packing retains shot and memory limits") {
@@ -723,7 +676,7 @@ TEST_CASE("Wider automatic external packing retains shot and memory limits") {
                              std::optional<uint32_t> requested = std::nullopt) {
         return resolve_batch_execution_policy(plan, shots, workers, 1, BatchOutputMode::Rows,
                                               requested, BatchSamplingMode::ExternalInputs, 0,
-                                              columns, 10000);
+                                              columns);
     };
     for (uint32_t shots : {0, 1, 63}) {
         CHECK(resolve(shots, 3, 0).lane_capacity == 1);
@@ -982,6 +935,179 @@ TEST_CASE("Site noise preserves the categorical joint law and normalized rejecti
             const double tolerance = 7 * std::sqrt(expected * (1 - probability[bin])) + 10;
             REQUIRE_THAT(static_cast<double>(observed[bin]),
                          Catch::Matchers::WithinAbs(expected, tolerance));
+        }
+    }
+}
+
+TEST_CASE("Noisy width six through eight packed execution matches scalar execution") {
+    constexpr uint32_t kSeedCheckShots = 65;
+    constexpr uint32_t kStatShots = 8192;
+
+    const auto two_sample_close = [&](uint64_t count_a, uint64_t count_b) {
+        const double p_hat =
+            static_cast<double>(count_a + count_b) / (2.0 * static_cast<double>(kStatShots));
+        const double tolerance =
+            7.0 * std::sqrt(2.0 * static_cast<double>(kStatShots) * p_hat * (1.0 - p_hat)) + 12.0;
+        const double diff = std::abs(static_cast<double>(count_a) - static_cast<double>(count_b));
+        REQUIRE(diff <= tolerance);
+    };
+
+    const auto build_wide_noisy_hir = [](uint32_t width) {
+        std::string qubits;
+        std::string tail_qubits;
+        for (uint32_t q = 0; q < width; ++q) {
+            if (q > 0) {
+                qubits += ' ';
+                if (q > 1) {
+                    tail_qubits += ' ';
+                }
+            }
+            const std::string q_str = std::to_string(q);
+            qubits += q_str;
+            if (q > 1) {
+                tail_qubits += q_str;
+            }
+        }
+        std::string source;
+        source += "H " + qubits + "\n";
+        source += "R_Z(0.19) " + qubits + "\n";
+        for (uint32_t q = 0; q + 1 < width; ++q) {
+            source += "CX " + std::to_string(q) + " " + std::to_string(q + 1) + "\n";
+        }
+        source += "H " + qubits + "\n";
+        source += "R_Z(0.27) " + qubits + "\n";
+        source += "X_ERROR(0.05) 0\n";
+        source += "DEPOLARIZE1(0.04) 1\n";
+        source += "CORRELATED_ERROR(0.06) X2 Z3\n";
+        source += "M(0.04) 0\n";
+        source += "CX rec[-1] 1\n";
+        source += "CZ rec[-1] " + std::to_string(width - 1) + "\n";
+        source += "R_Z(0.13) 1\n";
+        source += "H 1\n";
+        source += "M 1\n";
+        source += "DETECTOR rec[-2] rec[-1]\n";
+        source += "H " + tail_qubits + "\n";
+        source += "M " + tail_qubits + "\n";
+        source += "DETECTOR rec[-1] rec[-2]\n";
+        source += "OBSERVABLE_INCLUDE(0) rec[-" + std::to_string(width) + "] rec[-1]\n";
+        return clifft::trace(clifft::parse(source));
+    };
+
+    const auto run_packed_hist = [](const ExecutablePlan& plan, uint32_t batch_capacity,
+                                    const clifft::sampling::PreparedBatchNoise* noise,
+                                    uint64_t seed, bool postselected) {
+        std::array<uint64_t, 8> hist{};
+        uint64_t rejected = 0;
+        BatchExecutor worker(plan, batch_capacity, BatchOutputMode::Rows,
+                             BatchSamplingMode::Ordinary, noise);
+        const SeedRoot root = make_seed_root(kStatShots, seed);
+        for (uint32_t first = 0; first < kStatShots; first += batch_capacity) {
+            const uint32_t count = std::min(batch_capacity, kStatShots - first);
+            worker.run_batch(root, first, count);
+            rejected += count - worker.surviving_shots();
+            for (uint32_t lane = 0; lane < worker.surviving_shots(); ++lane) {
+                const uint32_t det0 = worker.detector(lane, 0);
+                const uint32_t det1 = worker.detector(lane, 1);
+                const uint32_t obs0 = worker.observable(lane, 0);
+                if (postselected) {
+                    REQUIRE(det0 == 0);
+                    ++hist[(det1 << 1U) | obs0];
+                } else {
+                    ++hist[(det0 << 2U) | (det1 << 1U) | obs0];
+                }
+            }
+        }
+        return std::pair{hist, rejected};
+    };
+
+    for (uint32_t width : {6U, 7U, 8U}) {
+        CAPTURE(width);
+        clifft::HirModule hir = build_wide_noisy_hir(width);
+        const ExecutablePlan plan(clifft::sampling::plan_sampling(hir));
+        REQUIRE(plan.peak_active_width() == width);
+
+        const auto auto_policy = clifft::sampling::resolve_batch_execution_policy(
+            plan, 4096, 1, 1, BatchOutputMode::Rows, std::nullopt);
+        REQUIRE(auto_policy.lane_capacity > 1);
+
+        hir.postselection.mask = {1, 0};
+        hir.postselection.expected_detectors = {0, 0};
+        const ExecutablePlan post_plan(clifft::sampling::plan_sampling(hir));
+        REQUIRE(post_plan.peak_active_width() == width);
+        REQUIRE(post_plan.has_postselection());
+
+        for (bool postselected : {false, true}) {
+            const ExecutablePlan& active_plan = postselected ? post_plan : plan;
+            const clifft::sampling::PreparedBatchNoise direct(
+                active_plan, clifft::sampling::BatchNoiseMode::Sparse);
+            const clifft::sampling::PreparedBatchNoise site_sparse(
+                active_plan, clifft::sampling::BatchNoiseMode::SiteSparse);
+            const clifft::sampling::PreparedBatchNoise site_rows(
+                active_plan, clifft::sampling::BatchNoiseMode::SiteRows);
+
+            BatchExecutor dense_check(active_plan, kSeedCheckShots);
+            BatchExecutor sparse_check(active_plan, kSeedCheckShots, BatchOutputMode::Rows,
+                                       BatchSamplingMode::Ordinary, &direct);
+            BatchExecutor col_check(active_plan, kSeedCheckShots, BatchOutputMode::Rows,
+                                    BatchSamplingMode::Ordinary, &site_sparse);
+            BatchExecutor row_check(active_plan, kSeedCheckShots, BatchOutputMode::Rows,
+                                    BatchSamplingMode::Ordinary, &site_rows);
+            const SeedRoot check_root = make_seed_root(kSeedCheckShots, 710 + width);
+            dense_check.run_batch(check_root, 0, kSeedCheckShots);
+            sparse_check.run_batch(check_root, 0, kSeedCheckShots);
+            col_check.run_batch(check_root, 0, kSeedCheckShots);
+            row_check.run_batch(check_root, 0, kSeedCheckShots);
+            REQUIRE(dense_check.surviving_shots() == sparse_check.surviving_shots());
+            REQUIRE(col_check.surviving_shots() == row_check.surviving_shots());
+            for (uint32_t lane = 0; lane < dense_check.surviving_shots(); ++lane) {
+                REQUIRE(dense_check.shot_index(lane) == sparse_check.shot_index(lane));
+                compare_lane_outputs(sparse_check, dense_check, lane, lane, active_plan);
+            }
+            for (uint32_t lane = 0; lane < col_check.surviving_shots(); ++lane) {
+                REQUIRE(col_check.shot_index(lane) == row_check.shot_index(lane));
+                compare_lane_outputs(row_check, col_check, lane, lane, active_plan);
+            }
+
+            std::array<uint64_t, 8> scalar_hist{};
+            uint64_t scalar_rejected = 0;
+            clifft::sampling::Executor scalar(active_plan, 910 + width);
+            for (uint32_t shot = 0; shot < kStatShots; ++shot) {
+                scalar.run_shot();
+                if (scalar.discarded()) {
+                    ++scalar_rejected;
+                    continue;
+                }
+                const uint32_t det0 = scalar.detectors()[0];
+                const uint32_t det1 = scalar.detectors()[1];
+                const uint32_t obs0 = scalar.observables()[0];
+                if (postselected) {
+                    REQUIRE(det0 == 0);
+                    ++scalar_hist[(det1 << 1U) | obs0];
+                } else {
+                    ++scalar_hist[(det0 << 2U) | (det1 << 1U) | obs0];
+                }
+            }
+
+            const uint32_t capacity =
+                postselected ? uint32_t{65} : std::min(auto_policy.lane_capacity, uint32_t{129});
+            const size_t bins = postselected ? 4 : 8;
+            if (postselected) {
+                REQUIRE(scalar_rejected > 0);
+                REQUIRE(scalar_rejected < kStatShots);
+            }
+
+            uint64_t seed_offset = 1000;
+            for (const clifft::sampling::PreparedBatchNoise* mode :
+                 std::array<const clifft::sampling::PreparedBatchNoise*, 3>{nullptr, &site_sparse,
+                                                                            &site_rows}) {
+                seed_offset += 17;
+                const auto [packed_hist, packed_rejected] = run_packed_hist(
+                    active_plan, capacity, mode, 1200 + width + seed_offset, postselected);
+                two_sample_close(scalar_rejected, packed_rejected);
+                for (size_t bin = 0; bin < bins; ++bin) {
+                    two_sample_close(scalar_hist[bin], packed_hist[bin]);
+                }
+            }
         }
     }
 }

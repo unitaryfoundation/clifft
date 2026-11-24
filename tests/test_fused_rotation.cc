@@ -506,3 +506,42 @@ TEST_CASE("Direct rotation SIMD matches scalar at vector boundaries") {
     require_matches_scalar(rotation_plan(6, pivot_four), 0, pivot_four.size());
     require_matches_scalar(rotation_plan(6, pivot_four), 1, pivot_four.size());
 }
+
+#if defined(CLIFFT_TESTS_HAVE_OPENMP)
+TEST_CASE("Portable fused rotation parallel execution preserves serial coefficients") {
+    constexpr uint32_t kWidth = 19;
+    const auto make_initial_state = [] {
+        State state(kWidth, 0);
+        const auto promotion = clifft::sampling::prepare_promotion(0.25);
+        for (uint32_t q = 0; q < kWidth; ++q) {
+            clifft::sampling::apply_promotion(state, promotion, false);
+        }
+        return state;
+    };
+
+    const std::array<ActivePauli, 3> paulis{{
+        {0x15555, 0x2aaaa},
+        {0x2a9c3, 0x13179},
+        {0, 0x3ffff},
+    }};
+    std::vector<PlannedAction> actions;
+    actions.reserve(paulis.size());
+    for (const ActivePauli& pauli : paulis) {
+        actions.push_back(
+            PlannedAction{kWidth, kWidth, RotateActivePauli{pauli, 0.125, AffineBool(false)}});
+    }
+    const auto run = prepare_fused_rotation_run(actions);
+    REQUIRE(run.action_count == actions.size());
+    REQUIRE(run.rotation.has_value());
+    REQUIRE(run.rotation->orbit_rank == 2);
+    REQUIRE(run.rotation->orbit_pivots[0] == 16);
+    REQUIRE(run.rotation->orbit_pivots[1] == 17);
+
+    State serial = make_initial_state();
+    State parallel = make_initial_state();
+    apply_fused_rotation(serial, *run.rotation);
+    clifft::sampling::apply_fused_rotation_parallel(parallel, *run.rotation, 4, kWidth);
+    REQUIRE(std::ranges::equal(parallel.real(), serial.real()));
+    REQUIRE(std::ranges::equal(parallel.imag(), serial.imag()));
+}
+#endif

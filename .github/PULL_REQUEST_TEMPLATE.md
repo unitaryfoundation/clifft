@@ -1,6 +1,13 @@
 ## Summary
 
-<!-- Brief description of what this PR does and why. -->
+<!-- 1-3 sentences: what this PR changes and why. -->
+
+<details>
+<summary>Details</summary>
+
+<!-- Optional: longer walkthrough, commit breakdown, benchmark tables, or command output. -->
+
+</details>
 
 ## Test plan
 

@@ -50,12 +50,26 @@ def test_active_width_trace_peak_matches_lowered_program() -> None:
         assert trace["final"] <= trace["peak"], fixture
 
 
-def test_scheduling_is_opt_in_and_coherent_d3_reaches_peak_four() -> None:
+def test_default_scheduling_reaches_peak_four_on_coherent_d3() -> None:
     circuit = (_FIXTURES / "coherent_d3_r3.stim").read_text()
-    baseline = clifft.compile(circuit)
-    program = clifft.compile(circuit, hir_passes=_schedule_pass_manager())
+    unscheduled = clifft.HirPassManager()
+    unscheduled.add(clifft.PeepholeFusionPass())
+    unscheduled.add(clifft.PhasePolynomialPass())
+    unscheduled.add(clifft.RotationSimplificationPass())
+    unscheduled.add(clifft.StatevectorSqueezePass())
+    baseline = clifft.compile(circuit, hir_passes=unscheduled, reconstruction=False)
+    program = clifft.compile(circuit, reconstruction=False)
     assert program.peak_active_width == 4
     assert baseline.peak_active_width > program.peak_active_width
+
+    # Appending an explicit scheduler replaces the default automatic scheduler.
+    explicit = clifft.ActiveWidthSchedulePass()
+    pm = clifft.default_hir_pass_manager()
+    pm.add(explicit)
+    hir = clifft.trace(clifft.parse(circuit))
+    pm.run(hir)
+    assert explicit.result_peak == 4
+    assert explicit.swept_ops > 0
 
 
 def test_coherent_d5_reaches_peak_at_most_thirteen() -> None:
@@ -147,13 +161,27 @@ def test_applied_unitary_schedule_matches_aer() -> None:
         CX 2 0
         T 0
     """
-    pass_ = clifft.ActiveWidthSchedulePass()
+    pass_ = clifft.ActiveWidthSchedulePass(min_equal_width=0)
     program = clifft.compile(text, hir_passes=_schedule_pass_manager(pass_))
 
     # Keep this oracle check sensitive to an actual scheduling transformation.
     assert pass_.applied
     assert pass_.result_dense_work < pass_.incumbent_dense_work
     assert_statevectors_equiv(clifft.get_statevector(program), unitary_reference(text))
+
+
+def test_min_equal_width_preserves_narrow_equal_width_circuits_by_default() -> None:
+    circuit = (_FIXTURES / "qv10.stim").read_text()
+    default_pass = clifft.ActiveWidthSchedulePass()
+    clifft.compile(circuit, hir_passes=_schedule_pass_manager(default_pass))
+    assert default_pass.incumbent_peak == default_pass.result_peak == 10
+    assert not default_pass.applied
+
+    equal_pass = clifft.ActiveWidthSchedulePass(min_equal_width=0)
+    clifft.compile(circuit, hir_passes=_schedule_pass_manager(equal_pass))
+    assert equal_pass.incumbent_peak == equal_pass.result_peak == 10
+    assert equal_pass.applied
+    assert equal_pass.result_dense_work < equal_pass.incumbent_dense_work
 
 
 def test_applied_schedule_crossing_noise_matches_aer(sampling_mode: SamplingMode) -> None:

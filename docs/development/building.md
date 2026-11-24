@@ -90,6 +90,11 @@ units use explicit ISA flags, while the rest of the library retains the
 configured CPU baseline. Executable preparation detects the host once and
 uses one backend consistently for the resulting program.
 
+The packed batch executor's coefficient kernels are portable loops that
+vectorize across shot lanes. Their source is compiled once per backend, so a
+build with a portable CPU baseline still runs packed batches at the host's
+vector width.
+
 Apple arm64 builds additionally select a NEON backend. Apple Silicon guarantees
 the 128-bit Advanced SIMD baseline, so this backend needs no generation-specific
 feature probe. It specializes eligible rank-two fused rotations, direct Pauli

@@ -41,8 +41,8 @@ export interface PassConfig {
   hir: string[];
 }
 
-function passConfigToJson(config: PassConfig): string {
-  return JSON.stringify(config);
+function passConfigToJson(config: PassConfig | null): string {
+  return config === null ? "" : JSON.stringify(config);
 }
 
 export function useClifftWasm() {
@@ -76,7 +76,7 @@ export function useClifftWasm() {
   }, []);
 
   const compile = useCallback(
-    (source: string, passConfig: PassConfig): CompileResult | null => {
+    (source: string, passConfig: PassConfig | null): CompileResult | null => {
       if (!moduleRef.current) return null;
       try {
         const json = moduleRef.current.compile_to_json(
@@ -108,7 +108,7 @@ export function useClifftWasm() {
   );
 
   const simulate = useCallback(
-    (source: string, shots: number, passConfig: PassConfig): SimulateResult | null => {
+    (source: string, shots: number, passConfig: PassConfig | null): SimulateResult | null => {
       if (!moduleRef.current) return null;
       try {
         const json = moduleRef.current.simulate_wasm(

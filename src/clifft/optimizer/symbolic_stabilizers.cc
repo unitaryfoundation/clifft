@@ -135,7 +135,8 @@ SymbolicStabilizers::SymbolicStabilizers(const HirModule& hir, size_t end,
       num_qubits_(hir.num_qubits),
       domain_(((hir.num_qubits + 63) / 64) * 64),
       basis_(hir.num_qubits),
-      postselected_records_(collect_postselected_records(hir)) {
+      postselected_records_(collect_postselected_records(hir)),
+      dense_((hir.num_qubits + 63) / 64) {
     assert(end <= hir.ops.size());
     for (size_t i = 0; i < end; ++i) {
         if (hir.ops[i].op_type() == OpType::CONDITIONAL_PAULI) {
@@ -248,9 +249,9 @@ bool SymbolicStabilizers::insert_row(Row row) {
     return true;
 }
 
-void SymbolicStabilizers::intersect(MaskView ax, MaskView az) {
+void SymbolicStabilizers::intersect(const PauliCommutation& axis) {
     bool modified = false;
-    if (!basis_.intersect(ax, az, options_.max_row_products, options_.max_expression_terms,
+    if (!basis_.intersect(axis, options_.max_row_products, options_.max_expression_terms,
                           &modified)) {
         forget();
         return;
@@ -260,11 +261,11 @@ void SymbolicStabilizers::intersect(MaskView ax, MaskView az) {
     }
 }
 
-void SymbolicStabilizers::apply_pauli(MaskView ax, MaskView az, const AffineBool& condition) {
+void SymbolicStabilizers::apply_pauli(const PauliCommutation& comm, const AffineBool& condition) {
     if ((condition.terms().empty() && !condition.constant()) || empty_rows()) {
         return;
     }
-    const PauliCommutation comm(ax, az);
+    const MaskView ax = comm.x();
     if (comm.begin_word() == comm.end_word()) {
         return;
     }
@@ -379,9 +380,9 @@ void SymbolicStabilizers::flush_feedback() {
     auto feedback = std::move(*feedback_);
     feedback_.reset();
     if (feedback.condition) {
-        apply_pauli(feedback.axis.x(), feedback.axis.z(), *feedback.condition);
+        apply_pauli(PauliCommutation(feedback.axis.x(), feedback.axis.z()), *feedback.condition);
     } else {
-        intersect(feedback.axis.x(), feedback.axis.z());
+        intersect(PauliCommutation(feedback.axis.x(), feedback.axis.z()));
     }
 }
 
@@ -394,8 +395,8 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
         case OpType::T_GATE:
         case OpType::PHASE_ROTATION:
             if (!empty_rows()) {
-                const auto mask = hir.mask_view(op);
-                intersect(mask.x(), mask.z());
+                dense_.load(hir.mask_view(op));
+                intersect(PauliCommutation(dense_));
             }
             break;
         case OpType::MEASURE: {
@@ -407,8 +408,8 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
                 // An outcome never used for feedback is a private sign, just
                 // like a fault event. Keep only its commuting subgroup.
                 if (!empty_rows()) {
-                    const auto mask = hir.mask_view(op);
-                    intersect(mask.x(), mask.z());
+                    dense_.load(hir.mask_view(op));
+                    intersect(PauliCommutation(dense_));
                 }
                 break;
             }
@@ -425,7 +426,7 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
                 outcome = postselected != postselected_records_.end()
                               ? std::optional{AffineBool(postselected->second)}
                               : fresh_symbol();
-                intersect(axis.x(), axis.z());
+                intersect(PauliCommutation(axis.x(), axis.z()));
                 if (outcome && !insert_row(Row{0, std::move(axis), *outcome})) {
                     forget();
                 }
@@ -443,9 +444,7 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
                 if (feedback_) {
                     // Consecutive Paulis with the same classical control act
                     // as their product, up to an irrelevant branch phase.
-                    const auto mask = hir.mask_view(op);
-                    feedback_->axis.mut_x().xor_with(mask.x());
-                    feedback_->axis.mut_z().xor_with(mask.z());
+                    hir.mask_view(op).xor_into(feedback_->axis.mut_x(), feedback_->axis.mut_z());
                 } else {
                     const auto record = records_.find(id);
                     feedback_ =
@@ -471,12 +470,12 @@ void SymbolicStabilizers::advance(const HirModule& hir, const HeisenbergOp& op) 
                 if (channel.prob == 0) {
                     continue;
                 }
-                const auto mask = hir.noise_channel_masks.at(channel.mask);
                 // Fault events are never feedback controls. Eliminate their
                 // private signs now by retaining the commuting subgroup, whose
                 // products preserve shared-fault correlations. Include the
                 // no-fault path even at probability one for reference syndromes.
-                intersect(mask.x(), mask.z());
+                dense_.load(hir.noise_channel_masks.at(channel.mask));
+                intersect(PauliCommutation(dense_));
             }
             break;
         }

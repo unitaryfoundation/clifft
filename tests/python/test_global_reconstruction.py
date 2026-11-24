@@ -1,14 +1,17 @@
 """Tests for global reconstruction sampling plans and fallback behavior."""
 
 import gc
+import re
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Literal
 
 import numpy as np
 import pytest
 import stim
 from conftest import assert_statevectors_equiv
-from utils_conformance import CPU_SAMPLING_MODES
+from utils_conformance import CPU_SAMPLING_MODES, assert_two_sample_close
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
@@ -127,7 +130,7 @@ def test_plan_view_keeps_owner_alive_and_is_read_only(mode):
 
 
 def test_exact_queries_use_original_plan():
-    original = clifft.compile(SOURCE, hir_passes=None)
+    original = clifft.compile(SOURCE, hir_passes=None, reconstruction=False)
     selected = compile_selected()
     assert isinstance(selected, clifft.Program)
     assert selected.original_plan.inspect() == original.inspect()
@@ -327,7 +330,7 @@ def test_forced_faults_keep_original_sites_and_seeded_results(
     "source, reason",
     [
         (UNITARY + "EXP_VAL Z0\n" + OUTPUTS, "EXP_VAL"),
-        ("R_X(0.13) 0\nM 0\n", "unsupported"),
+        ("R_X(0.13) 0\nM 0\n", "does not reduce"),
         (UNITARY + OUTPUTS + "READOUT_NOISE(0.1,0.2) rec[-1]\n", "readout"),
         ("H 0\nM 0\n", "already zero"),
         (SOURCE, "does not reduce"),
@@ -344,6 +347,102 @@ def test_unsupported_or_unprofitable_sampling_falls_back(source, reason):
         assert plan.peak_active_width == original.peak_active_width
         assert plan.num_actions == original.num_actions
     assert_same_result(clifft.sample(original, 65, seed=9), clifft.sample(fallback, 65, seed=9))
+
+
+def test_general_angle_and_three_qubit_noise_select_with_default_passes():
+    # Entangled general-angle rotations with resets, feedback, 3-qubit noise, and
+    # readout flips stay at width 2 under default passes + scheduling, while
+    # global reconstruction drops peak active width to 1 on both output variants.
+    unitary_prefix = (
+        "H 0 1\n"
+        "CX 0 2 1 3\n"
+        "R_X(0.19) 0\n"
+        "U3(0.31, -0.5, 0.13) 1\n"
+        "R_PAULI(-0.27) !X2*Z0\n"
+        "SPP !Y0*Z2\n"
+        "TPP X3*!Z1\n"
+        "R_ZZ(0.23) 1 3\n"
+    )
+    noisy_circuit = (
+        "H 0 1\n"
+        "CX 0 2 1 3\n"
+        "DEPOLARIZE3(0.189) 0 1 2\n"
+        "R_X(0.19) 0\n"
+        "U3(0.31, -0.5, 0.13) 1\n"
+        "R_PAULI(-0.27) !X2*Z0\n"
+        "SPP !Y0*Z2\n"
+        "TPP X3*!Z1\n"
+        "R_ZZ(0.23) 1 3\n"
+        "MR(0.08) 2\n"
+        "CZ rec[-1] 0\n"
+        "M 0 1 3\n"
+        "DETECTOR rec[-4]\n"
+        "DETECTOR rec[-2]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-3]\n"
+        "OBSERVABLE_INCLUDE(1) rec[-1]\n"
+    )
+    passes = clifft.default_hir_pass_manager()
+    passes.add(clifft.ActiveWidthSchedulePass())
+    original = clifft.compile(
+        noisy_circuit, hir_passes=passes, postselection_mask=[1, 0], expected_detectors=[1, 0]
+    )
+    selected = clifft.compile(
+        noisy_circuit,
+        hir_passes=passes,
+        reconstruction=True,
+        postselection_mask=[1, 0],
+        expected_detectors=[1, 0],
+    )
+    assert original.peak_active_width == 2
+    for keep_records in (False, True):
+        plan = selected.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected and not plan.fallback_reason
+        assert plan.peak_active_width == 1
+
+    shots = 8192
+    ref = clifft.sample_survivors(original, shots, seed=51, keep_records=True, batch_size=1)
+    got = clifft.sample_survivors(selected, shots, seed=79, keep_records=True, batch_size=65)
+    columns = original.num_measurements + original.num_detectors + original.num_observables
+    rng = np.random.default_rng(404)
+    projections = rng.integers(0, 2, size=(columns, 16), dtype=np.uint8)
+    p = joint_frequencies(ref, shots, projections)
+    q = joint_frequencies(got, shots, projections)
+    pooled = (p + q) / 2
+    tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
+    assert np.all(np.abs(p - q) <= tolerance)
+
+    counts = clifft.sample_survivors(selected, shots, seed=93, keep_records=False, batch_size=65)
+    p_cnt = np.r_[ref.passed_shots, ref.logical_errors, ref.observable_ones] / shots
+    q_cnt = np.r_[counts.passed_shots, counts.logical_errors, counts.observable_ones] / shots
+    pooled_cnt = (p_cnt + q_cnt) / 2
+    tol_cnt = 7 * np.sqrt(2 * pooled_cnt * (1 - pooled_cnt) / shots) + 5 / shots
+    assert np.all(np.abs(p_cnt - q_cnt) <= tol_cnt)
+
+    # Exact queries and fixed-fault sampling still route to original_plan.
+    np.testing.assert_array_equal(
+        selected.noise_site_probabilities, original.noise_site_probabilities
+    )
+    assert_same_result(
+        clifft.sample_k_survivors(selected, 65, 1, seed=17, keep_records=True),
+        clifft.sample_k_survivors(original, 65, 1, seed=17, keep_records=True),
+    )
+    measured_unitary = clifft.compile(
+        unitary_prefix + "M 0 1 2 3", hir_passes=None, reconstruction=True
+    )
+    assert measured_unitary.sampling_plan(keep_records=True).reconstruction_selected
+    pure_unitary = clifft.compile(unitary_prefix, reconstruction=True)
+    expected_probs = np.abs(clifft.get_statevector(pure_unitary)) ** 2
+    records = [format(i, "04b")[::-1] for i in range(16)]
+    np.testing.assert_allclose(
+        clifft.record_probabilities(measured_unitary, records), expected_probs, atol=1e-12
+    )
+    np.testing.assert_allclose(
+        clifft.basis_probabilities(pure_unitary, records), expected_probs, atol=1e-12
+    )
+    for record in ([0, 0, 0, 0], [1, 0, 1, 0], [1, 1, 1, 1]):
+        assert _clifft_core._replay_record(measured_unitary, record) == _clifft_core._replay_record(
+            clifft.compile(unitary_prefix + "M 0 1 2 3", hir_passes=None), record
+        )
 
 
 @pytest.mark.parametrize("pass_type", [clifft.RemoveNoisePass, clifft.DropNonUnitaryPass])
@@ -377,12 +476,17 @@ def test_python_owned_pass_preserves_reconstruction_selection():
 
 
 @pytest.mark.expensive
-@pytest.mark.parametrize("distance, width", [(5, 6), (7, 8)])
+@pytest.mark.parametrize(
+    "fixture, width",
+    [
+        ("reconstruction_msc_d5.stim", 6),
+        ("reconstruction_msc_d7.stim", 8),
+        ("coherent_d5_r5.stim", 11),
+    ],
+)
 @pytest.mark.parametrize("schedule", [False, True])
-def test_full_noisy_msc_uses_reconstructed_plans_with_default_passes(distance, width, schedule):
-    source = (
-        Path(__file__).parents[1] / "fixtures" / f"reconstruction_msc_d{distance}.stim"
-    ).read_text()
+def test_full_noisy_fixtures_use_reconstructed_plans_with_default_passes(fixture, width, schedule):
+    source = (Path(__file__).parents[1] / "fixtures" / fixture).read_text()
     passes = clifft.default_hir_pass_manager()
     if schedule:
         passes.add(clifft.ActiveWidthSchedulePass())
@@ -403,8 +507,56 @@ def test_full_noisy_msc_uses_reconstructed_plans_with_default_passes(distance, w
         assert result.measurements.shape == (65 if keep_records else 0, program.num_measurements)
 
 
+@pytest.mark.parametrize(
+    "fault_qubits, fired_detectors, logical_flip",
+    [((), [], 0), ((0,), [89], 1), ((0, 3, 9, 15, 23), [], 1)],
+    ids=["fault-free", "detected-Z", "logical-Z"],
+)
+def test_d5_source_faults_before_logical_y(fault_qubits, fired_detectors, logical_flip):
+    fixture = Path(__file__).parents[1] / "fixtures" / "reconstruction_msc_d5.stim"
+    ideal = fixture.read_text().replace("(0.001)", "(0)")
+    reference = clifft.compute_reference_syndrome(clifft.trace(clifft.parse(ideal)))
+    lines = ideal.splitlines()
+    if fault_qubits:
+        # Force Z outcomes of the last depolarizing layer before the transversal T gates.
+        site = max(i for i, line in enumerate(lines) if line.startswith("DEPOLARIZE1("))
+        assert set(fault_qubits) <= set(map(int, lines[site].split()[1:]))
+        lines[site] = "Z_ERROR(1) " + " ".join(map(str, fault_qubits))
+    source = "\n".join(lines)
+
+    shots = 32
+    num_detectors = len(reference["detectors"])
+    expected_detectors = np.zeros((shots, num_detectors), dtype=np.uint8)
+    expected_detectors[:, fired_detectors] = 1
+    for reconstruction in (False, True):
+        options = dict(
+            reconstruction=reconstruction,
+            expected_detectors=reference["detectors"],
+            expected_observables=reference["observables"],
+        )
+        unfiltered = clifft.compile(source, **options)
+        postselected = clifft.compile(source, postselection_mask=[1] * num_detectors, **options)
+        for mode in (True, "syndromes"):
+            for program in (unfiltered, postselected):
+                plan = program.sampling_plan(keep_records=mode)
+                assert plan.reconstruction_selected == reconstruction
+            result = clifft.sample(unfiltered, shots, seed=7, keep_records=mode)
+            np.testing.assert_array_equal(result.detectors, expected_detectors)
+            np.testing.assert_array_equal(result.observables, np.full((shots, 1), logical_flip))
+
+            survivors = clifft.sample_survivors(postselected, shots, seed=7, keep_records=mode)
+            assert survivors.total_shots == shots
+            assert survivors.passed_shots == (0 if fired_detectors else shots)
+            assert survivors.logical_errors == survivors.passed_shots * logical_flip
+
+
 def joint_frequencies(result, attempted, projections):
-    rows = np.concatenate((result.measurements, result.detectors, result.observables), axis=1)
+    tables = (
+        (result.measurements, result.detectors, result.observables)
+        if result.measurements.shape[0] == result.detectors.shape[0]
+        else (result.detectors, result.observables)
+    )
+    rows = np.concatenate(tables, axis=1)
     parity = (rows @ projections) % 2
     return np.concatenate(([len(rows)], rows.sum(axis=0), parity.sum(axis=0))) / attempted
 
@@ -425,7 +577,11 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
         mask = [int(i < 3) for i in range(num_detectors)]
     else:
         mask = [1] * num_detectors
-    original = clifft.compile(source, postselection_mask=mask, normalize_syndromes=True)
+    original = clifft.compile(
+        source, reconstruction=False, postselection_mask=mask, normalize_syndromes=True
+    )
+    for keep_records in (False, True):
+        assert not original.sampling_plan(keep_records=keep_records).reconstruction_selected
     selected = clifft.compile(
         source, reconstruction=True, postselection_mask=mask, normalize_syndromes=True
     )
@@ -434,7 +590,13 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
     shots = 8192 if postselection == "all" else 4096
     reference = clifft.sample_survivors(original, shots, seed=34, keep_records=True, batch_size=1)
     actual = clifft.sample_survivors(
-        selected, shots, seed=81, keep_records=True, batch_size="tune", tuning_budget_seconds=0
+        selected,
+        shots,
+        seed=81,
+        keep_records=True,
+        batch_size="tune",
+        tuning_budget_seconds=0,
+        sharing=False,
     )
     assert actual.batch_tuning.baseline_batch_size == (512 if distance == 5 else 128)
     columns = original.num_measurements + original.num_detectors + original.num_observables
@@ -453,3 +615,824 @@ def test_full_noisy_msc_joint_statistics_and_acceptance(distance, postselection)
     pooled = (p + q) / 2
     tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
     assert np.all(np.abs(p - q) <= tolerance)
+
+
+def test_pure_clifford_memory_suffix():
+    # 1200 syndrome rounds (2400 resets + measurements) after non-Clifford preparation
+    # must stay within default prefix dilation and schedule budgets.
+    rounds = 1200
+    lines = ["H 0 1", "T 0 1", "CX 0 1", "H 0 1"]
+    for r in range(rounds):
+        lines.append("R 2\nCX 0 2\nCX 1 2\nX_ERROR(0.002) 2\nM 2")
+        if r > 0:
+            lines.append("DETECTOR rec[-2] rec[-1]")
+    lines.append("M 0 1")
+    lines.append("OBSERVABLE_INCLUDE(0) rec[-2] rec[-1]")
+    source = "\n".join(lines) + "\n"
+
+    original = clifft.compile(source, hir_passes=None, reconstruction=False)
+    selected = clifft.compile(source, hir_passes=None, reconstruction=True)
+    assert original.peak_active_width == 2
+    for keep_records in (False, True):
+        plan = selected.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected and not plan.fallback_reason
+        assert plan.peak_active_width == 1
+
+    shots = 2048
+    rng = np.random.default_rng(712)
+    modes: tuple[tuple[bool | Literal["syndromes"], int, int], ...] = (
+        (True, 19, 43),
+        ("syndromes", 59, 83),
+    )
+    for record_mode, seed_a, seed_b in modes:
+        ref = clifft.sample(original, shots, seed=seed_a, keep_records=record_mode)
+        got = clifft.sample(selected, shots, seed=seed_b, keep_records=record_mode)
+        columns = (
+            (original.num_measurements if record_mode is True else 0)
+            + original.num_detectors
+            + original.num_observables
+        )
+        projections = rng.integers(0, 2, size=(columns, 32), dtype=np.uint8)
+        p = joint_frequencies(ref, shots, projections)
+        q = joint_frequencies(got, shots, projections)
+        pooled = (p + q) / 2
+        tolerance = 7 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
+        assert np.all(np.abs(p - q) <= tolerance)
+
+
+def test_wide_output_bailout():
+    # Wide circuits exceeding max_outputs bail out cleanly to original_plan.
+    wide = "H 0 1\nT 0 1\nH 0 1\n" + ("R 2\nM 2\n" * 4100) + "M 0 1\nDETECTOR rec[-1]\n"
+    fallback = clifft.compile(wide, hir_passes=None, reconstruction=True)
+    for keep_records in (False, True):
+        plan = fallback.sampling_plan(keep_records=keep_records)
+        assert not plan.reconstruction_selected
+        assert "output limit exceeded" in plan.fallback_reason
+        assert plan.peak_active_width == fallback.original_plan.peak_active_width
+
+
+def _wide_reconstructible_source(include_syndromes: bool = True, parity_qubit: int = 64) -> str:
+    ancillas = " ".join(str(q) for q in range(2, parity_qubit))
+    parity_cx = " ".join(f"{q} {parity_qubit}" for q in range(2, parity_qubit))
+    lines = [
+        f"H 0 1 {ancillas}",
+        f"T 0 1 {ancillas}",
+        "DEPOLARIZE2(0.2) 0 1",
+        "H 0 1",
+        f"CX {parity_cx}",
+        f"M 0 1 {parity_qubit}",
+    ]
+    if include_syndromes:
+        lines.append("DETECTOR rec[-3] rec[-2]")
+        lines.append("OBSERVABLE_INCLUDE(0) rec[-3]")
+    return "\n".join(lines) + "\n"
+
+
+def _wide_detector_only_source() -> str:
+    qs = list(range(2, 162))
+    qstr = " ".join(map(str, qs))
+    czs = " ".join(
+        f"{qs[i]} {qs[(i + s) % len(qs)]}" for s in (1, 17, 43, 71) for i in range(len(qs))
+    )
+    return (
+        f"H 0 1 {qstr}\n"
+        f"T 0 1 {qstr}\n"
+        "DEPOLARIZE2(0.2) 0 1\n"
+        "H 0 1\n"
+        f"CZ {czs}\n"
+        f"MX {qstr}\n"
+        "M 0 1\n"
+        "DETECTOR rec[-2] rec[-1]\n"
+        "OBSERVABLE_INCLUDE(0) rec[-2]\n"
+    )
+
+
+def test_wide_original_compiles_with_reconstruction_and_guards_unavailable_original():
+    source = _wide_reconstructible_source(include_syndromes=True)
+    with pytest.raises(OverflowError, match="dense-state limit"):
+        clifft.compile(source, reconstruction=False)
+
+    program = clifft.compile(source, reconstruction=True)
+    assert program.num_qubits == 65
+    assert program.num_measurements == 3
+    assert program.num_detectors == 1
+    assert program.num_observables == 1
+    assert program.peak_active_width == 1
+    for keep_records in (False, True, "all", "syndromes", "measurements"):
+        plan = program.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected
+        assert not plan.fallback_reason
+        assert plan.peak_active_width == 1
+    assert "original_plan=unavailable" in repr(program)
+
+    # Sampling succeeds across output modes and matches the 2-qubit core plus a fair Z64 coin.
+    reference = clifft.compile(
+        UNITARY
+        + "DEPOLARIZE2(0.2) 0 1\nH 2\nM 0 1 2\n"
+        + "DETECTOR rec[-3] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]\n"
+    )
+    shots = 4096
+    ref = clifft.sample(reference, shots, seed=31)
+    got = clifft.sample(program, shots, seed=53)
+    projections = np.random.default_rng(42).integers(0, 2, size=(5, 16), dtype=np.uint8)
+    p = joint_frequencies(ref, shots, projections)
+    q = joint_frequencies(got, shots, projections)
+    pooled = (p + q) / 2
+    tolerance = 6 * np.sqrt(2 * pooled * (1 - pooled) / shots) + 5 / shots
+    assert np.all(np.abs(p - q) <= tolerance)
+
+    det, obs = clifft.sample_detectors(program, 257, seed=11, separate_observables=True)
+    assert det.shape == (257, 1) and obs.shape == (257, 1)
+    surv = clifft.sample_survivors(program, 257, seed=11, keep_records=False)
+    assert surv.total_shots == surv.passed_shots == 257
+
+    # Exact-query, replay, and fixed-fault APIs require original_plan and raise OverflowError.
+    expected_orig_err = "original plan is unavailable"
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        _ = program.original_plan
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        _ = program.noise_site_probabilities
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.get_statevector(program)
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.basis_probabilities(program, ["0" * 65])
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.record_probabilities(program, ["000"])
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        _clifft_core._replay_record(program, [0, 0, 0])
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.sample_k(program, 16, 1, seed=7)
+    with pytest.raises(OverflowError, match=expected_orig_err):
+        clifft.sample_k_survivors(program, 16, 1, seed=7)
+
+
+def test_wide_original_asymmetric_variants_and_total_failure():
+    # Unreferenced expander graph-state measurements keep retained-record width >= 60
+    # while detector-only reconstruction elides the unmeasured T rotations to width 1.
+    detector_only_source = _wide_detector_only_source()
+    with pytest.raises(OverflowError, match="dense-state limit"):
+        clifft.compile(detector_only_source, reconstruction=False)
+    detector_only = clifft.compile(detector_only_source, reconstruction=True)
+    assert detector_only.sampling_plan(keep_records=False).reconstruction_selected
+    assert detector_only.sampling_plan(keep_records="syndromes").reconstruction_selected
+    assert "records_plan=unavailable, original_plan=unavailable" in repr(detector_only)
+
+    det, obs = clifft.sample_detectors(detector_only, 129, seed=19, separate_observables=True)
+    assert det.shape == (129, 1) and obs.shape == (129, 1)
+    syn = clifft.sample(detector_only, 129, seed=19, keep_records="syndromes")
+    assert syn.measurements.shape == (0, detector_only.num_measurements)
+    assert syn.detectors.shape == (129, 1)
+    surv_counts = clifft.sample_survivors(detector_only, 129, seed=19, keep_records=False)
+    assert surv_counts.passed_shots == 129
+
+    expected_err = "dense active-width limit"
+    for bad_records in (True, "all", "measurements"):
+        with pytest.raises(OverflowError, match=expected_err):
+            detector_only.sampling_plan(keep_records=bad_records)
+        with pytest.raises(OverflowError, match=expected_err):
+            clifft.sample(detector_only, 16, seed=3, keep_records=bad_records)
+    with pytest.raises(OverflowError, match=expected_err):
+        clifft.sample_survivors(detector_only, 16, seed=3, keep_records=True)
+    for attr in ("peak_active_width", "num_actions"):
+        with pytest.raises(OverflowError, match=expected_err):
+            getattr(detector_only, attr)
+    with pytest.raises(OverflowError, match=expected_err):
+        detector_only.inspect()
+    with pytest.raises(OverflowError, match=expected_err):
+        detector_only.inspect_action(0)
+
+    # Zero detectors and observables make only retained-record sampling available.
+    record_only_source = _wide_reconstructible_source(include_syndromes=False)
+    record_only = clifft.compile(record_only_source, reconstruction=True)
+    assert record_only.sampling_plan(keep_records=True).reconstruction_selected
+    assert "original_plan=unavailable, survivor_plan=unavailable" in repr(record_only)
+    rec_sample = clifft.sample(record_only, 65, seed=23)
+    assert rec_sample.measurements.shape == (65, 3)
+    with pytest.raises(OverflowError, match="no requested sampling outputs"):
+        record_only.sampling_plan(keep_records=False)
+    with pytest.raises(OverflowError, match="no requested sampling outputs"):
+        clifft.sample_survivors(record_only, 16, seed=23, keep_records=False)
+
+    # When neither variant reconstructs below width 60, compile raises OverflowError.
+    unsupported = _wide_reconstructible_source(include_syndromes=True) + "EXP_VAL Z0\n"
+    with pytest.raises(OverflowError, match="EXP_VAL"):
+        clifft.compile(unsupported, reconstruction=True)
+
+
+def test_wide_original_post_lowering_reduction_and_syndrome_normalization():
+    # Scheduled reconstruction width exceeds 60 (116) while post-lowering optimization
+    # fuses T q and TPP Zq*Z256 on |0> into Clifford S gates, collapsing width to 0.
+    data_qs = list(range(256))
+    qstr = " ".join(map(str, data_qs))
+    tpps = " ".join(f"Z{q}*Z256" for q in data_qs)
+    czs = " ".join(f"{q} {(q + s) % 256}" for s in (1, 17, 43, 71) for q in data_qs)
+    post_lowering_source = f"H {qstr}\nT {qstr}\nTPP {tpps}\nCZ {czs}\nMX {qstr}\n"
+    with pytest.raises(OverflowError, match="dense-state limit"):
+        clifft.compile(post_lowering_source, reconstruction=False)
+    post_lowered = clifft.compile(post_lowering_source, reconstruction=True)
+    assert post_lowered.sampling_plan(keep_records=True).reconstruction_selected
+    assert post_lowered.peak_active_width == 0
+    assert clifft.sample(post_lowered, 16, seed=5).measurements.shape == (16, 256)
+
+    # normalize_syndromes=True falls back to a reconstructed noiseless detector plan
+    # when sequential reference planning exceeds width 60, with or without postselection.
+    norm_both = clifft.compile(
+        _wide_reconstructible_source(include_syndromes=True),
+        normalize_syndromes=True,
+        reconstruction=True,
+    )
+    assert norm_both.peak_active_width == 1
+
+    norm_record_only = clifft.compile(
+        _wide_reconstructible_source(include_syndromes=False),
+        normalize_syndromes=True,
+        reconstruction=True,
+    )
+    assert norm_record_only.peak_active_width == 1
+
+    det_ones_source = (
+        _wide_reconstructible_source(include_syndromes=False)
+        + "X 65\nM 65\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+    )
+    with pytest.raises(OverflowError, match="dense-state limit"):
+        clifft.compile(
+            det_ones_source, postselection_mask=[1], normalize_syndromes=True, reconstruction=False
+        )
+    norm_ps = clifft.compile(
+        det_ones_source, postselection_mask=[1], normalize_syndromes=True, reconstruction=True
+    )
+    assert norm_ps.sampling_plan(keep_records=False).peak_active_width == 0
+    surv = clifft.sample_survivors(norm_ps, 32, seed=13, keep_records=True)
+    assert surv.total_shots == surv.passed_shots == 32
+    assert surv.logical_errors == 0
+    assert not surv.detectors.any()
+    assert not surv.observables.any()
+
+
+def test_normalization_reconstructs_wide_reference_below_planner_limit():
+    source = _wide_reconstructible_source(include_syndromes=False, parity_qubit=60) + (
+        "X 61\nM 61\nDETECTOR rec[-1]\nREADOUT_NOISE(1) rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+    )
+    # The noiseless sequential plan fits the planner but its dense state exceeds an EiB.
+    clean = source.replace("DEPOLARIZE2(0.2) 0 1\n", "").replace("READOUT_NOISE(1) rec[-1]\n", "")
+    assert 56 <= clifft.compile(clean, reconstruction=False).peak_active_width < 60
+
+    program = clifft.compile(
+        source, postselection_mask=[1], normalize_syndromes=True, reconstruction=True
+    )
+    assert program.sampling_plan(keep_records=False).peak_active_width == 0
+    result = clifft.sample_survivors(program, 32, seed=13, keep_records="syndromes")
+    # Both noiseless parities are one. Only the observable sees the actual readout flip.
+    assert result.passed_shots == 32
+    assert not result.detectors.any()
+    assert result.observables.all()
+
+
+def test_postselected_small_width_reduction_keeps_original():
+    source = (Path(__file__).parents[1] / "fixtures" / "coherent_d5_r5.stim").read_text()
+    mask = [1] * clifft.trace(clifft.parse(source)).num_detectors
+    automatic_postselected = clifft.compile(source, postselection_mask=mask)
+    explicit_postselected = clifft.compile(source, postselection_mask=mask, reconstruction=True)
+    automatic_unselected = clifft.compile(source)
+    for keep in (True, "syndromes"):
+        kept = automatic_postselected.sampling_plan(keep_records=keep)
+        narrower = explicit_postselected.sampling_plan(keep_records=keep)
+        unselected = automatic_unselected.sampling_plan(keep_records=keep)
+        assert not kept.reconstruction_selected
+        assert narrower.reconstruction_selected
+        assert narrower.peak_active_width == kept.peak_active_width - 2
+        assert unselected.reconstruction_selected
+        assert unselected.peak_active_width == narrower.peak_active_width
+
+
+_NOISE_OP_RE = re.compile(r"\b(DEPOLARIZE1|DEPOLARIZE2|X_ERROR|Z_ERROR|Y_ERROR|M|MX)\([^)]+\)")
+
+
+def _zero_fixture_noise(fixture_name: str) -> list[str]:
+    text = (Path(__file__).parents[1] / "fixtures" / fixture_name).read_text()
+    return _NOISE_OP_RE.sub(r"\1(0)", text).splitlines()
+
+
+def _patch_fixture_lines(fixture_name: str, replacements: tuple[tuple[int, str, str], ...]) -> str:
+    lines = _zero_fixture_noise(fixture_name)
+    for idx, expected_prefix, replacement in replacements:
+        assert lines[idx].startswith(
+            expected_prefix
+        ), f"{fixture_name}:{idx} started with {lines[idx]!r}, expected {expected_prefix!r}"
+        lines[idx] = replacement
+    return "\n".join(lines) + "\n"
+
+
+def _inflate_fixture_layers(
+    fixture_name: str, layers: tuple[tuple[int, str], ...], p: float
+) -> str:
+    lines = _zero_fixture_noise(fixture_name)
+    for idx, expected_prefix in layers:
+        assert lines[idx].startswith(
+            expected_prefix
+        ), f"{fixture_name}:{idx} started with {lines[idx]!r}, expected {expected_prefix!r}"
+        lines[idx] = _NOISE_OP_RE.sub(rf"\1({p})", lines[idx])
+    return "\n".join(lines) + "\n"
+
+
+def _zero_fixture_line(
+    fixture_name: str, idx: int, expected_prefix: str, replace: tuple[str, str] | None = None
+) -> str:
+    line = _zero_fixture_noise(fixture_name)[idx]
+    assert line.startswith(
+        expected_prefix
+    ), f"{fixture_name}:{idx} started with {line!r}, expected {expected_prefix!r}"
+    return line if replace is None else line.replace(*replace)
+
+
+def _assert_reconstructed_and_shared_fired(
+    baseline: clifft.Program,
+    optimized: clifft.Program,
+    baseline_result: clifft.SampleResult,
+    shared_result: clifft.SampleResult,
+    *,
+    keep_records: bool,
+) -> None:
+    assert not baseline.sampling_plan(keep_records=keep_records).reconstruction_selected
+    plan = optimized.sampling_plan(keep_records=keep_records)
+    assert plan.reconstruction_selected
+    assert plan.peak_active_width < baseline.peak_active_width
+    assert baseline_result.execution is not None
+    assert baseline_result.execution.executor == "scalar"
+    assert not baseline_result.execution.sharing
+    assert shared_result.execution is not None
+    expected_executor = "packed" if plan.peak_active_width == 0 else "shared"
+    assert shared_result.execution.executor == expected_executor
+    assert shared_result.execution.sharing
+
+
+@dataclass(frozen=True)
+class _PlantedFaultCase:
+    name: str
+    fixture_name: str
+    replacements: tuple[tuple[int, str, str], ...]
+    mask: tuple[int, ...] | None
+    unoptimized_baseline: bool = True
+    expected_observables: tuple[int, ...] | None = None
+    baseline_shots: int = 128
+    shared_shots: int = 128
+    expected_passed_fraction: float | None = None
+    expected_logical_fraction: float | None = None
+    check_random_rates: bool = True
+
+
+def _run_planted_fault_case(
+    case: _PlantedFaultCase, *, check_unfiltered_exact: bool = False
+) -> None:
+    source = _patch_fixture_lines(case.fixture_name, case.replacements)
+    compile_kwargs: dict[str, Any] = dict(normalize_syndromes=False)
+    if case.mask is not None:
+        compile_kwargs["postselection_mask"] = list(case.mask)
+    if case.expected_observables is not None:
+        compile_kwargs["expected_observables"] = list(case.expected_observables)
+
+    baseline = (
+        clifft.compile(source, hir_passes=None, reconstruction=False, **compile_kwargs)
+        if case.unoptimized_baseline
+        else clifft.compile(source, reconstruction=False, **compile_kwargs)
+    )
+    optimized = clifft.compile(source, reconstruction=True, **compile_kwargs)
+
+    if case.mask is None:
+        ref = clifft.sample(baseline, case.baseline_shots, seed=211, batch_size=1, sharing=False)
+        got = clifft.sample(optimized, case.shared_shots, seed=313, sharing=True)
+        _assert_reconstructed_and_shared_fired(baseline, optimized, ref, got, keep_records=True)
+        ref_means = ref.detectors.mean(axis=0)
+        fixed_mask = (ref_means == 0.0) | (ref_means == 1.0)
+        assert int((ref_means == 1.0).sum()) > 0
+        assert (~fixed_mask).any()
+        np.testing.assert_array_equal(
+            got.detectors[:, fixed_mask],
+            np.broadcast_to(
+                ref.detectors[0, fixed_mask], (case.shared_shots, int(fixed_mask.sum()))
+            ),
+        )
+        if case.check_random_rates:
+            assert_two_sample_close(
+                ref.detectors[:, ~fixed_mask].sum(axis=0),
+                case.baseline_shots,
+                got.detectors[:, ~fixed_mask].sum(axis=0),
+                case.shared_shots,
+            )
+            assert_two_sample_close(
+                ref.observables.sum(axis=0),
+                case.baseline_shots,
+                got.observables.sum(axis=0),
+                case.shared_shots,
+            )
+        return
+
+    for keep_records in (True, False):
+        ref = clifft.sample_survivors(
+            baseline,
+            case.baseline_shots,
+            seed=211,
+            keep_records=keep_records,
+            batch_size=1,
+            sharing=False,
+        )
+        got = clifft.sample_survivors(
+            optimized,
+            case.shared_shots,
+            seed=313,
+            keep_records=keep_records,
+            sharing=True,
+        )
+        _assert_reconstructed_and_shared_fired(
+            baseline, optimized, ref, got, keep_records=keep_records
+        )
+        ref_passed_rate = ref.passed_shots / case.baseline_shots
+        got_passed_rate = got.passed_shots / case.shared_shots
+        assert ref_passed_rate in (0.0, 1.0)
+        assert got_passed_rate == ref_passed_rate
+        if case.expected_passed_fraction is not None:
+            assert got_passed_rate == case.expected_passed_fraction
+        if got.passed_shots > 0:
+            ref_ler = ref.logical_errors / ref.passed_shots
+            got_ler = got.logical_errors / got.passed_shots
+            assert ref_ler in (0.0, 1.0)
+            assert got_ler == ref_ler
+            if case.expected_logical_fraction is not None:
+                assert got_ler == case.expected_logical_fraction
+            if keep_records:
+                det_mask = np.asarray(case.mask, dtype=bool)
+                np.testing.assert_array_equal(
+                    got.detectors[0, det_mask], ref.detectors[0, det_mask]
+                )
+                np.testing.assert_array_equal(got.observables[0], ref.observables[0])
+                assert not got.detectors[:, det_mask].any()
+        elif check_unfiltered_exact and keep_records:
+            unfiltered_kwargs: dict[str, Any] = dict(normalize_syndromes=False)
+            if case.expected_observables is not None:
+                unfiltered_kwargs["expected_observables"] = list(case.expected_observables)
+            unfiltered_base = clifft.compile(
+                source, hir_passes=None, reconstruction=False, **unfiltered_kwargs
+            )
+            unfiltered_opt = clifft.compile(source, reconstruction=True, **unfiltered_kwargs)
+            unfiltered_plan = unfiltered_opt.sampling_plan(keep_records=True)
+            assert unfiltered_plan.reconstruction_selected
+            assert unfiltered_plan.peak_active_width < unfiltered_base.peak_active_width
+            unfiltered_ref = clifft.sample(
+                unfiltered_base, 8, seed=211, batch_size=1, sharing=False
+            )
+            unfiltered_got = clifft.sample(unfiltered_opt, 64, seed=313)
+            np.testing.assert_array_equal(
+                unfiltered_ref.detectors,
+                np.broadcast_to(unfiltered_ref.detectors[0], unfiltered_ref.detectors.shape),
+            )
+            np.testing.assert_array_equal(
+                unfiltered_ref.observables,
+                np.broadcast_to(unfiltered_ref.observables[0], unfiltered_ref.observables.shape),
+            )
+            np.testing.assert_array_equal(
+                unfiltered_got.detectors,
+                np.broadcast_to(unfiltered_ref.detectors[0], unfiltered_got.detectors.shape),
+            )
+            np.testing.assert_array_equal(
+                unfiltered_got.observables,
+                np.broadcast_to(unfiltered_ref.observables[0], unfiltered_got.observables.shape),
+            )
+
+
+_D5_ALL = (1,) * 107
+_C5_FINAL12 = (0,) * 108 + (1,) * 12
+
+_FAST_PLANTED_FAULT_CASES: tuple[_PlantedFaultCase, ...] = (
+    _PlantedFaultCase(
+        "d5-prefix-w1-z",
+        "reconstruction_msc_d5.stim",
+        ((48, "Z_ERROR(", "Z_ERROR(1) 3"),),
+        _D5_ALL,
+        expected_passed_fraction=0.0,
+    ),
+    _PlantedFaultCase(
+        "d5-prefix-w2-dep2-xz",
+        "reconstruction_msc_d5.stim",
+        ((84, "DEPOLARIZE2(", "X_ERROR(1) 2\nZ_ERROR(1) 3"),),
+        None,
+        baseline_shots=256,
+        shared_shots=256,
+    ),
+    _PlantedFaultCase(
+        "d5-noncliff-w1-y",
+        "reconstruction_msc_d5.stim",
+        ((160, "DEPOLARIZE1(", "Y_ERROR(1) 7"),),
+        None,
+        baseline_shots=256,
+        shared_shots=256,
+    ),
+    _PlantedFaultCase(
+        "d5-noncliff-w2-dep2-xy",
+        "reconstruction_msc_d5.stim",
+        ((442, "DEPOLARIZE2(", "X_ERROR(1) 1\nY_ERROR(1) 0"),),
+        _D5_ALL,
+        expected_passed_fraction=0.0,
+    ),
+    _PlantedFaultCase(
+        "d5-noncliff-w3-z",
+        "reconstruction_msc_d5.stim",
+        ((506, "DEPOLARIZE1(", "Z_ERROR(1) 0 3 9"),),
+        _D5_ALL,
+        expected_passed_fraction=0.0,
+    ),
+    _PlantedFaultCase(
+        "d5-noncliff-readout-mx",
+        "reconstruction_msc_d5.stim",
+        (
+            (
+                508,
+                "MX(",
+                _zero_fixture_line("reconstruction_msc_d5.stim", 508, "MX(", ("MX(0)", "MX(1)")),
+            ),
+        ),
+        _D5_ALL,
+        expected_passed_fraction=0.0,
+    ),
+    _PlantedFaultCase(
+        "d5-suffix-readout-mpp-obs",
+        "reconstruction_msc_d5.stim",
+        (
+            (
+                537,
+                "MPP ",
+                _zero_fixture_line("reconstruction_msc_d5.stim", 537, "MPP ")
+                + "\nREADOUT_NOISE(1) rec[-19]",
+            ),
+        ),
+        _D5_ALL,
+        expected_passed_fraction=1.0,
+        expected_logical_fraction=1.0,
+    ),
+    _PlantedFaultCase(
+        "d5-suffix-readout-mpp-det",
+        "reconstruction_msc_d5.stim",
+        (
+            (
+                537,
+                "MPP ",
+                _zero_fixture_line("reconstruction_msc_d5.stim", 537, "MPP ")
+                + "\nREADOUT_NOISE(1) rec[-1]",
+            ),
+        ),
+        _D5_ALL,
+        expected_passed_fraction=0.0,
+    ),
+    _PlantedFaultCase(
+        "c5-prefix-w1-x-accepted",
+        "coherent_d5_r5.stim",
+        ((54, "X_ERROR(", "X_ERROR(1) 1"),),
+        _C5_FINAL12,
+        unoptimized_baseline=False,
+        expected_passed_fraction=1.0,
+        expected_logical_fraction=1.0,
+    ),
+    _PlantedFaultCase(
+        "c5-prefix-w2-x-accepted",
+        "coherent_d5_r5.stim",
+        ((54, "X_ERROR(", "X_ERROR(1) 1 12"),),
+        _C5_FINAL12,
+        unoptimized_baseline=False,
+        expected_passed_fraction=1.0,
+        expected_logical_fraction=1.0,
+    ),
+    _PlantedFaultCase(
+        "c5-noncliff-w2-xz",
+        "coherent_d5_r5.stim",
+        ((77, "X_ERROR(", "X_ERROR(1) 2\nZ_ERROR(1) 1"),),
+        _C5_FINAL12,
+        unoptimized_baseline=False,
+        expected_passed_fraction=1.0,
+        expected_logical_fraction=0.0,
+    ),
+    _PlantedFaultCase(
+        "c5-suffix-w1-x-rejected",
+        "coherent_d5_r5.stim",
+        ((142, "X_ERROR(", "X_ERROR(1) 1"),),
+        _C5_FINAL12,
+        unoptimized_baseline=False,
+        expected_passed_fraction=0.0,
+    ),
+    _PlantedFaultCase(
+        "c5-suffix-w2-x-accepted",
+        "coherent_d5_r5.stim",
+        ((142, "X_ERROR(", "X_ERROR(1) 1 3"),),
+        _C5_FINAL12,
+        unoptimized_baseline=False,
+        expected_passed_fraction=1.0,
+        expected_logical_fraction=0.0,
+    ),
+    _PlantedFaultCase(
+        "c5-suffix-w5-logical",
+        "coherent_d5_r5.stim",
+        ((142, "X_ERROR(", "X_ERROR(1) 1 12 23 34 45"),),
+        _C5_FINAL12,
+        unoptimized_baseline=False,
+        expected_passed_fraction=1.0,
+        expected_logical_fraction=1.0,
+    ),
+    _PlantedFaultCase(
+        "c5-suffix-readout-flip",
+        "coherent_d5_r5.stim",
+        (
+            (
+                143,
+                "M ",
+                _zero_fixture_line("coherent_d5_r5.stim", 143, "M ")
+                + "\nREADOUT_NOISE(1) rec[-25]",
+            ),
+        ),
+        _C5_FINAL12,
+        unoptimized_baseline=False,
+        expected_passed_fraction=0.0,
+    ),
+)
+
+
+@pytest.mark.parametrize("case", _FAST_PLANTED_FAULT_CASES, ids=lambda case: case.name)
+def test_planted_multistage_fault_sweep(case: _PlantedFaultCase) -> None:
+    _run_planted_fault_case(
+        case,
+        check_unfiltered_exact=case.mask is not None
+        and case.fixture_name == "reconstruction_msc_d5.stim",
+    )
+
+
+_D7_PLANTED_FAULT_CASES: tuple[_PlantedFaultCase, ...] = (
+    _PlantedFaultCase(
+        "d7-prefix-w1-z",
+        "reconstruction_msc_d7.stim",
+        ((86, "Z_ERROR(", "Z_ERROR(1) 3"),),
+        None,
+        expected_observables=(1,),
+        baseline_shots=32,
+        shared_shots=128,
+        check_random_rates=False,
+    ),
+    _PlantedFaultCase(
+        "d7-noncliff-w1-y",
+        "reconstruction_msc_d7.stim",
+        ((407, "DEPOLARIZE1(", "Y_ERROR(1) 0"),),
+        None,
+        expected_observables=(1,),
+        baseline_shots=32,
+        shared_shots=128,
+        check_random_rates=False,
+    ),
+    _PlantedFaultCase(
+        "d7-suffix-w2-xz",
+        "reconstruction_msc_d7.stim",
+        ((823, "DEPOLARIZE1(", "X_ERROR(1) 0\nZ_ERROR(1) 3"),),
+        None,
+        expected_observables=(1,),
+        baseline_shots=32,
+        shared_shots=128,
+        check_random_rates=False,
+    ),
+    _PlantedFaultCase(
+        "d7-suffix-readout-mx",
+        "reconstruction_msc_d7.stim",
+        (
+            (
+                782,
+                "MX(",
+                _zero_fixture_line("reconstruction_msc_d7.stim", 782, "MX(", ("MX(0)", "MX(1)")),
+            ),
+        ),
+        None,
+        expected_observables=(1,),
+        baseline_shots=32,
+        shared_shots=128,
+        check_random_rates=False,
+    ),
+)
+
+
+@pytest.mark.expensive
+@pytest.mark.parametrize("case", _D7_PLANTED_FAULT_CASES, ids=lambda case: case.name)
+def test_planted_multistage_fault_sweep_d7(case: _PlantedFaultCase) -> None:
+    _run_planted_fault_case(case)
+
+
+def _assert_inflated_noise_differential(
+    *,
+    source: str,
+    mask: list[int],
+    unoptimized_baseline: bool,
+    ref_shots: int,
+    actual_shots: int,
+    packed_batch_size: int | str = "auto",
+) -> None:
+    compile_kwargs: dict[str, Any] = dict(
+        postselection_mask=mask,
+        normalize_syndromes=False,
+    )
+
+    baseline = (
+        clifft.compile(source, hir_passes=None, reconstruction=False, **compile_kwargs)
+        if unoptimized_baseline
+        else clifft.compile(source, reconstruction=False, **compile_kwargs)
+    )
+    reconstructed = clifft.compile(source, reconstruction=True, **compile_kwargs)
+
+    reference = clifft.sample_survivors(
+        baseline, ref_shots, seed=401, keep_records=True, batch_size=1, sharing=False
+    )
+    assert reference.execution is not None
+    assert reference.execution.executor == "scalar"
+    assert not reference.execution.sharing
+
+    ref_acc = reference.passed_shots / ref_shots
+    ref_ler_cond = reference.logical_errors / reference.passed_shots
+    assert 0.02 <= ref_acc <= 0.90
+    assert 0.01 <= ref_ler_cond <= 0.40
+
+    columns = baseline.num_measurements + baseline.num_detectors + baseline.num_observables
+    projections = np.random.default_rng(943).integers(0, 2, size=(columns, 32), dtype=np.uint8)
+    ref_joint_counts = joint_frequencies(reference, 1, projections)
+    ref_summary_counts = np.r_[
+        reference.passed_shots, reference.logical_errors, reference.observable_ones
+    ]
+
+    configs = (
+        (True, False, clifft.NoisePreparation.SITE_SPARSE),
+        (True, True, clifft.NoisePreparation.SITE_SPARSE),
+        (False, True, clifft.NoisePreparation.SITE_ROWS),
+        (False, True, clifft.NoisePreparation.DENSE),
+    )
+    for keep_records, sharing, prep in configs:
+        plan = reconstructed.sampling_plan(keep_records=keep_records)
+        assert plan.reconstruction_selected
+        assert plan.peak_active_width < baseline.peak_active_width
+
+        batch_size = "auto" if sharing else packed_batch_size
+        actual = clifft.sample_survivors(
+            reconstructed,
+            actual_shots,
+            seed=503 + int(keep_records) + 2 * int(sharing),
+            keep_records=keep_records,
+            sharing=sharing,
+            batch_size=batch_size,
+            noise_preparation=prep,
+        )
+        assert actual.execution is not None
+        assert actual.execution.sharing is sharing
+        assert actual.execution.executor == ("shared" if sharing else "packed")
+        assert actual.execution.noise_preparation == prep
+        assert actual.passed_shots > 0
+
+        actual_summary_counts = np.r_[
+            actual.passed_shots, actual.logical_errors, actual.observable_ones
+        ]
+        assert_two_sample_close(ref_summary_counts, ref_shots, actual_summary_counts, actual_shots)
+        assert_two_sample_close(
+            reference.logical_errors,
+            reference.passed_shots,
+            actual.logical_errors,
+            actual.passed_shots,
+        )
+        if keep_records:
+            actual_joint_counts = joint_frequencies(actual, 1, projections)
+            assert_two_sample_close(ref_joint_counts, ref_shots, actual_joint_counts, actual_shots)
+
+
+def test_inflated_noise_differential_d5() -> None:
+    d5_source = _inflate_fixture_layers(
+        "reconstruction_msc_d5.stim",
+        (
+            (88, "DEPOLARIZE1("),
+            (160, "DEPOLARIZE1("),
+            (439, "DEPOLARIZE1("),
+            (506, "DEPOLARIZE1("),
+            (530, "DEPOLARIZE1("),
+        ),
+        0.015,
+    )
+    _assert_inflated_noise_differential(
+        source=d5_source,
+        mask=[1] * 95 + [0] * 12,
+        unoptimized_baseline=True,
+        ref_shots=16384,
+        actual_shots=16384,
+    )
+
+
+@pytest.mark.expensive
+def test_inflated_noise_differential_coherent_d5() -> None:
+    c5_source = (
+        (Path(__file__).parents[1] / "fixtures" / "coherent_d5_r5.stim")
+        .read_text()
+        .replace("X_ERROR(0.001)", "X_ERROR(0.025)")
+    )
+    _assert_inflated_noise_differential(
+        source=c5_source,
+        mask=[0] * 108 + [1] * 6 + [0] * 6,
+        unoptimized_baseline=False,
+        ref_shots=16384,
+        actual_shots=16384,
+        packed_batch_size=64,
+    )

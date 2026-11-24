@@ -37,69 +37,48 @@ inline uint64_t Z(size_t qubit) {
     return 1ULL << qubit;
 }
 
-// HirModule append_* test helpers.
-//
-// All current tests build single-word Paulis (n <= 64). Wider patterns
-// can call HirModule::append_*(args, fill_lambda) directly.
+// HirModule append_* test helpers for single-word Paulis (n <= 64). Wider
+// patterns can pass a PauliMask to HirModule::append_* directly.
 inline HeisenbergOp& append_tgate(HirModule& hir, uint64_t destab, uint64_t stab, bool sign,
                                   bool dagger = false) {
-    return hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
-        slot.x().words[0] = destab;
-        slot.z().words[0] = stab;
-        slot.set_sign(sign);
-    });
+    return hir.append_tgate(dagger, PauliMask(destab, stab, sign));
 }
 
 inline HeisenbergOp& append_measure(HirModule& hir, uint64_t destab, uint64_t stab, bool sign,
                                     MeasRecordIdx idx) {
-    return hir.append_measure(idx, [&](MutablePauliMaskView slot) {
-        slot.x().words[0] = destab;
-        slot.z().words[0] = stab;
-        slot.set_sign(sign);
-    });
+    return hir.append_measure(idx, PauliMask(destab, stab, sign));
 }
 
 inline HeisenbergOp& append_conditional(HirModule& hir, uint64_t destab, uint64_t stab, bool sign,
                                         ControllingMeasIdx idx) {
-    return hir.append_conditional(idx, [&](MutablePauliMaskView slot) {
-        slot.x().words[0] = destab;
-        slot.z().words[0] = stab;
-        slot.set_sign(sign);
-    });
+    return hir.append_conditional(idx, PauliMask(destab, stab, sign));
 }
 
 inline HeisenbergOp& append_phase_rotation(HirModule& hir, uint64_t destab, uint64_t stab,
                                            bool sign, double alpha) {
-    return hir.append_phase_rotation(alpha, [&](MutablePauliMaskView slot) {
-        slot.x().words[0] = destab;
-        slot.z().words[0] = stab;
-        slot.set_sign(sign);
-    });
+    return hir.append_phase_rotation(alpha, PauliMask(destab, stab, sign));
 }
 
 inline HeisenbergOp& append_exp_val(HirModule& hir, uint64_t destab, uint64_t stab, bool sign,
                                     ExpValIdx idx) {
-    return hir.append_exp_val(idx, [&](MutablePauliMaskView slot) {
-        slot.x().words[0] = destab;
-        slot.z().words[0] = stab;
-        slot.set_sign(sign);
-    });
+    return hir.append_exp_val(idx, PauliMask(destab, stab, sign));
+}
+
+// A Pauli mask acting on one qubit of a register of any width.
+inline PauliMask single_qubit_mask(uint32_t qubit, bool x, bool z, bool sign = false) {
+    PauliMask mask;
+    mask.toggle(qubit, x, z);
+    mask.set_sign(sign);
+    return mask;
 }
 
 inline PauliMaskHandle claim_noise_channel_mask(HirModule& hir, uint64_t destab, uint64_t stab) {
-    auto h = hir.claim_empty_noise_channel_mask();
-    auto slot = hir.noise_channel_masks.mut_at(h);
-    slot.x().words[0] = destab;
-    slot.z().words[0] = stab;
-    return h;
+    return hir.noise_channel_masks.append(PauliMask(destab, stab, false));
 }
 
 inline void set_pauli(HirModule& hir, const HeisenbergOp& op, uint64_t destab, uint64_t stab,
                       bool sign) {
-    auto slot = hir.mask_at(op);
-    slot.x().words[0] = destab;
-    slot.z().words[0] = stab;
-    slot.set_sign(sign);
+    hir.set_mask(op, PauliMask(destab, stab, sign));
 }
 
 // Convert a Pauli string like "XYZ" to (destab_mask, stab_mask) pair.
@@ -256,6 +235,21 @@ inline bool operator==(MaskView v, uint64_t expected) {
 }
 inline bool operator==(uint64_t expected, MaskView v) {
     return v == expected;
+}
+
+/// Compare one bit array of a sparse Pauli mask to a uint64_t (the lower
+/// 64 bits, with all higher words required to be zero).
+inline bool operator==(SparseMaskView v, uint64_t expected) {
+    return v.word(0) == expected && v.popcount() == std::popcount(expected);
+}
+inline bool operator==(uint64_t expected, SparseMaskView v) {
+    return v == expected;
+}
+
+/// Compare one bit array of a sparse Pauli mask to a fixed-width BitMask<N>.
+template <size_t N>
+inline bool operator==(SparseMaskView v, const BitMask<N>& m) {
+    return v == view(m);
 }
 
 }  // namespace clifft

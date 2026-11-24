@@ -76,6 +76,24 @@ class ExecutablePlan {
                                                  bool early_postselection = true,
                                                  bool survivor_counts = true) const;
 
+    // Static bounds on how the shots of one batch separate into distinct
+    // coefficient trajectories. Shots follow one trajectory until a rotation
+    // sign differs between them or an active measurement gives them different
+    // outcomes, so each field counts one source of such differences.
+    struct TrajectoryDivergence {
+        // Expected presampled noise faults and readout flips per shot that can
+        // flip the sign of a later rotation or promotion.
+        double expected_sign_faults = 0.0;
+        // Dormant measurements whose uniformly random outcome can flip such a
+        // sign. Each one doubles the number of trajectories.
+        uint32_t sign_dormant_measurements = 0;
+        // Active measurements followed by a rotation or promotion. Each one
+        // doubles the number of trajectories when its outcome is random, which
+        // the plan does not determine. Later active measurements split no
+        // coefficient work.
+        uint32_t mid_circuit_active_measurements = 0;
+    };
+
     [[nodiscard]] uint32_t num_qubits() const { return num_qubits_; }
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
@@ -129,17 +147,20 @@ class ExecutablePlan {
     [[nodiscard]] size_t num_noise_sites() const noexcept { return noise_sites_.size(); }
     // Expected number of those sites that fire in one shot.
     [[nodiscard]] double expected_noise_faults() const noexcept;
+    [[nodiscard]] const TrajectoryDivergence& trajectory_divergence() const noexcept {
+        return trajectory_divergence_;
+    }
+    // Whether every source of divergence is small enough that a batch of
+    // `lanes` shots stays on few distinct trajectories, so sharing their
+    // coefficient evolution pays without postselection.
+    [[nodiscard]] bool has_bounded_trajectory_divergence(uint32_t lanes) const noexcept;
     [[nodiscard]] uint32_t num_batch_noise_carriers() const noexcept {
         return batch_presampled_program_.has_value() ? batch_presampled_program_->num_carriers()
                                                      : 0;
     }
     [[nodiscard]] size_t num_actions() const { return actions_.size(); }
     [[nodiscard]] uint64_t estimated_batch_lane_work(BatchOutputMode output_mode) const noexcept {
-        return estimated_batch_lane_work_.all_widths.for_output_mode(output_mode);
-    }
-    [[nodiscard]] uint64_t estimated_width_five_batch_lane_work(
-        BatchOutputMode output_mode) const noexcept {
-        return estimated_batch_lane_work_.width_five.for_output_mode(output_mode);
+        return estimated_batch_lane_work_.for_output_mode(output_mode);
     }
     [[nodiscard]] size_t num_new_x_instrument_activations() const;
     [[nodiscard]] uint32_t num_unbound_presampled_symbols() const noexcept {
@@ -165,6 +186,11 @@ class ExecutablePlan {
     friend class ExecutablePlanBuilder;
 
     [[nodiscard]] std::vector<AffineBool> affine_registers() const;
+    // Flags the expression registers that determine a later rotation or
+    // promotion sign, including the registers of symbol definitions those
+    // signs depend on.
+    [[nodiscard]] std::vector<uint8_t> rotation_sign_registers() const;
+    [[nodiscard]] TrajectoryDivergence measure_trajectory_divergence() const;
 
     [[nodiscard]] uint32_t frame_words() const noexcept { return (frame_width_ + 63) / 64; }
     [[nodiscard]] MaskView frame_pauli_x(uint32_t pauli) const noexcept {
@@ -458,9 +484,10 @@ class ExecutablePlan {
     ExecutorBackend backend_ = ExecutorBackend::Scalar;
     uint32_t num_readout_noise_sites_ = 0;
     uint32_t initial_noise_end_ = 0;
-    batch_detail::BatchWorkEstimate estimated_batch_lane_work_;
+    batch_detail::BatchLaneWork estimated_batch_lane_work_;
     // The earliest selected detector has the largest remaining coefficient work.
     batch_detail::BatchLaneWork postselection_remaining_lane_work_;
+    TrajectoryDivergence trajectory_divergence_;
     std::optional<Tableau> final_tableau_;
 
     // Affine registers. Constants are indexed by

@@ -219,8 +219,14 @@ TEST_CASE("Native local composition stays well formed across mask words", "[tabl
         check_tableau_well_formed(appended);
         check_tableau_well_formed(prepended);
         const clifft::Tableau identity(width);
-        CHECK(appended.then(appended.inverse()) == identity);
-        CHECK(appended.inverse().then(appended) == identity);
+        const auto inverse = appended.inverse();
+        CHECK(appended.then(inverse) == identity);
+        CHECK(inverse.then(appended) == identity);
+        for (uint32_t q = 0; q < width; ++q) {
+            clifft::PauliString expected(inverse.z_output(q));
+            expected.set_sign(false);
+            CHECK(appended.unsigned_z_preimage(q) == expected);
+        }
         CHECK(prepended.then(prepended.inverse()) == identity);
         CHECK(prepended.inverse().then(prepended) == identity);
     }

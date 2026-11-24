@@ -1,32 +1,29 @@
 #include "clifft/util/hir_introspection.h"
 
+#include <bit>
 #include <sstream>
 
 namespace clifft {
 
 std::string format_pauli_mask(PauliMaskView mask) {
-    MaskView x_mask = mask.x();
-    MaskView z_mask = mask.z();
-    bool sign = mask.sign();
+    if (mask.is_identity())
+        return mask.sign() ? "-I" : "+I";
 
-    if (x_mask.is_zero() && z_mask.is_zero())
-        return sign ? "-I" : "+I";
-
-    std::string result = sign ? "-" : "+";
+    std::string result = mask.sign() ? "-" : "+";
     bool first = true;
-    const uint32_t bits = x_mask.num_words() * 64;
-    for (uint32_t i = 0; i < bits; ++i) {
-        bool x = x_mask.bit_get(i);
-        bool z = z_mask.bit_get(i);
-        if (x || z) {
+    for (const PauliWord& word : mask) {
+        for (uint64_t support = word.x | word.z; support != 0; support &= support - 1) {
+            const auto offset = static_cast<uint32_t>(std::countr_zero(support));
+            const uint64_t bit = uint64_t{1} << offset;
+            const std::string qubit = std::to_string(word.index * 64 + offset);
             if (!first)
                 result += "*";
-            if (x && z)
-                result += "Y" + std::to_string(i);
-            else if (x)
-                result += "X" + std::to_string(i);
+            if ((word.x & bit) != 0 && (word.z & bit) != 0)
+                result += "Y" + qubit;
+            else if ((word.x & bit) != 0)
+                result += "X" + qubit;
             else
-                result += "Z" + std::to_string(i);
+                result += "Z" + qubit;
             first = false;
         }
     }

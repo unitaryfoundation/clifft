@@ -37,9 +37,8 @@ inline constexpr size_t kMaxExplicitBatchStateBudget = 64 * 1024 * 1024;
 // Minimum request size and lane capacity for automatic packed execution.
 inline constexpr uint32_t kDefaultMinAutoBatchShots = 64;
 
-// Sustained width-five coefficient work eventually favors the scalar SIMD
-// kernels even when a shorter plan at the same peak width batches profitably.
-inline constexpr uint64_t kDefaultMaxWidthFiveBatchLaneWork = 16 * 1024;
+// Largest active width admitted to automatic ordinary packed execution.
+inline constexpr uint32_t kMaxAutoBatchWidth = 8;
 
 // Selects retained per-shot rows or survivor-only aggregate output.
 enum class BatchOutputMode : uint8_t {
@@ -78,13 +77,6 @@ struct BatchLaneWork {
                    ? std::numeric_limits<uint64_t>::max()
                    : common + row_output;
     }
-};
-
-// Policy decisions need both total future work and the portion executed while
-// the active state has the width whose packed/scalar crossover is calibrated.
-struct BatchWorkEstimate {
-    BatchLaneWork all_widths;
-    BatchLaneWork width_five;
 };
 
 // Runtime values used to decide whether moving live lanes now costs less than
@@ -157,6 +149,9 @@ struct BatchExecutionPolicy {
 
     // Maximum simultaneous workers allowed by work and memory budgets.
     uint32_t worker_count = 1;
+
+    // Shared candidates can carry the same lane capacity as ordinary packed candidates.
+    bool sharing = false;
 };
 
 namespace batch_detail {
@@ -212,12 +207,11 @@ struct BatchWorkerStorageLayout {
 
 // Cheap automatic admission before allocating noise metadata for packed workers.
 // Storage budgets are checked only after this structural admission succeeds.
-[[nodiscard]] bool automatic_batch_eligible(
-    const ExecutablePlan& plan, uint32_t shots, uint32_t intra_shot_workers,
-    BatchOutputMode output_mode, BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
-    uint64_t external_input_steps = 0) noexcept;
+[[nodiscard]] bool automatic_batch_eligible(const ExecutablePlan& plan, uint32_t shots,
+                                            uint32_t intra_shot_workers,
+                                            BatchOutputMode output_mode) noexcept;
 
-// Selects noise preparation for ordinary packed sampling of a width-zero plan.
+// Selects noise preparation for ordinary packed sampling.
 // Sparse draws once per fault, while the site modes draw at least once per
 // site in every batch, so Sparse is selected while a full batch expects no
 // more faults than the plan has sites. Above that SiteSparse is faster but
@@ -231,14 +225,13 @@ struct BatchWorkerStorageLayout {
 // that is not part of BatchExecutor in additional_worker_bytes, excluding the
 // BatchExternalInputs buffer already counted in external input mode. Bit columns
 // form one page-rounded allocation that scales with each candidate capacity.
-// External input steps estimate the scalar driver's per-shot classical work;
-// zero keeps the ordinary quantum-only automatic policy. Supplied noise
-// preparation determines carrier and symbol storage in the memory budget.
+// Supplied noise preparation determines carrier and symbol storage in the memory
+// budget.
 [[nodiscard]] BatchExecutionPolicy resolve_batch_execution_policy(
     const ExecutablePlan& plan, uint32_t shots, uint32_t shot_workers, uint32_t intra_shot_workers,
     BatchOutputMode output_mode, std::optional<uint32_t> requested_batch_size,
     BatchSamplingMode sampling_mode = BatchSamplingMode::Ordinary,
     uint64_t additional_worker_bytes = 0, uint64_t additional_worker_bit_columns = 0,
-    uint64_t external_input_steps = 0, const PreparedBatchNoise* noise = nullptr);
+    const PreparedBatchNoise* noise = nullptr);
 
 }  // namespace clifft::sampling

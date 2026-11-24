@@ -26,96 +26,103 @@ void apply_two_qubit_clifford(Tableau& inverse, GateType gate, uint32_t q1, uint
     inverse.prepend_named_gate(Tableau::inverse_named_gate(gate), targets);
 }
 
-void copy_mask_into(MaskView source, MutableMaskView destination) {
-    assert(source.num_words() <= destination.num_words());
-    for (uint32_t w = 0; w < source.num_words(); ++w) {
-        destination.words[w] = source.words[w];
+// Sparse copy of a rewound Pauli, optionally with its sign flipped.
+void assign_rewound(PauliMask& mask, PauliStringView pauli, bool flip_sign = false) {
+    mask.assign(pauli.x(), pauli.z(), pauli.sign() != flip_sign);
+}
+
+enum class PauliAxis : uint8_t { X, Y, Z };
+
+// Sparse copy of a single-qubit Pauli observable rewound through the tableau.
+void assign_rewound_axis(PauliMask& mask, const Tableau& inverse, uint32_t qubit, PauliAxis axis,
+                         bool flip_sign = false) {
+    switch (axis) {
+        case PauliAxis::X:
+            assign_rewound(mask, inverse.x_output(qubit), flip_sign);
+            break;
+        case PauliAxis::Y:
+            assign_rewound(mask, inverse.y_output(qubit).view(), flip_sign);
+            break;
+        case PauliAxis::Z:
+            assign_rewound(mask, inverse.z_output(qubit), flip_sign);
+            break;
     }
-    for (uint32_t w = source.num_words(); w < destination.num_words(); ++w) {
-        destination.words[w] = 0;
-    }
 }
 
-void copy_rewound_into(PauliStringView rewound, MutableMaskView destab, MutableMaskView stab) {
-    copy_mask_into(rewound.x(), destab);
-    copy_mask_into(rewound.z(), stab);
-}
-
-void extract_rewound_into(PauliStringView pauli, MutableMaskView destab, MutableMaskView stab,
-                          bool& sign) {
-    copy_rewound_into(pauli, destab, stab);
-    sign = pauli.sign();
-}
-
-void extract_rewound_z_into(const Tableau& inverse, uint32_t qubit, MutableMaskView destab,
-                            MutableMaskView stab, bool& sign) {
-    extract_rewound_into(inverse.z_output(qubit), destab, stab, sign);
-}
-
-void extract_rewound_x_into(const Tableau& inverse, uint32_t qubit, MutableMaskView destab,
-                            MutableMaskView stab, bool& sign) {
-    extract_rewound_into(inverse.x_output(qubit), destab, stab, sign);
-}
-
-void extract_rewound_y_into(const Tableau& inverse, uint32_t qubit, MutableMaskView destab,
-                            MutableMaskView stab, bool& sign) {
-    const PauliString pauli = inverse.y_output(qubit);
-    extract_rewound_into(pauli.view(), destab, stab, sign);
-}
-
-/// XOR a single-qubit Pauli generator's tableau row into the destination
-/// views. pauli_type: 1=X, 2=Y, 3=Z. Sign is irrelevant for noise channels.
-void accumulate_pauli_row(const Tableau& tableau, uint32_t qubit, int pauli_type,
-                          MutableMaskView destab, MutableMaskView stab) {
-    auto xor_row = [&](PauliStringView row) {
-        for (uint32_t w = 0; w < row.x().num_words(); ++w) {
-            destab.words[w] ^= row.x().words[w];
-            stab.words[w] ^= row.z().words[w];
+// Rewound X, Y, and Z of the qubits one noise site acts on, read from the
+// tableau once in sparse form. Each channel of the site is then a sparse
+// product of one cached Pauli per qubit; channel signs are irrelevant. One
+// instance serves every site of a trace so its storage is reused.
+class RewoundGenerators {
+  public:
+    void load(const Tableau& inverse, std::initializer_list<uint32_t> qubits) {
+        assert(qubits.size() <= kMaxQubits);
+        size_t i = 0;
+        for (uint32_t qubit : qubits) {
+            const PauliStringView x = inverse.x_output(qubit);
+            const PauliStringView z = inverse.z_output(qubit);
+            std::array<PauliMask, 3>& paulis = paulis_[i++];
+            paulis[0].assign(x.x(), x.z(), false);
+            paulis[2].assign(z.x(), z.z(), false);
+            paulis[1].assign(paulis[0]);
+            paulis[1].multiply_body(paulis[2]);
         }
-    };
-    if (pauli_type == 1 || pauli_type == 2) {
-        xor_row(tableau.x_output(qubit));
     }
-    if (pauli_type == 2 || pauli_type == 3) {
-        xor_row(tableau.z_output(qubit));
-    }
-}
 
-struct PauliTerm {
-    uint32_t qubit;
-    int pauli_type;
+    // Store the product of one Pauli per loaded qubit (0=I, 1=X, 2=Y, 3=Z)
+    // as a noise channel of the given probability.
+    NoiseChannel channel(HirModule& hir, std::initializer_list<int> pauli_types, double prob) {
+        PauliMaskView product;
+        std::vector<PauliWord>* scratch = &scratch_[0];
+        size_t i = 0;
+        for (int pauli_type : pauli_types) {
+            const std::array<PauliMask, 3>& paulis = paulis_[i++];
+            if (pauli_type == 0) {
+                continue;
+            }
+            const PauliMaskView factor = paulis[static_cast<size_t>(pauli_type - 1)];
+            if (product.is_identity()) {
+                product = factor;
+                continue;
+            }
+            // Alternate buffers so the running product is never its own output.
+            scratch->clear();
+            append_body_product(product, factor, *scratch);
+            product = PauliMaskView{*scratch, false};
+            scratch = scratch == &scratch_[0] ? &scratch_[1] : &scratch_[0];
+        }
+        return NoiseChannel{hir.noise_channel_masks.append(product), prob};
+    }
+
+  private:
+    static constexpr size_t kMaxQubits = 3;
+    // paulis_[i] holds rewound X, Y, Z of the i-th loaded qubit.
+    std::array<std::array<PauliMask, 3>, kMaxQubits> paulis_;
+    std::array<std::vector<PauliWord>, 2> scratch_;
 };
 
-/// Rewind a Pauli product through the tableau into a fresh noise-channel slot.
-NoiseChannel rewind_pauli_terms(HirModule& hir, const Tableau& inverse,
-                                std::initializer_list<PauliTerm> terms, double prob) {
-    auto h = hir.claim_empty_noise_channel_mask();
-    auto slot = hir.noise_channel_masks.mut_at(h);
-    slot.x().zero_out();
-    slot.z().zero_out();
-    for (const auto& term : terms) {
-        if (term.pauli_type != 0) {
-            accumulate_pauli_row(inverse, term.qubit, term.pauli_type, slot.x(), slot.z());
-        }
-    }
-    return NoiseChannel{h, prob};
-}
-
-/// Rewind a Pauli product stored as Pauli-tagged targets into a fresh noise slot.
+/// Rewind a Pauli product stored as Pauli-tagged targets into a new noise channel.
 NoiseChannel rewind_pauli_targets(HirModule& hir, const Tableau& inverse,
                                   const std::vector<Target>& targets, double prob) {
-    auto h = hir.claim_empty_noise_channel_mask();
-    auto slot = hir.noise_channel_masks.mut_at(h);
-    slot.x().zero_out();
-    slot.z().zero_out();
+    PauliMask product;
+    PauliMask row;
     for (const auto& target : targets) {
         if (!target.has_pauli()) {
             throw std::runtime_error("Expected Pauli target");
         }
-        auto pauli_type = static_cast<int>(target.pauli() >> Target::kPauliShift);
-        accumulate_pauli_row(inverse, target.value(), pauli_type, slot.x(), slot.z());
+        const bool has_x = target.pauli() == Target::kPauliX || target.pauli() == Target::kPauliY;
+        const bool has_z = target.pauli() == Target::kPauliZ || target.pauli() == Target::kPauliY;
+        if (has_x) {
+            assign_rewound(row, inverse.x_output(target.value()));
+            product.multiply_body(row);
+        }
+        if (has_z) {
+            assign_rewound(row, inverse.z_output(target.value()));
+            product.multiply_body(row);
+        }
     }
-    return NoiseChannel{h, prob};
+    product.set_sign(false);
+    return NoiseChannel{hir.noise_channel_masks.append(product), prob};
 }
 
 void append_noise_site(HirModule& hir, NoiseSite site, double total_probability,
@@ -145,23 +152,31 @@ double represented_depolarizing_probability(double probability, double outcome_c
     return probability / outcome_count == 0.0 ? 0.0 : probability;
 }
 
-NoiseSite make_single_qubit_noise_site(HirModule& hir, const Tableau& inverse, GateType gate,
-                                       uint32_t qubit, double prob) {
+NoiseSite make_single_qubit_noise_site(HirModule& hir, const Tableau& inverse,
+                                       RewoundGenerators& generators, PauliMask& mask,
+                                       GateType gate, uint32_t qubit, double prob) {
+    // A single-axis error needs only that axis; channel signs are irrelevant.
+    const auto single_axis = [&](PauliAxis axis) {
+        assign_rewound_axis(mask, inverse, qubit, axis);
+        mask.set_sign(false);
+        return NoiseChannel{hir.noise_channel_masks.append(mask), prob};
+    };
     NoiseSite site;
     switch (gate) {
         case GateType::X_ERROR:
-            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 1}}, prob));
+            site.channels.push_back(single_axis(PauliAxis::X));
             break;
         case GateType::Y_ERROR:
-            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 2}}, prob));
+            site.channels.push_back(single_axis(PauliAxis::Y));
             break;
         case GateType::Z_ERROR:
-            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 3}}, prob));
+            site.channels.push_back(single_axis(PauliAxis::Z));
             break;
         case GateType::DEPOLARIZE1:
-            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 1}}, prob / 3.0));
-            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 2}}, prob / 3.0));
-            site.channels.push_back(rewind_pauli_terms(hir, inverse, {{qubit, 3}}, prob / 3.0));
+            generators.load(inverse, {qubit});
+            site.channels.push_back(generators.channel(hir, {1}, prob / 3.0));
+            site.channels.push_back(generators.channel(hir, {2}, prob / 3.0));
+            site.channels.push_back(generators.channel(hir, {3}, prob / 3.0));
             break;
         default:
             throw std::runtime_error("Not a single-qubit noise gate");
@@ -169,32 +184,36 @@ NoiseSite make_single_qubit_noise_site(HirModule& hir, const Tableau& inverse, G
     return site;
 }
 
-NoiseSite make_depolarize2_noise_site(HirModule& hir, const Tableau& inverse, uint32_t q1,
-                                      uint32_t q2, double prob) {
+NoiseSite make_depolarize2_noise_site(HirModule& hir, const Tableau& inverse,
+                                      RewoundGenerators& generators, uint32_t q1, uint32_t q2,
+                                      double prob) {
+    generators.load(inverse, {q1, q2});
     NoiseSite site;
+    site.channels.reserve(15);
     double channel_prob = prob / 15.0;
     for (int p1 = 0; p1 <= 3; ++p1) {
         for (int p2 = 0; p2 <= 3; ++p2) {
             if (p1 == 0 && p2 == 0)
                 continue;
-            site.channels.push_back(
-                rewind_pauli_terms(hir, inverse, {{q1, p1}, {q2, p2}}, channel_prob));
+            site.channels.push_back(generators.channel(hir, {p1, p2}, channel_prob));
         }
     }
     return site;
 }
 
-NoiseSite make_depolarize3_noise_site(HirModule& hir, const Tableau& inverse, uint32_t q1,
-                                      uint32_t q2, uint32_t q3, double prob) {
+NoiseSite make_depolarize3_noise_site(HirModule& hir, const Tableau& inverse,
+                                      RewoundGenerators& generators, uint32_t q1, uint32_t q2,
+                                      uint32_t q3, double prob) {
+    generators.load(inverse, {q1, q2, q3});
     NoiseSite site;
+    site.channels.reserve(63);
     double channel_prob = prob / 63.0;
     for (int p1 = 0; p1 <= 3; ++p1) {
         for (int p2 = 0; p2 <= 3; ++p2) {
             for (int p3 = 0; p3 <= 3; ++p3) {
                 if (p1 == 0 && p2 == 0 && p3 == 0)
                     continue;
-                site.channels.push_back(
-                    rewind_pauli_terms(hir, inverse, {{q1, p1}, {q2, p2}, {q3, p3}}, channel_prob));
+                site.channels.push_back(generators.channel(hir, {p1, p2, p3}, channel_prob));
             }
         }
     }
@@ -302,17 +321,14 @@ bool try_absorb_clifford_pauli_rotation(Tableau& inverse, PauliStringView pauli,
 // Trace R_Z(alpha) on a single qubit by extracting its rewound Z axis. The
 // source gate and emitted exponential may differ by a global phase, which is
 // intentionally omitted by the projective state contract.
-void trace_rz(Tableau& inverse, HirModule& hir, uint32_t qubit, double alpha) {
+void trace_rz(Tableau& inverse, HirModule& hir, PauliMask& mask, uint32_t qubit, double alpha) {
     if (try_absorb_clifford_axis_rotation(inverse, qubit, alpha, GateType::S, GateType::Z,
                                           GateType::S_DAG)) {
         return;
     }
 
-    bool sign = false;
-    hir.append_phase_rotation(alpha, [&](MutablePauliMaskView slot) {
-        extract_rewound_z_into(inverse, qubit, slot.x(), slot.z(), sign);
-        slot.set_sign(sign);
-    });
+    assign_rewound_axis(mask, inverse, qubit, PauliAxis::Z);
+    hir.append_phase_rotation(alpha, mask);
 }
 
 // Trace an arbitrary Pauli rotation exp(-i*alpha*pi/2 * P).
@@ -323,10 +339,7 @@ void trace_pauli_rotation(Tableau& inverse, HirModule& hir, PauliStringView obse
     }
 
     const PauliString rewound = inverse.apply(observable);
-    hir.append_phase_rotation(alpha, [&](MutablePauliMaskView slot) {
-        copy_rewound_into(rewound.view(), slot.x(), slot.z());
-        slot.set_sign(rewound.sign());
-    });
+    hir.append_phase_rotation(alpha, PauliMask(rewound.x(), rewound.z(), rewound.sign()));
 }
 
 /// Build a PauliString from an MPP/EXP_VAL/R_PAULI target list.
@@ -348,128 +361,6 @@ PauliString build_pauli_string(const std::vector<Target>& targets, uint32_t num_
     }
     observable.set_sign(false);
     return observable;
-}
-
-/// Conservative upper bound on the number of noise channel masks the
-/// trace will emit. Some channels with prob = 0 are skipped, so the
-/// actual count may be lower; the unused arena slots stay zero-init.
-size_t count_noise_channels(const Circuit& circuit) {
-    size_t count = 0;
-    for (const auto& node : circuit.nodes) {
-        const size_t n_targets = node.targets.size();
-        switch (node.gate) {
-            case GateType::X_ERROR:
-            case GateType::Y_ERROR:
-            case GateType::Z_ERROR:
-                count += n_targets;
-                break;
-            case GateType::DEPOLARIZE1:
-            case GateType::PAULI_CHANNEL_1:
-                count += 3 * n_targets;
-                break;
-            case GateType::DEPOLARIZE2:
-            case GateType::PAULI_CHANNEL_2:
-                count += 15 * (n_targets / 2);
-                break;
-            case GateType::DEPOLARIZE3:
-            case GateType::PAULI_CHANNEL_3:
-                count += 63 * (n_targets / 3);
-                break;
-            case GateType::CORRELATED_ERROR:
-            case GateType::ELSE_CORRELATED_ERROR:
-                count += 1;
-                break;
-            default:
-                break;
-        }
-    }
-    return count;
-}
-
-/// Pre-count the number of mask-carrying HIR ops the trace will emit.
-/// Must mirror the dispatch in trace().
-size_t count_pauli_masks(const Circuit& circuit) {
-    size_t count = 0;
-    for (const auto& node : circuit.nodes) {
-        const size_t n_targets = node.targets.size();
-        switch (node.gate) {
-            case GateType::T:
-            case GateType::T_DAG:
-            case GateType::M:
-            case GateType::MX:
-            case GateType::MY:
-            case GateType::MPAD:
-                count += n_targets;
-                break;
-            case GateType::R_Z:
-            case GateType::R_X:
-            case GateType::R_Y:
-                if (!classify_clifford_rotation(node.args[0]).has_value()) {
-                    count += n_targets;
-                }
-                break;
-            case GateType::U3: {
-                size_t rotations_per_target = 0;
-                for (double alpha : node.args) {
-                    rotations_per_target += !classify_clifford_rotation(alpha).has_value();
-                }
-                count += rotations_per_target * n_targets;
-                break;
-            }
-            case GateType::R_XX:
-            case GateType::R_YY:
-            case GateType::R_ZZ: {
-                if (!classify_clifford_rotation(node.args[0]).has_value()) {
-                    count += n_targets / 2;
-                }
-                break;
-            }
-            case GateType::R_PAULI: {
-                if (!classify_clifford_rotation(node.args[0]).has_value()) {
-                    count += 1;
-                }
-                break;
-            }
-            case GateType::SPP:
-            case GateType::SPP_DAG:
-                // These are absorbed directly into the Clifford frame during tracing.
-                break;
-            case GateType::TPP:
-            case GateType::TPP_DAG:
-            case GateType::EXP_VAL:
-            case GateType::MPP:
-                count += 1;
-                break;
-            case GateType::LEVEL_TRANSITION:
-            case GateType::LEAKAGE:
-            case GateType::LOSS:
-                // Two masks per materialized instrument site: the rewound
-                // source projector on the op, and the rewound X destination flip in
-                // the side-table. Counted unconditionally: without
-                // instrument options these gates reject before claiming,
-                // and an over-sized arena is harmless.
-                count += 2 * n_targets;
-                break;
-            case GateType::R:
-            case GateType::RX:
-            case GateType::RY:
-            case GateType::MR:
-            case GateType::MRX:
-            case GateType::MRY:
-                count += 2 * n_targets;
-                break;
-            case GateType::CX:
-            case GateType::CY:
-            case GateType::CZ:
-                if (!node.targets.empty() && node.targets[0].is_rec()) {
-                    count += n_targets / 2;
-                }
-                break;
-            default:
-                break;
-        }
-    }
-    return count;
 }
 
 // InstrumentTraceOptions is a C++ trace boundary in its own right, even
@@ -531,7 +422,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
         }
     }
 
-    HirModule hir(circuit.num_qubits, count_pauli_masks(circuit), count_noise_channels(circuit));
+    HirModule hir(circuit.num_qubits);
     hir.num_measurements = circuit.num_measurements;
     hir.num_detectors = circuit.num_detectors;
     hir.num_observables = circuit.num_observables;
@@ -540,6 +431,10 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
         instruments != nullptr && instruments->neglect_instrument_damping;
 
     Tableau inverse(circuit.num_qubits);
+    // Reused for every rewound op mask and noise site so tracing does not
+    // allocate per op.
+    PauliMask mask;
+    RewoundGenerators generators;
 
     MeasRecordIdx meas_idx{0};
     uint32_t hidden_meas_idx = circuit.num_measurements;
@@ -608,19 +503,14 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         uint32_t target_qubit = node.targets[i + 1].value();
                         ControllingMeasIdx controlling_meas{rec_abs_idx};
 
-                        hir.append_conditional(controlling_meas, [&](MutablePauliMaskView slot) {
-                            bool sign;
-                            if (node.gate == GateType::CX) {
-                                extract_rewound_x_into(inverse, target_qubit, slot.x(), slot.z(),
-                                                       sign);
-                            } else if (node.gate == GateType::CZ) {
-                                extract_rewound_z_into(inverse, target_qubit, slot.x(), slot.z(),
-                                                       sign);
-                            } else {
-                                throw std::runtime_error("CY classical feedback not supported");
-                            }
-                            slot.set_sign(sign);
-                        });
+                        if (node.gate == GateType::CX) {
+                            assign_rewound_axis(mask, inverse, target_qubit, PauliAxis::X);
+                        } else if (node.gate == GateType::CZ) {
+                            assign_rewound_axis(mask, inverse, target_qubit, PauliAxis::Z);
+                        } else {
+                            throw std::runtime_error("CY classical feedback not supported");
+                        }
+                        hir.append_conditional(controlling_meas, mask);
                     }
                 } else {
                     for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
@@ -635,11 +525,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::T_DAG: {
                 bool dagger = (node.gate == GateType::T_DAG);
                 for (const auto& target : node.targets) {
-                    hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
-                        bool sign;
-                        extract_rewound_z_into(inverse, target.value(), slot.x(), slot.z(), sign);
-                        slot.set_sign(sign);
-                    });
+                    assign_rewound_axis(mask, inverse, target.value(), PauliAxis::Z);
+                    hir.append_tgate(dagger, mask);
                 }
                 break;
             }
@@ -660,17 +547,15 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
                 const PauliString rewound = inverse.apply(obs.view());
                 bool dagger = node.gate == GateType::TPP_DAG;
-                hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
-                    copy_rewound_into(rewound.view(), slot.x(), slot.z());
-                    slot.set_sign(rewound.sign() ^ inversion_parity);
-                });
+                assign_rewound(mask, rewound.view(), inversion_parity);
+                hir.append_tgate(dagger, mask);
                 break;
             }
 
             case GateType::R_Z: {
                 double alpha = node.args[0];
                 for (const auto& target : node.targets) {
-                    trace_rz(inverse, hir, target.value(), alpha);
+                    trace_rz(inverse, hir, mask, target.value(), alpha);
                 }
                 break;
             }
@@ -684,7 +569,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         continue;
                     }
                     apply_single_qubit_clifford(inverse, GateType::H, target.value());
-                    trace_rz(inverse, hir, target.value(), alpha);
+                    trace_rz(inverse, hir, mask, target.value(), alpha);
                     apply_single_qubit_clifford(inverse, GateType::H, target.value());
                 }
                 break;
@@ -699,7 +584,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         continue;
                     }
                     apply_single_qubit_clifford(inverse, GateType::H_YZ, target.value());
-                    trace_rz(inverse, hir, target.value(), alpha);
+                    trace_rz(inverse, hir, mask, target.value(), alpha);
                     apply_single_qubit_clifford(inverse, GateType::H_YZ, target.value());
                 }
                 break;
@@ -712,16 +597,16 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 double lambda = node.args[2];
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
-                    trace_rz(inverse, hir, qubit, lambda);
+                    trace_rz(inverse, hir, mask, qubit, lambda);
 
                     if (!try_absorb_clifford_axis_rotation(inverse, qubit, theta, GateType::SQRT_Y,
                                                            GateType::Y, GateType::SQRT_Y_DAG)) {
                         apply_single_qubit_clifford(inverse, GateType::H_YZ, qubit);
-                        trace_rz(inverse, hir, qubit, theta);
+                        trace_rz(inverse, hir, mask, qubit, theta);
                         apply_single_qubit_clifford(inverse, GateType::H_YZ, qubit);
                     }
 
-                    trace_rz(inverse, hir, qubit, phi);
+                    trace_rz(inverse, hir, mask, qubit, phi);
                 }
                 break;
             }
@@ -767,11 +652,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
             case GateType::M: {
                 for (const auto& target : node.targets) {
-                    hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
-                        bool sign;
-                        extract_rewound_z_into(inverse, target.value(), slot.x(), slot.z(), sign);
-                        slot.set_sign(sign ^ target.is_inverted());
-                    });
+                    assign_rewound_axis(mask, inverse, target.value(), PauliAxis::Z,
+                                        target.is_inverted());
+                    hir.append_measure(meas_idx, mask);
                     ++meas_idx;
                 }
                 break;
@@ -779,11 +662,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
             case GateType::MX: {
                 for (const auto& target : node.targets) {
-                    hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
-                        bool sign;
-                        extract_rewound_x_into(inverse, target.value(), slot.x(), slot.z(), sign);
-                        slot.set_sign(sign ^ target.is_inverted());
-                    });
+                    assign_rewound_axis(mask, inverse, target.value(), PauliAxis::X,
+                                        target.is_inverted());
+                    hir.append_measure(meas_idx, mask);
                     ++meas_idx;
                 }
                 break;
@@ -791,11 +672,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
 
             case GateType::MY: {
                 for (const auto& target : node.targets) {
-                    hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
-                        bool sign;
-                        extract_rewound_y_into(inverse, target.value(), slot.x(), slot.z(), sign);
-                        slot.set_sign(sign ^ target.is_inverted());
-                    });
+                    assign_rewound_axis(mask, inverse, target.value(), PauliAxis::Y,
+                                        target.is_inverted());
+                    hir.append_measure(meas_idx, mask);
                     ++meas_idx;
                 }
                 break;
@@ -805,10 +684,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 bool inversion_parity;
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
                 const PauliString rewound = inverse.apply(obs.view());
-                hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
-                    copy_rewound_into(rewound.view(), slot.x(), slot.z());
-                    slot.set_sign(rewound.sign() ^ inversion_parity);
-                });
+                assign_rewound(mask, rewound.view(), inversion_parity);
+                hir.append_measure(meas_idx, mask);
                 ++meas_idx;
                 break;
             }
@@ -824,44 +701,22 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::MRY: {
                 bool hidden = is_reset(node.gate);
 
-                enum class Basis { Z, X, Y };
-                Basis basis;
+                PauliAxis basis;
                 switch (node.gate) {
                     case GateType::R:
                     case GateType::MR:
-                        basis = Basis::Z;
+                        basis = PauliAxis::Z;
                         break;
                     case GateType::RX:
                     case GateType::MRX:
-                        basis = Basis::X;
+                        basis = PauliAxis::X;
                         break;
                     default:
-                        basis = Basis::Y;
+                        basis = PauliAxis::Y;
                         break;
                 }
-
-                auto extract_meas = [&](uint32_t q, MutableMaskView dm, MutableMaskView sm,
-                                        bool& s) {
-                    switch (basis) {
-                        case Basis::Z:
-                            extract_rewound_z_into(inverse, q, dm, sm, s);
-                            break;
-                        case Basis::X:
-                            extract_rewound_x_into(inverse, q, dm, sm, s);
-                            break;
-                        case Basis::Y:
-                            extract_rewound_y_into(inverse, q, dm, sm, s);
-                            break;
-                    }
-                };
-
-                auto extract_corr = [&](uint32_t q, MutableMaskView dm, MutableMaskView sm,
-                                        bool& s) {
-                    if (basis == Basis::Z)
-                        extract_rewound_x_into(inverse, q, dm, sm, s);
-                    else
-                        extract_rewound_z_into(inverse, q, dm, sm, s);
-                };
+                // The correction anticommutes with the measured axis.
+                const PauliAxis correction = basis == PauliAxis::Z ? PauliAxis::X : PauliAxis::Z;
 
                 for (const auto& target : node.targets) {
                     uint32_t qubit = target.value();
@@ -871,18 +726,14 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     // eigenstate, so the frame carries the inversion.
                     if (!hidden && target.is_inverted()) {
                         apply_single_qubit_clifford(
-                            inverse, basis == Basis::Z ? GateType::X : GateType::Z, qubit);
+                            inverse, basis == PauliAxis::Z ? GateType::X : GateType::Z, qubit);
                     }
 
                     uint32_t this_meas;
+                    assign_rewound_axis(mask, inverse, qubit, basis);
                     if (hidden) {
                         this_meas = hidden_meas_idx++;
-                        auto& meas_op = hir.append_measure(
-                            MeasRecordIdx{this_meas}, [&](MutablePauliMaskView slot) {
-                                bool sign;
-                                extract_meas(qubit, slot.x(), slot.z(), sign);
-                                slot.set_sign(sign);
-                            });
+                        auto& meas_op = hir.append_measure(MeasRecordIdx{this_meas}, mask);
                         meas_op.set_hidden(true);
                         // Report the hidden slot to the caller when this node
                         // is the single-target reset validated above.
@@ -893,20 +744,12 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         }
                     } else {
                         this_meas = static_cast<uint32_t>(meas_idx);
-                        hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
-                            bool sign;
-                            extract_meas(qubit, slot.x(), slot.z(), sign);
-                            slot.set_sign(sign);
-                        });
+                        hir.append_measure(meas_idx, mask);
                         ++meas_idx;
                     }
 
-                    hir.append_conditional(ControllingMeasIdx{this_meas},
-                                           [&](MutablePauliMaskView slot) {
-                                               bool corr_sign;
-                                               extract_corr(qubit, slot.x(), slot.z(), corr_sign);
-                                               slot.set_sign(corr_sign);
-                                           });
+                    assign_rewound_axis(mask, inverse, qubit, correction);
+                    hir.append_conditional(ControllingMeasIdx{this_meas}, mask);
                 }
                 break;
             }
@@ -976,21 +819,14 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     // Destination flip: the rewound X observable, stored
                     // in the arena so downstream mask conjugation can
                     // reach it through the side-table handle.
-                    site.destination_flip_mask =
-                        hir.claim_side_mask([&](MutablePauliMaskView slot) {
-                            bool sign;
-                            extract_rewound_x_into(inverse, qubit, slot.x(), slot.z(), sign);
-                            slot.set_sign(sign);
-                        });
+                    assign_rewound_axis(mask, inverse, qubit, PauliAxis::X);
+                    site.destination_flip_mask = hir.pauli_masks.append(mask);
 
                     const InstrumentSiteIdx site_idx{
                         static_cast<uint32_t>(hir.instrument_sites.size())};
                     hir.instrument_sites.push_back(site);
-                    hir.append_instrument(site_idx, [&](MutablePauliMaskView slot) {
-                        bool sign;
-                        extract_rewound_z_into(inverse, qubit, slot.x(), slot.z(), sign);
-                        slot.set_sign(sign);
-                    });
+                    assign_rewound_axis(mask, inverse, qubit, PauliAxis::Z);
+                    hir.append_instrument(site_idx, mask);
                 }
                 break;
             }
@@ -998,10 +834,9 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::MPAD: {
                 for (const auto& target : node.targets) {
                     bool sign = (target.value() != 0) ^ target.is_inverted();
-                    hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
-                        // Slot is zero-initialized by claim_empty_pauli_mask.
-                        slot.set_sign(sign);
-                    });
+                    mask.clear();
+                    mask.set_sign(sign);
+                    hir.append_measure(meas_idx, mask);
                     ++meas_idx;
                 }
                 break;
@@ -1016,8 +851,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
             case GateType::DEPOLARIZE1: {
                 double prob = node.args.empty() ? 0.0 : node.args[0];
                 for (const auto& target : node.targets) {
-                    NoiseSite site =
-                        make_single_qubit_noise_site(hir, inverse, node.gate, target.value(), prob);
+                    NoiseSite site = make_single_qubit_noise_site(hir, inverse, generators, mask,
+                                                                  node.gate, target.value(), prob);
                     const double total_probability =
                         node.gate == GateType::DEPOLARIZE1
                             ? represented_depolarizing_probability(prob, 3.0)
@@ -1033,13 +868,12 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                         "PAULI_CHANNEL_1 requires 3 arguments: P(X), P(Y), P(Z)");
                 }
                 for (const auto& target : node.targets) {
-                    uint32_t qubit = target.value();
+                    generators.load(inverse, {target.value()});
                     NoiseSite site;
                     for (int p = 0; p < 3; ++p) {
                         double prob = node.args[static_cast<size_t>(p)];
                         if (prob > 0.0) {
-                            site.channels.push_back(
-                                rewind_pauli_terms(hir, inverse, {{qubit, p + 1}}, prob));
+                            site.channels.push_back(generators.channel(hir, {p + 1}, prob));
                         }
                     }
                     const double total_probability = sum_noise_probabilities(site);
@@ -1055,6 +889,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
+                    generators.load(inverse, {q1, q2});
                     NoiseSite site;
                     size_t arg_idx = 0;
                     for (int p1 = 0; p1 <= 3; ++p1) {
@@ -1063,8 +898,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                 continue;
                             double prob = node.args[arg_idx];
                             if (prob > 0.0) {
-                                site.channels.push_back(
-                                    rewind_pauli_terms(hir, inverse, {{q1, p1}, {q2, p2}}, prob));
+                                site.channels.push_back(generators.channel(hir, {p1, p2}, prob));
                             }
                             ++arg_idx;
                         }
@@ -1083,6 +917,7 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
                     uint32_t q3 = node.targets[i + 2].value();
+                    generators.load(inverse, {q1, q2, q3});
                     NoiseSite site;
                     size_t arg_idx = 0;
                     for (int p1 = 0; p1 <= 3; ++p1) {
@@ -1092,8 +927,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                                     continue;
                                 double prob = node.args[arg_idx];
                                 if (prob > 0.0) {
-                                    site.channels.push_back(rewind_pauli_terms(
-                                        hir, inverse, {{q1, p1}, {q2, p2}, {q3, p3}}, prob));
+                                    site.channels.push_back(
+                                        generators.channel(hir, {p1, p2, p3}, prob));
                                 }
                                 ++arg_idx;
                             }
@@ -1145,7 +980,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 for (size_t i = 0; i + 1 < node.targets.size(); i += 2) {
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
-                    NoiseSite site = make_depolarize2_noise_site(hir, inverse, q1, q2, prob);
+                    NoiseSite site =
+                        make_depolarize2_noise_site(hir, inverse, generators, q1, q2, prob);
                     append_noise_site(hir, std::move(site),
                                       represented_depolarizing_probability(prob, 15.0), node_index);
                 }
@@ -1158,7 +994,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                     uint32_t q1 = node.targets[i].value();
                     uint32_t q2 = node.targets[i + 1].value();
                     uint32_t q3 = node.targets[i + 2].value();
-                    NoiseSite site = make_depolarize3_noise_site(hir, inverse, q1, q2, q3, prob);
+                    NoiseSite site =
+                        make_depolarize3_noise_site(hir, inverse, generators, q1, q2, q3, prob);
                     append_noise_site(hir, std::move(site),
                                       represented_depolarizing_probability(prob, 63.0), node_index);
                 }
@@ -1225,10 +1062,8 @@ HirModule trace(const Circuit& circuit, const InstrumentTraceOptions* instrument
                 bool inversion_parity;
                 auto obs = build_pauli_string(node.targets, circuit.num_qubits, inversion_parity);
                 const PauliString rewound = inverse.apply(obs.view());
-                hir.append_exp_val(exp_val_idx, [&](MutablePauliMaskView slot) {
-                    copy_rewound_into(rewound.view(), slot.x(), slot.z());
-                    slot.set_sign(rewound.sign() ^ inversion_parity);
-                });
+                assign_rewound(mask, rewound.view(), inversion_parity);
+                hir.append_exp_val(exp_val_idx, mask);
                 exp_val_idx = ExpValIdx{static_cast<uint32_t>(exp_val_idx) + 1};
                 break;
             }

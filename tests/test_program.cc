@@ -1,4 +1,5 @@
 #include "clifft/api/program.h"
+#include "clifft/api/reference_syndrome.h"
 #include "clifft/api/sampling_preparation.h"
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
@@ -13,6 +14,7 @@
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -48,7 +50,7 @@ Program compile_preparation_program(std::vector<uint8_t> postselection_mask) {
     )");
     auto hir = trace(source);
     hir.postselection.mask = std::move(postselection_mask);
-    return Program::compile(source, hir);
+    return Program::compile(source, hir, false);
 }
 
 }  // namespace
@@ -57,7 +59,7 @@ TEST_CASE("Program preserves the original plan across bounded reconstruction fai
           "[reconstruction]") {
     const auto source = parse("H 0 1\nT 0 1\nH 0 1\nM 0 1\nDETECTOR rec[-1]\n");
     const auto hir = trace(source);
-    const auto original = Program::compile(source, hir);
+    const auto original = Program::compile(source, hir, false);
     REQUIRE(original.original().peak_active_width() == 2);
     for (bool keep_records : {false, true}) {
         REQUIRE_FALSE(original.uses_reconstruction(keep_records));
@@ -93,34 +95,25 @@ TEST_CASE("Program preserves the original plan across bounded reconstruction fai
     }
 }
 
-TEST_CASE("Program skips reconstruction lowering without a scheduled width reduction",
-          "[reconstruction]") {
+TEST_CASE("Program optimizes tied reconstruction schedules after lowering", "[reconstruction]") {
     const auto source = parse("H 0\nT 0\nT_DAG 0\nH 0\nM 0\nDETECTOR rec[-1]\n");
     const auto hir = trace(source);
-    const auto original = Program::compile(source, hir);
+    const auto original = Program::compile(source, hir, false);
     REQUIRE(original.original().peak_active_width() == 1);
 
-    // Later passes can improve this candidate, but the scheduled width does
-    // not justify their compilation cost under the default selection policy.
-    for (auto outputs : {ReconstructionOutputs::Detectors, ReconstructionOutputs::Records}) {
-        const auto result = reconstruct_global_sampling(source, outputs);
-        REQUIRE(result.reconstruction);
-        REQUIRE(result.reconstruction->peak_active_width == 1);
-        auto lowered = lower_global_reconstruction(*result.reconstruction);
-        REQUIRE(lowered.hir);
-        default_hir_pass_manager().run(*lowered.hir);
-        REQUIRE(analyze_active_width(*lowered.hir).peak_width == 0);
+    // A tied reconstruction schedule can collapse to width zero after post-lowering passes.
+    const auto selected = Program::compile(source, hir);
+    for (bool keep_records : {false, true}) {
+        REQUIRE(selected.uses_reconstruction(keep_records));
+        REQUIRE(selected.sampling_plan(keep_records).peak_active_width() == 0);
     }
 
     auto limits = ReconstructionLimits{};
-    // A zero lowering budget makes an attempted lowering fail, so the fallback
-    // reason also checks that the width guard runs before that work.
     limits.max_lowering_bytes = 0;
     const auto guarded = Program::compile(source, hir, true, true, limits);
     for (bool keep_records : {false, true}) {
         REQUIRE_FALSE(guarded.uses_reconstruction(keep_records));
-        REQUIRE(guarded.reconstruction_fallback_reason(keep_records) ==
-                "reconstruction schedule does not reduce peak active width");
+        REQUIRE_FALSE(guarded.reconstruction_fallback_reason(keep_records).empty());
         REQUIRE(&guarded.sampling_plan(keep_records) == &guarded.original());
     }
     REQUIRE(guarded.original().inspect() == original.original().inspect());
@@ -144,18 +137,14 @@ TEST_CASE("Program shares reconstruction preparation across asymmetric output va
     // detector-only sampling retains reconstruction while record sampling falls back.
     {
         const auto source = parse(
-            "H 0 1\nT 0 1\nH 0 1\nM 0 1 2 3\nDETECTOR rec[-4]\nOBSERVABLE_INCLUDE(0) "
-            "rec[-3]\n");
+            "H 0 1 2\nT 0 1 2\nH 0 1 2\nM 0 1 2\nDETECTOR rec[-3]\n"
+            "OBSERVABLE_INCLUDE(0) rec[-3]\n");
         const auto hir = trace(source);
-        const auto det = reconstruct_global_sampling(source, ReconstructionOutputs::Detectors);
-        const auto rec = reconstruct_global_sampling(source, ReconstructionOutputs::Records);
-        REQUIRE(det.reconstruction.has_value());
-        REQUIRE(rec.reconstruction.has_value());
-        REQUIRE(det.reconstruction->operations.size() < rec.reconstruction->operations.size());
 
+        // Detectors schedules 3 rotations + 1 output measurement on 3 qubits (4 + 3 = 7),
+        // while Records schedules 3 rotations + 3 distinct output measurements (6 + 3 = 9).
         ReconstructionLimits limits;
-        limits.max_schedule_operations =
-            det.reconstruction->operations.size() + det.reconstruction->num_qubits;
+        limits.max_schedule_operations = 7;
         const auto program = Program::compile(source, hir, true, true, limits);
         REQUIRE(program.uses_reconstruction(false));
         REQUIRE_FALSE(program.uses_reconstruction(true));
@@ -276,7 +265,7 @@ TEST_CASE("Count only sampling reuses dense noise with bounded packed storage") 
     auto hir = trace(source);
     hir.postselection.mask.assign(hir.num_detectors, 1);
     default_hir_pass_manager().run(hir);
-    const auto program = Program::compile(source, hir);
+    const auto program = Program::compile(source, hir, false);
     const auto& preparation = program.sampling_preparation(false, {.early_postselection = false});
     const auto& plan = preparation.plan();
     const auto& dense = preparation.noise(BatchNoiseMode::Dense);
@@ -294,7 +283,7 @@ TEST_CASE("Count only sampling reuses dense noise with bounded packed storage") 
                 batch_detail::batch_worker_storage_bytes(plan, capacity, output, mode));
         const uint64_t extra = kDefaultBatchWorkerBudget - dense_bytes;
         const auto policy = resolve_batch_execution_policy(plan, 4096, 1, 1, output, std::nullopt,
-                                                           mode, extra, 0, 0, &dense);
+                                                           mode, extra, 0, &dense);
         REQUIRE(policy.lane_capacity == capacity);
         REQUIRE(resolve_batch_execution_policy(plan, 4096, 1, 1, output, std::nullopt, mode, extra)
                     .lane_capacity < capacity);
@@ -319,6 +308,202 @@ TEST_CASE("Count only sampling reuses dense noise with bounded packed storage") 
         REQUIRE(actual.logical_errors == expected.logical_errors);
         REQUIRE(actual.observable_ones == expected.observable_ones);
     }
+}
+
+TEST_CASE(
+    "Program compiles reconstructed plans when the original HIR exceeds the dense width limit",
+    "[reconstruction]") {
+    using sampling::RecordOutputs;
+    const auto make_wide = [](bool include_syndromes) {
+        std::string ancillas;
+        std::string parity_cx;
+        for (uint32_t q = 2; q < 64; ++q) {
+            ancillas += " " + std::to_string(q);
+            parity_cx += " " + std::to_string(q) + " 64";
+        }
+        std::string text =
+            "H 0 1" + ancillas + "\nT 0 1" + ancillas + "\nH 0 1\nCX" + parity_cx + "\nM 0 1 64\n";
+        if (include_syndromes) {
+            text += "DETECTOR rec[-3] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-3]\n";
+        }
+        return parse(text);
+    };
+
+    const auto source = make_wide(true);
+    auto hir = trace(source);
+    default_hir_pass_manager().run(hir);
+    REQUIRE_THROWS_AS(Program::compile(source, hir, false), std::overflow_error);
+
+    // Both output variants reconstruct below kDenseActiveWidthLimit without an original plan.
+    const auto both = Program::compile(source, hir, true);
+    REQUIRE_FALSE(both.has_original());
+    REQUIRE_THROWS_AS(both.original(), std::overflow_error);
+    REQUIRE(both.num_qubits() == 65);
+    REQUIRE(both.num_visible_records() == 3);
+    REQUIRE(both.num_detectors() == 1);
+    REQUIRE(both.num_observables() == 1);
+    REQUIRE(both.num_exp_vals() == 0);
+    REQUIRE_FALSE(both.has_postselection());
+    for (bool keep_records : {false, true}) {
+        REQUIRE(both.has_sampling_plan(keep_records));
+        REQUIRE(both.uses_reconstruction(keep_records));
+        REQUIRE(both.reconstruction_fallback_reason(keep_records).empty());
+        REQUIRE(both.sampling_plan(keep_records).peak_active_width() == 1);
+        REQUIRE(both.sampling_preparation(keep_records).plan().peak_active_width() == 1);
+        REQUIRE_THROWS_AS(both.sampling_preparation(keep_records, {.fixed_faults = true}),
+                          std::overflow_error);
+    }
+
+    // Asymmetric detector-only success: unreferenced graph-state measurements keep
+    // retained-record active width >= kDenseActiveWidthLimit while syndromes fit.
+    {
+        std::string graph_qubits;
+        std::string cz_edges;
+        constexpr uint32_t kGraphCount = 160;
+        for (uint32_t i = 0; i < kGraphCount; ++i) {
+            graph_qubits += " " + std::to_string(2 + i);
+        }
+        for (uint32_t shift : {1U, 17U, 43U, 71U}) {
+            for (uint32_t i = 0; i < kGraphCount; ++i) {
+                cz_edges += " " + std::to_string(2 + i) + " " +
+                            std::to_string(2 + ((i + shift) % kGraphCount));
+            }
+        }
+        const auto detector_only_source = parse(
+            "H 0 1" + graph_qubits + "\nT 0 1" + graph_qubits + "\nH 0 1\nCZ" + cz_edges + "\nMX" +
+            graph_qubits + "\nM 0 1\nDETECTOR rec[-2] rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]\n");
+        auto detector_only_hir = trace(detector_only_source);
+        default_hir_pass_manager().run(detector_only_hir);
+        const auto detector_only = Program::compile(detector_only_source, detector_only_hir, true);
+        REQUIRE_FALSE(detector_only.has_original());
+        REQUIRE(detector_only.has_sampling_plan(false));
+        REQUIRE_FALSE(detector_only.has_sampling_plan(true));
+        REQUIRE(detector_only.uses_reconstruction(false));
+        REQUIRE_FALSE(detector_only.uses_reconstruction(true));
+        REQUIRE(detector_only.reconstruction_fallback_reason(true) ==
+                "reconstruction reaches the dense active-width limit");
+        REQUIRE(detector_only.sampling_plan(false).peak_active_width() == 1);
+        REQUIRE(detector_only.sampling_preparation(RecordOutputs::Syndromes)
+                    .plan()
+                    .peak_active_width() == 1);
+        REQUIRE_THROWS_AS(detector_only.sampling_plan(true), std::overflow_error);
+        REQUIRE_THROWS_AS(detector_only.sampling_preparation(true), std::overflow_error);
+        REQUIRE_THROWS_AS(detector_only.sampling_preparation(RecordOutputs::Measurements),
+                          std::overflow_error);
+    }
+
+    // Reconstructed noiseless reference shot succeeds when sequential reference planning overflows.
+    {
+        std::string ancillas;
+        std::string parity_cx;
+        for (uint32_t q = 2; q < 64; ++q) {
+            ancillas += " " + std::to_string(q);
+            parity_cx += " " + std::to_string(q) + " 64";
+        }
+        const auto noisy_det_source = parse(
+            "H 0 1" + ancillas + "\nT 0 1" + ancillas + "\nCX" + parity_cx +
+            "\nX 65\nX_ERROR(0.1) 65\nM 64 65\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+        const auto noisy_det_hir = trace(noisy_det_source);
+        REQUIRE_THROWS_AS(compute_reference_syndrome(noisy_det_hir), std::overflow_error);
+        const auto ref = compute_reference_syndrome(noisy_det_hir, &noisy_det_source);
+        REQUIRE(ref.detectors == std::vector<uint8_t>{1});
+        REQUIRE(ref.observables == std::vector<uint8_t>{1});
+    }
+
+    // Asymmetric record-only success: zero detectors and observables skip detector reconstruction.
+    const auto record_source = make_wide(false);
+    auto record_hir = trace(record_source);
+    default_hir_pass_manager().run(record_hir);
+    const auto record_only = Program::compile(record_source, record_hir, true);
+    REQUIRE_FALSE(record_only.has_original());
+    REQUIRE_FALSE(record_only.has_sampling_plan(false));
+    REQUIRE(record_only.has_sampling_plan(true));
+    REQUIRE_FALSE(record_only.uses_reconstruction(false));
+    REQUIRE(record_only.uses_reconstruction(true));
+    REQUIRE(record_only.sampling_plan(true).peak_active_width() == 1);
+    REQUIRE(record_only.sampling_preparation(true).plan().peak_active_width() == 1);
+    REQUIRE_THROWS_AS(record_only.sampling_plan(false), std::overflow_error);
+    REQUIRE_THROWS_AS(record_only.sampling_preparation(false), std::overflow_error);
+
+    // Compilation fails when neither variant can reconstruct below kDenseActiveWidthLimit.
+    REQUIRE_THROWS_AS(Program::compile(source, hir, true, false), std::overflow_error);
+    ReconstructionLimits tight_dilation;
+    tight_dilation.max_dilation_qubits = 1;
+    REQUIRE_THROWS_AS(Program::compile(source, hir, true, true, tight_dilation),
+                      std::overflow_error);
+}
+
+TEST_CASE("Automatic reconstruction guards small postselected drops and breaks ties by work",
+          "[reconstruction]") {
+    const auto d5_source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d5_r5.stim");
+    auto d5_hir = trace(d5_source);
+    d5_hir.postselection.mask.assign(d5_hir.num_detectors, 1);
+    default_hir_pass_manager().run(d5_hir);
+
+    const auto auto_postselected = Program::compile(d5_source, d5_hir);
+    const auto forced_postselected = Program::compile(d5_source, d5_hir, true);
+    for (bool keep_records : {false, true}) {
+        REQUIRE_FALSE(auto_postselected.uses_reconstruction(keep_records));
+        REQUIRE(forced_postselected.uses_reconstruction(keep_records));
+        REQUIRE(forced_postselected.sampling_plan(keep_records).peak_active_width() + 2 ==
+                auto_postselected.sampling_plan(keep_records).peak_active_width());
+    }
+
+    auto unselected_hir = trace(d5_source);
+    default_hir_pass_manager().run(unselected_hir);
+    const auto auto_unselected = Program::compile(d5_source, unselected_hir);
+    for (bool keep_records : {false, true}) {
+        REQUIRE(auto_unselected.uses_reconstruction(keep_records));
+        REQUIRE(auto_unselected.sampling_plan(keep_records).peak_active_width() ==
+                forced_postselected.sampling_plan(keep_records).peak_active_width());
+    }
+
+    // Small postselected width drops that do not inflate actions keep reconstruction.
+    const auto compact_source = parse(R"(
+        H 0 1 2
+        T 0 1 2
+        CX 0 1
+        CX 1 2
+        T 0 1 2
+        H 0 1 2
+        M 0 1 2
+        DETECTOR rec[-3]
+        DETECTOR rec[-2]
+        OBSERVABLE_INCLUDE(0) rec[-1]
+    )");
+    auto compact_hir = trace(compact_source);
+    compact_hir.postselection.mask.assign(compact_hir.num_detectors, 1);
+    const auto compact_auto = Program::compile(compact_source, compact_hir);
+    const auto compact_orig = Program::compile(compact_source, compact_hir, false);
+    REQUIRE(compact_auto.uses_reconstruction(false));
+    REQUIRE(compact_auto.sampling_plan(false).peak_active_width() + 1 ==
+            compact_orig.sampling_plan(false).peak_active_width());
+    REQUIRE(compact_auto.sampling_plan(false).num_actions() <=
+            compact_orig.sampling_plan(false).num_actions());
+
+    // Equal-width ties select reconstruction when actions do not grow and work is lower,
+    // and keep the original otherwise.
+    const auto msc3_source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/msc_d3.stim");
+    auto msc3_hir = trace(msc3_source);
+    msc3_hir.postselection.mask.assign(msc3_hir.num_detectors, 1);
+    default_hir_pass_manager().run(msc3_hir);
+    const auto msc3_auto = Program::compile(msc3_source, msc3_hir);
+    const auto msc3_orig = Program::compile(msc3_source, msc3_hir, false);
+    REQUIRE(msc3_auto.uses_reconstruction(false));
+    REQUIRE(msc3_auto.sampling_plan(false).peak_active_width() ==
+            msc3_orig.sampling_plan(false).peak_active_width());
+
+    const auto d3_source = parse_file(std::string(CLIFFT_FIXTURES_DIR) + "/coherent_d3_r3.stim");
+    auto d3_hir = trace(d3_source);
+    d3_hir.postselection.mask.assign(d3_hir.num_detectors, 1);
+    default_hir_pass_manager().run(d3_hir);
+    const auto d3_auto = Program::compile(d3_source, d3_hir);
+    const auto d3_orig = Program::compile(d3_source, d3_hir, false);
+    REQUIRE_FALSE(d3_auto.uses_reconstruction(false));
+    REQUIRE(d3_auto.sampling_plan(false).peak_active_width() ==
+            d3_orig.sampling_plan(false).peak_active_width());
+    REQUIRE(d3_auto.reconstruction_fallback_reason(false) ==
+            "original plan has lower or equal estimated work");
 }
 
 }  // namespace clifft::test

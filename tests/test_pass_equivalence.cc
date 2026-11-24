@@ -1907,7 +1907,7 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
     const size_t n_logical = qubit_map.size();
     REQUIRE(n_logical >= 4);
 
-    HirModule hir(total_qubits, 64, 8);
+    HirModule hir(total_qubits);
     hir.final_tableau.emplace(total_qubits);
 
     const uint32_t q0 = qubit_map[0];
@@ -1918,22 +1918,22 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
     const uint32_t q_stab = qubit_map[use_full_16_cube ? 4 : 3];
     const uint32_t q_stab2 = n_logical > 4 ? qubit_map[4] : q_stab;
 
-    auto fill_x_parity_with_stab = [&](MutablePauliMaskView slot, uint32_t parity_bits,
-                                       bool alias_stab1, bool alias_stab2, bool sign) {
+    auto fill_x_parity_with_stab = [&](PauliMask& slot, uint32_t parity_bits, bool alias_stab1,
+                                       bool alias_stab2, bool sign) {
         if (parity_bits & 1U) {
-            slot.x().bit_set(q0, true);
+            slot.toggle(q0, true, false);
         }
         if (parity_bits & 2U) {
-            slot.x().bit_set(q1, true);
+            slot.toggle(q1, true, false);
         }
         if (parity_bits & 4U) {
-            slot.x().bit_set(q2, true);
+            slot.toggle(q2, true, false);
         }
         if (alias_stab1) {
-            slot.z().bit_set(q_stab, true);
+            slot.toggle(q_stab, false, true);
         }
         if (alias_stab2 && q_stab2 != q_stab) {
-            slot.z().bit_set(q_stab2, true);
+            slot.toggle(q_stab2, false, true);
         }
         slot.set_sign(sign);
     };
@@ -1943,18 +1943,20 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
         for (uint32_t term = 1; term <= 16; ++term) {
             const uint32_t parity = (term == 16) ? 15U : term;
             const bool alias = (rng() % 3) == 0;
-            hir.append_tgate(false, [&](MutablePauliMaskView slot) {
+            {
+                PauliMask slot;
                 if (parity & 1U)
-                    slot.x().bit_set(q0, true);
+                    slot.toggle(q0, true, false);
                 if (parity & 2U)
-                    slot.x().bit_set(q1, true);
+                    slot.toggle(q1, true, false);
                 if (parity & 4U)
-                    slot.x().bit_set(q2, true);
+                    slot.toggle(q2, true, false);
                 if (parity & 8U)
-                    slot.x().bit_set(q3, true);
+                    slot.toggle(q3, true, false);
                 if (alias)
-                    slot.z().bit_set(q_stab, true);
-            });
+                    slot.toggle(q_stab, false, true);
+                hir.append_tgate(false, slot);
+            }
         }
     } else {
         for (uint32_t parity = 1; parity <= 7; ++parity) {
@@ -1964,9 +1966,11 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
                 const bool alias2 = (rng() & 1U) != 0;
                 const bool dagger = (rng() % 5) == 0;
                 const bool sign = (rng() % 4) == 0;
-                hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
+                {
+                    PauliMask slot;
                     fill_x_parity_with_stab(slot, parity, alias1, alias2, sign);
-                });
+                    hir.append_tgate(dagger, slot);
+                }
             }
         }
     }
@@ -1978,74 +1982,97 @@ HirModule generate_phase_poly_hir(Xoshiro256PlusPlus& rng, std::span<const uint3
     if (obs_kind == 0) {
         const bool commuting_probe = (rng() % 3) != 0;
         const ExpValIdx exp_idx{hir.num_exp_vals++};
-        hir.append_exp_val(exp_idx, [&](MutablePauliMaskView slot) {
+        {
+            PauliMask slot;
             if (commuting_probe) {
-                slot.x().bit_set(q0, true);
+                slot.toggle(q0, true, false);
                 if ((rng() & 1U) != 0) {
-                    slot.x().bit_set(q1, true);
+                    slot.toggle(q1, true, false);
                 }
             } else {
-                slot.z().bit_set(q0, true);
+                slot.toggle(q0, false, true);
             }
             slot.set_sign((rng() & 1U) != 0);
-        });
+            hir.append_exp_val(exp_idx, slot);
+        }
     } else if (obs_kind == 1) {
         const bool measure_commuting = (rng() % 3) != 0;
         const MeasRecordIdx meas_idx{hir.num_measurements++};
-        hir.append_measure(meas_idx, [&](MutablePauliMaskView slot) {
+        {
+            PauliMask slot;
             if (measure_commuting) {
-                slot.x().bit_set(q0, true);
+                slot.toggle(q0, true, false);
             } else {
-                slot.x().bit_set(q_stab, true);
+                slot.toggle(q_stab, true, false);
             }
             slot.set_sign((rng() & 1U) != 0);
-        });
+            hir.append_measure(meas_idx, slot);
+        }
     } else if (obs_kind == 2) {
-        const PauliMaskHandle ch = hir.claim_empty_noise_channel_mask();
-        hir.noise_channel_masks.mut_at(ch).x().bit_set(q1, true);
+        PauliMask channel;
+        channel.toggle(q1, true, false);
+        const PauliMaskHandle ch = hir.noise_channel_masks.append(channel);
         const NoiseSiteIdx site_idx{static_cast<uint32_t>(hir.noise_sites.size())};
         hir.noise_sites.push_back({0.15, {{ch, 0.15}}});
         hir.append_noise(site_idx);
     } else {
         const ExpValIdx exp_idx{hir.num_exp_vals++};
-        hir.append_exp_val(exp_idx, [&](MutablePauliMaskView slot) {
-            slot.x().bit_set(q1, true);
+        {
+            PauliMask slot;
+            slot.toggle(q1, true, false);
             slot.set_sign((rng() & 1U) != 0);
-        });
+            hir.append_exp_val(exp_idx, slot);
+        }
         const MeasRecordIdx meas_idx{hir.num_measurements++};
-        hir.append_measure(meas_idx,
-                           [&](MutablePauliMaskView slot) { slot.x().bit_set(q2, true); });
+        {
+            PauliMask slot;
+            slot.toggle(q2, true, false);
+            hir.append_measure(meas_idx, slot);
+        }
     }
 
     for (uint32_t i = 0; i < 4; ++i) {
         const uint32_t parity = 1 + static_cast<uint32_t>(rng() % 7);
         const bool alias1 = (rng() & 1U) != 0;
         const bool dagger = (rng() & 1U) != 0;
-        hir.append_tgate(dagger, [&](MutablePauliMaskView slot) {
+        {
+            PauliMask slot;
             fill_x_parity_with_stab(slot, parity, alias1, false, false);
-        });
+            hir.append_tgate(dagger, slot);
+        }
     }
 
     // Terminal probe and measurements sensitive to X-basis phase angles and
     // any absorbed degree-1 / degree-2 Clifford remainder.
     const ExpValIdx term_exp{hir.num_exp_vals++};
-    hir.append_exp_val(term_exp, [&](MutablePauliMaskView slot) {
-        slot.x().bit_set(q0, true);
-        slot.z().bit_set(q0, true);
-        slot.z().bit_set(q1, true);
-    });
+    {
+        PauliMask slot;
+        slot.toggle(q0, true, false);
+        slot.toggle(q0, false, true);
+        slot.toggle(q1, false, true);
+        hir.append_exp_val(term_exp, slot);
+    }
 
     const uint32_t m0 = hir.num_measurements++;
-    hir.append_measure(MeasRecordIdx{m0},
-                       [&](MutablePauliMaskView slot) { slot.z().bit_set(q0, true); });
+    {
+        PauliMask slot;
+        slot.toggle(q0, false, true);
+        hir.append_measure(MeasRecordIdx{m0}, slot);
+    }
 
     const uint32_t m1 = hir.num_measurements++;
-    hir.append_measure(MeasRecordIdx{m1},
-                       [&](MutablePauliMaskView slot) { slot.z().bit_set(q1, true); });
+    {
+        PauliMask slot;
+        slot.toggle(q1, false, true);
+        hir.append_measure(MeasRecordIdx{m1}, slot);
+    }
 
     const uint32_t m2 = hir.num_measurements++;
-    hir.append_measure(MeasRecordIdx{m2},
-                       [&](MutablePauliMaskView slot) { slot.z().bit_set(q2, true); });
+    {
+        PauliMask slot;
+        slot.toggle(q2, false, true);
+        hir.append_measure(MeasRecordIdx{m2}, slot);
+    }
 
     hir.detector_targets.push_back({m0, m1});
     hir.ops.push_back(HeisenbergOp::make_detector(DetectorIdx{hir.num_detectors++}));
@@ -2065,7 +2092,7 @@ HirModule generate_rotation_simp_hir(Xoshiro256PlusPlus& rng, std::span<const ui
                                      uint32_t total_qubits) {
     REQUIRE(qubit_map.size() >= 4);
 
-    HirModule hir(total_qubits, 48, 4);
+    HirModule hir(total_qubits);
     hir.final_tableau.emplace(total_qubits);
 
     const uint32_t q0 = qubit_map[0];
@@ -2081,64 +2108,83 @@ HirModule generate_rotation_simp_hir(Xoshiro256PlusPlus& rng, std::span<const ui
         const double a2 = target_sum - a1;
 
         const bool alias_first = (rng() & 1U) != 0;
-        hir.append_phase_rotation(a1, [&](MutablePauliMaskView slot) {
-            slot.x().bit_set(q0, true);
+        {
+            PauliMask slot;
+            slot.toggle(q0, true, false);
             if (alias_first) {
-                slot.z().bit_set(q_stab1, true);
+                slot.toggle(q_stab1, false, true);
             }
-        });
+            hir.append_phase_rotation(a1, slot);
+        }
 
         const bool intervening_commutes = (rng() % 3) != 0;
         const double a_mid = kBaseAngles[rng() % std::size(kBaseAngles)];
-        hir.append_phase_rotation(a_mid, [&](MutablePauliMaskView slot) {
-            slot.x().bit_set(q1, true);
+        {
+            PauliMask slot;
+            slot.toggle(q1, true, false);
             if (!intervening_commutes) {
-                slot.z().bit_set(q0, true);
+                slot.toggle(q0, false, true);
             }
-        });
+            hir.append_phase_rotation(a_mid, slot);
+        }
 
         const bool alias_second_1 = !alias_first;
         const bool alias_second_2 = (rng() & 1U) != 0;
         const bool flip_sign = (rng() & 1U) != 0;
-        hir.append_phase_rotation(flip_sign ? -a2 : a2, [&](MutablePauliMaskView slot) {
-            slot.x().bit_set(q0, true);
+        {
+            PauliMask slot;
+            slot.toggle(q0, true, false);
             if (alias_second_1) {
-                slot.z().bit_set(q_stab1, true);
+                slot.toggle(q_stab1, false, true);
             }
             if (alias_second_2) {
-                slot.z().bit_set(q_stab2, true);
+                slot.toggle(q_stab2, false, true);
             }
             slot.set_sign(flip_sign);
-        });
+            hir.append_phase_rotation(flip_sign ? -a2 : a2, slot);
+        }
 
         if (region == 0) {
             if ((rng() & 1U) != 0) {
                 const ExpValIdx exp_idx{hir.num_exp_vals++};
-                hir.append_exp_val(exp_idx, [&](MutablePauliMaskView slot) {
-                    slot.z().bit_set(q0, true);
-                    slot.x().bit_set(q1, true);
-                });
+                {
+                    PauliMask slot;
+                    slot.toggle(q0, false, true);
+                    slot.toggle(q1, true, false);
+                    hir.append_exp_val(exp_idx, slot);
+                }
             } else {
                 const MeasRecordIdx meas_idx{hir.num_measurements++};
-                hir.append_measure(meas_idx,
-                                   [&](MutablePauliMaskView slot) { slot.z().bit_set(q0, true); });
+                {
+                    PauliMask slot;
+                    slot.toggle(q0, false, true);
+                    hir.append_measure(meas_idx, slot);
+                }
             }
         }
     }
 
     const ExpValIdx exp_idx{hir.num_exp_vals++};
-    hir.append_exp_val(exp_idx, [&](MutablePauliMaskView slot) {
-        slot.z().bit_set(q0, true);
-        slot.z().bit_set(q1, true);
-    });
+    {
+        PauliMask slot;
+        slot.toggle(q0, false, true);
+        slot.toggle(q1, false, true);
+        hir.append_exp_val(exp_idx, slot);
+    }
 
     const uint32_t m0 = hir.num_measurements++;
-    hir.append_measure(MeasRecordIdx{m0},
-                       [&](MutablePauliMaskView slot) { slot.z().bit_set(q0, true); });
+    {
+        PauliMask slot;
+        slot.toggle(q0, false, true);
+        hir.append_measure(MeasRecordIdx{m0}, slot);
+    }
 
     const uint32_t m1 = hir.num_measurements++;
-    hir.append_measure(MeasRecordIdx{m1},
-                       [&](MutablePauliMaskView slot) { slot.z().bit_set(q1, true); });
+    {
+        PauliMask slot;
+        slot.toggle(q1, false, true);
+        hir.append_measure(MeasRecordIdx{m1}, slot);
+    }
 
     hir.detector_targets.push_back({m0, m1});
     hir.ops.push_back(HeisenbergOp::make_detector(DetectorIdx{hir.num_detectors++}));
@@ -2491,5 +2537,171 @@ TEST_CASE("Multiword postselected circuits preserve survivor distributions acros
         run_full_hir_pipeline(blocked_full);
         require_distributions_equal(dense_blocked,
                                     compute_exact_hir_distribution(blocked_full, options));
+    }
+}
+
+namespace {
+
+// Remap physical qubit tokens in a Stim circuit while preserving opcodes,
+// parenthesized parameter blocks, and classical rec/sweep references.
+std::vector<std::string> remap_stim_circuit_qubits(const std::vector<std::string>& lines,
+                                                   const std::vector<uint32_t>& qubit_map) {
+    std::vector<std::string> remapped;
+    remapped.reserve(lines.size());
+    for (const std::string& line : lines) {
+        size_t pos = 0;
+        while (pos < line.size() && line[pos] == ' ') {
+            ++pos;
+        }
+        while (pos < line.size() && line[pos] != ' ' && line[pos] != '(') {
+            ++pos;
+        }
+        if (pos < line.size() && line[pos] == '(') {
+            const size_t close = line.find(')', pos);
+            pos = (close == std::string::npos) ? line.size() : close + 1;
+        }
+
+        std::string out = line.substr(0, pos);
+        while (pos < line.size()) {
+            if (line.compare(pos, 4, "rec[") == 0 || line.compare(pos, 6, "sweep[") == 0) {
+                const size_t close = line.find(']', pos);
+                const size_t end = (close == std::string::npos) ? line.size() : close + 1;
+                out.append(line, pos, end - pos);
+                pos = end;
+                continue;
+            }
+            if (line[pos] >= '0' && line[pos] <= '9') {
+                size_t end = pos;
+                uint32_t logical = 0;
+                while (end < line.size() && line[end] >= '0' && line[end] <= '9') {
+                    logical = logical * 10 + static_cast<uint32_t>(line[end] - '0');
+                    ++end;
+                }
+                REQUIRE(logical < qubit_map.size());
+                out += std::to_string(qubit_map[logical]);
+                pos = end;
+                continue;
+            }
+            out.push_back(line[pos]);
+            ++pos;
+        }
+        remapped.push_back(std::move(out));
+    }
+    return remapped;
+}
+
+bool hir_op_sequence_changed(const HirModule& before, const HirModule& after) {
+    if (before.ops.size() != after.ops.size()) {
+        return true;
+    }
+    for (size_t i = 0; i < before.ops.size(); ++i) {
+        if (before.ops[i].op_type() != after.ops[i].op_type()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+}  // namespace
+
+TEST_CASE(
+    "Multiword squeeze and schedule passes preserve exact distributions across word boundaries",
+    "[pass_equivalence][schedule_pass]") {
+    clifft::Xoshiro256PlusPlus rng(0x578091);
+    clifft::Xoshiro256PlusPlus control_rng(0x578092);
+
+    const std::vector<std::vector<uint32_t>> layouts = {
+        {0, 1, 63, 64},
+        {0, 63, 64, 129},
+    };
+    const PlantedScaffoldKind scaffolds[] = {
+        PlantedScaffoldKind::MultiRoundSchedule,
+        PlantedScaffoldKind::FeedbackAndReset,
+    };
+    const HazardConfig hazard_configs[] = {
+        {},
+        {.pauli_noise = true},
+        {.correlated_noise = true},
+        {.readout_noise = true},
+        {.resets = true, .exp_val = true},
+        {.pauli_noise = true, .readout_noise = true, .postselect_check_detectors = true},
+    };
+
+    for (const auto& layout : layouts) {
+        size_t squeeze_rewrites = 0;
+        size_t schedule_applied = 0;
+        size_t noise_crossed = 0;
+        size_t width_reductions = 0;
+
+        for (PlantedScaffoldKind scaffold : scaffolds) {
+            for (size_t h_idx = 0; h_idx < std::size(hazard_configs); ++h_idx) {
+                const HazardConfig& hazards = hazard_configs[h_idx];
+                for (int trial = 0; trial < 2; ++trial) {
+                    const PlantedCircuit planted = generate_planted_scaffold(scaffold, rng, 4);
+                    const std::vector<std::string> base_lines =
+                        inject_boundary_hazards(planted, hazards, rng, 4);
+                    const std::string dense_source = join_lines(base_lines);
+                    const std::string wide_source =
+                        join_lines(remap_stim_circuit_qubits(base_lines, layout));
+                    CAPTURE(layout.back(), static_cast<int>(scaffold), h_idx, trial, wide_source);
+
+                    const Circuit dense_circuit = clifft::parse(dense_source);
+                    const Circuit circuit = clifft::parse(wide_source);
+                    REQUIRE(circuit.num_qubits > 64);
+
+                    HirModule original = clifft::trace(circuit);
+                    assert_requested_hazards_present(planted, hazards, original);
+                    const OwnedPlanOptions owned =
+                        build_plan_options(original, planted, hazards.postselect_check_detectors);
+                    const auto options = owned.as_span_options();
+                    const ExactPlanDistribution dense_dist =
+                        compute_dense_circuit_distribution(dense_circuit, options);
+                    if (h_idx == 0) {
+                        assert_noiseless_scaffold_polarization(dense_dist, planted);
+                    }
+                    require_distributions_equal(dense_dist,
+                                                compute_exact_hir_distribution(original, options));
+
+                    const uint32_t unscheduled_peak =
+                        clifft::sampling::plan_sampling(original, options).peak_active_width;
+
+                    HirModule squeezed = original;
+                    StatevectorSqueezePass squeeze;
+                    squeeze.run(squeezed);
+                    const uint32_t squeezed_peak =
+                        clifft::sampling::plan_sampling(squeezed, options).peak_active_width;
+                    squeeze_rewrites += (squeezed_peak < unscheduled_peak ||
+                                         hir_op_sequence_changed(original, squeezed))
+                                            ? 1
+                                            : 0;
+                    check_exact_equivalent(original, squeezed, control_rng, 16, options);
+                    require_distributions_equal(dense_dist,
+                                                compute_exact_hir_distribution(squeezed, options));
+
+                    HirModule scheduled = squeezed;
+                    ActiveWidthSchedulePass scheduler;
+                    scheduler.run(scheduled);
+                    const uint32_t scheduled_peak =
+                        clifft::sampling::plan_sampling(scheduled, options).peak_active_width;
+                    schedule_applied += scheduler.applied() ? 1 : 0;
+                    noise_crossed += crossed_noise(scheduled) ? 1 : 0;
+                    width_reductions += (scheduled_peak < unscheduled_peak) ? 1 : 0;
+                    check_exact_equivalent(original, scheduled, control_rng, 16, options);
+                    require_distributions_equal(dense_dist,
+                                                compute_exact_hir_distribution(scheduled, options));
+
+                    HirModule full_opt = original;
+                    run_full_hir_pipeline(full_opt);
+                    check_exact_equivalent(original, full_opt, control_rng, 16, options);
+                    require_distributions_equal(dense_dist,
+                                                compute_exact_hir_distribution(full_opt, options));
+                }
+            }
+        }
+
+        REQUIRE(squeeze_rewrites >= 8);
+        REQUIRE(schedule_applied >= 10);
+        REQUIRE(noise_crossed >= 6);
+        REQUIRE(width_reductions >= 10);
     }
 }

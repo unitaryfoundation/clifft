@@ -23,7 +23,7 @@ using clifft::test::Z;
 
 TEST_CASE("HirModule::append_tgate stores Pauli in arena", "[hir]") {
     SECTION("T gate with Z on qubit 0") {
-        HirModule hir(64, 1);
+        HirModule hir(64);
         auto [destab, stab] = pauli_masks("Z");
         auto& op = clifft::test::append_tgate(hir, destab, stab, /*sign=*/false);
 
@@ -35,7 +35,7 @@ TEST_CASE("HirModule::append_tgate stores Pauli in arena", "[hir]") {
     }
 
     SECTION("T_dag gate with X on qubit 1, negative sign") {
-        HirModule hir(64, 1);
+        HirModule hir(64);
         auto& op = clifft::test::append_tgate(hir, X(1), 0, /*sign=*/true, /*dagger=*/true);
 
         REQUIRE(op.op_type() == OpType::T_GATE);
@@ -46,7 +46,7 @@ TEST_CASE("HirModule::append_tgate stores Pauli in arena", "[hir]") {
     }
 
     SECTION("T gate with Y on qubit 2 (both X and Z bits set)") {
-        HirModule hir(64, 1);
+        HirModule hir(64);
         auto [destab, stab] = pauli_masks("Y__");
         auto& op = clifft::test::append_tgate(hir, destab, stab, false);
 
@@ -56,7 +56,7 @@ TEST_CASE("HirModule::append_tgate stores Pauli in arena", "[hir]") {
 }
 
 TEST_CASE("set_pauli replaces masks and sign", "[hir]") {
-    HirModule hir(64, 1);
+    HirModule hir(64);
     auto& op = clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
     REQUIRE(hir.stab_mask(op) == Z(0));
     REQUIRE(hir.sign(op) == false);
@@ -70,7 +70,7 @@ TEST_CASE("set_pauli replaces masks and sign", "[hir]") {
 }
 
 TEST_CASE("HirModule mask access supports bitwise inspection", "[hir]") {
-    HirModule hir(64, 2);
+    HirModule hir(64);
     clifft::test::append_tgate(hir, X(1) | X(3), Z(0) | Z(2), false);  // X1 X3 Z0 Z2
     clifft::test::append_tgate(hir, X(2) | X(3), Z(0) | Z(1), false);  // X2 X3 Z0 Z1
 
@@ -80,26 +80,18 @@ TEST_CASE("HirModule mask access supports bitwise inspection", "[hir]") {
     auto stab2 = hir.stab_mask(hir.ops[1]);
 
     // destab1 & stab2 = X1 X3 & Z0 Z1 = bit 1 only
-    int popcount_d1_s2 = 0;
-    for (uint32_t i = 0; i < destab1.num_words(); ++i) {
-        popcount_d1_s2 += std::popcount(destab1.words[i] & stab2.words[i]);
-    }
-    REQUIRE(popcount_d1_s2 == 1);
+    REQUIRE(std::popcount(destab1.word(0) & stab2.word(0)) == 1);
 
     // stab1 & destab2 = Z0 Z2 & X2 X3 = bit 2 only
-    int popcount_s1_d2 = 0;
-    for (uint32_t i = 0; i < stab1.num_words(); ++i) {
-        popcount_s1_d2 += std::popcount(stab1.words[i] & destab2.words[i]);
-    }
-    REQUIRE(popcount_s1_d2 == 1);
+    REQUIRE(std::popcount(stab1.word(0) & destab2.word(0)) == 1);
 
     // XOR: X3 cancels, X1 and X2 remain
-    REQUIRE((destab1.words[0] ^ destab2.words[0]) == (X(1) | X(2)));
+    REQUIRE((destab1.word(0) ^ destab2.word(0)) == (X(1) | X(2)));
 }
 
 TEST_CASE("HirModule::append_measure", "[hir]") {
     SECTION("Measurement with record index") {
-        HirModule hir(64, 1);
+        HirModule hir(64);
         auto& op = clifft::test::append_measure(hir, X(0), 0, /*sign=*/false, MeasRecordIdx{5});
 
         REQUIRE(op.op_type() == OpType::MEASURE);
@@ -109,14 +101,14 @@ TEST_CASE("HirModule::append_measure", "[hir]") {
     }
 
     SECTION("Multi-qubit measurement") {
-        HirModule hir(64, 1);
+        HirModule hir(64);
         auto& op = clifft::test::append_measure(hir, X(0) | X(1), 0, false, MeasRecordIdx{10});
         REQUIRE(op.meas_record_idx() == MeasRecordIdx{10});
     }
 }
 
 TEST_CASE("HirModule::append_conditional", "[hir]") {
-    HirModule hir(64, 1);
+    HirModule hir(64);
     auto& op =
         clifft::test::append_conditional(hir, X(0), 0, /*sign=*/false, ControllingMeasIdx{7});
 
@@ -160,7 +152,7 @@ TEST_CASE("pauli_masks helper", "[hir][helper]") {
 // =============================================================================
 
 TEST_CASE("HirModule construction and accessors", "[hir]") {
-    HirModule hir(4, 4);
+    HirModule hir(4);
 
     REQUIRE(hir.num_ops() == 0);
     REQUIRE(hir.num_t_gates() == 0);
@@ -174,7 +166,7 @@ TEST_CASE("HirModule construction and accessors", "[hir]") {
 }
 
 TEST_CASE("HirModule with noise sites", "[hir]") {
-    HirModule hir(2, /*num_pauli_masks=*/0, /*num_noise_channels=*/1);
+    HirModule hir(2);
 
     NoiseSite site;
     CHECK(site.source_node == kUnknownSourceNode);

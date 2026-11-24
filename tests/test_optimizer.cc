@@ -425,7 +425,7 @@ TEST_CASE("Peephole: READOUT_NOISE is transparent", "[optimizer]") {
 }
 
 TEST_CASE("Peephole: empty HIR is a no-op", "[optimizer]") {
-    HirModule hir(0, /*pauli_capacity=*/16);
+    HirModule hir(0);
 
     PeepholeFusionPass pass;
     pass.run(hir);
@@ -475,7 +475,7 @@ TEST_CASE("Peephole: three T gates produce one T after S absorption", "[optimize
 TEST_CASE("Peephole: sign inversion makes T behave as T_dag", "[optimizer]") {
     // T with negative sign has eff=-1, same as T_dag with positive sign
     // So T(sign=true) + T(sign=false) should cancel
-    HirModule hir(1, /*pauli_capacity=*/16);
+    HirModule hir(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
@@ -490,7 +490,7 @@ TEST_CASE("Peephole: sign inversion makes T behave as T_dag", "[optimizer]") {
 TEST_CASE("Peephole: sign inversion makes same-direction absorb", "[optimizer]") {
     // T(sign=true) has eff=-1, T_dag(sign=false) has eff=-1
     // total = -2 -> fuse to S_dag (absorbed)
-    HirModule hir(1, /*pauli_capacity=*/16);
+    HirModule hir(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false, /*dagger=*/true);
@@ -519,7 +519,7 @@ TEST_CASE("Peephole: S absorption propagates through downstream T", "[optimizer]
 
 TEST_CASE("Peephole: PHASE_ROTATION demotes to absorbed S and T gates", "[optimizer]") {
     // 0.5 half-turns = S gate -> absorbed (no ops remain)
-    HirModule hir_s(1, 1);
+    HirModule hir_s(1);
     clifft::test::append_phase_rotation(hir_s, 0, Z(0), false, 0.5);
     PeepholeFusionPass pass_s;
     pass_s.run(hir_s);
@@ -527,7 +527,7 @@ TEST_CASE("Peephole: PHASE_ROTATION demotes to absorbed S and T gates", "[optimi
     REQUIRE(pass_s.fusions() == 1);
 
     // 1.5 half-turns = S_dag gate -> absorbed (no ops remain)
-    HirModule hir_sdag(1, 1);
+    HirModule hir_sdag(1);
     clifft::test::append_phase_rotation(hir_sdag, 0, Z(0), false, 1.5);
     PeepholeFusionPass pass_sdag;
     pass_sdag.run(hir_sdag);
@@ -553,7 +553,7 @@ TEST_CASE("Peephole: PHASE_ROTATION demotes to absorbed S and T gates", "[optimi
 
 TEST_CASE("Peephole: rotation canonicalization uses the shared tolerance", "[optimizer]") {
     constexpr double inside = 0.5 + 0.5 * kRotationCanonicalizationTolerance;
-    HirModule hir_inside(1, 1);
+    HirModule hir_inside(1);
     clifft::test::append_phase_rotation(hir_inside, 0, Z(0), false, inside);
     PeepholeFusionPass inside_pass;
     inside_pass.run(hir_inside);
@@ -561,7 +561,7 @@ TEST_CASE("Peephole: rotation canonicalization uses the shared tolerance", "[opt
     CHECK(inside_pass.fusions() == 1);
 
     constexpr double outside = 0.5 + 2.0 * kRotationCanonicalizationTolerance;
-    HirModule hir_outside(1, 1);
+    HirModule hir_outside(1);
     clifft::test::append_phase_rotation(hir_outside, 0, Z(0), false, outside);
     PeepholeFusionPass outside_pass;
     outside_pass.run(hir_outside);
@@ -573,7 +573,7 @@ TEST_CASE("Peephole: rotation canonicalization uses the shared tolerance", "[opt
 }
 
 TEST_CASE("Peephole: Pauli-valued rotation updates downstream signs and frame", "[optimizer]") {
-    HirModule hir(1, 2);
+    HirModule hir(1);
     hir.final_tableau.emplace(1);
     clifft::test::append_phase_rotation(hir, 0, Z(0), false, 1.0);
     clifft::test::append_measure(hir, X(0), 0, false, MeasRecordIdx{0});
@@ -590,7 +590,7 @@ TEST_CASE("Peephole: Pauli-valued rotation updates downstream signs and frame", 
 }
 
 TEST_CASE("Peephole: fused rotations absorb a Pauli residue", "[optimizer]") {
-    HirModule hir(1, 2);
+    HirModule hir(1);
     hir.final_tableau.emplace(1);
     clifft::test::append_phase_rotation(hir, 0, Z(0), false, 0.3);
     clifft::test::append_phase_rotation(hir, 0, Z(0), false, 0.7);
@@ -632,7 +632,7 @@ TEST_CASE("Peephole: Pauli residue handles signs periods and tolerance", "[optim
 
     for (const auto& test_case : cases) {
         CAPTURE(test_case.alpha, test_case.sign);
-        HirModule hir(1, 1);
+        HirModule hir(1);
         hir.final_tableau.emplace(1);
         clifft::test::append_phase_rotation(hir, 0, Z(0), test_case.sign, test_case.alpha);
 
@@ -645,7 +645,7 @@ TEST_CASE("Peephole: Pauli residue handles signs periods and tolerance", "[optim
     }
 
     constexpr double outside = 1.0 + 2.0 * kRotationCanonicalizationTolerance;
-    HirModule outside_hir(1, 1);
+    HirModule outside_hir(1);
     outside_hir.final_tableau.emplace(1);
     clifft::test::append_phase_rotation(outside_hir, 0, Z(0), false, outside);
     PeepholeFusionPass outside_pass;
@@ -658,15 +658,13 @@ TEST_CASE("Peephole: Pauli residue handles signs periods and tolerance", "[optim
 }
 
 TEST_CASE("Peephole: Pauli absorption updates instrument masks", "[optimizer]") {
-    HirModule hir(1, 3);
+    HirModule hir(1);
     clifft::test::append_phase_rotation(hir, 0, Z(0), false, 1.0);
 
     InstrumentSite site;
-    site.destination_flip_mask =
-        hir.claim_side_mask([](MutablePauliMaskView slot) { slot.x().bit_set(0, true); });
+    site.destination_flip_mask = hir.pauli_masks.append(PauliMask(X(0), uint64_t{0}, false));
     hir.instrument_sites.push_back(site);
-    hir.append_instrument(InstrumentSiteIdx{0},
-                          [](MutablePauliMaskView slot) { slot.x().bit_set(0, true); });
+    hir.append_instrument(InstrumentSiteIdx{0}, PauliMask(X(0), uint64_t{0}, false));
 
     PeepholeFusionPass pass;
     pass.run(hir);
@@ -679,14 +677,13 @@ TEST_CASE("Peephole: Pauli absorption updates instrument masks", "[optimizer]") 
 }
 
 TEST_CASE("Peephole: Pauli absorption supports wide multi-word axes", "[optimizer]") {
-    HirModule hir(130, 1);
+    HirModule hir(130);
     hir.final_tableau.emplace(130);
-    hir.append_phase_rotation(1.0, [](MutablePauliMaskView slot) {
-        slot.x().bit_set(0, true);
-        slot.z().bit_set(64, true);
-        slot.x().bit_set(129, true);
-        slot.z().bit_set(129, true);
-    });
+    PauliMask axis;
+    axis.toggle(0, true, false);
+    axis.toggle(64, false, true);
+    axis.toggle(129, true, true);
+    hir.append_phase_rotation(1.0, axis);
     const HirModule reference = hir_from("X 0\nZ 64\nY 129");
 
     PeepholeFusionPass pass;
@@ -698,7 +695,7 @@ TEST_CASE("Peephole: Pauli absorption supports wide multi-word axes", "[optimize
 }
 
 TEST_CASE("Peephole: square-root product rotations use fusion and absorption", "[optimizer]") {
-    HirModule hir_spp(2, 1);
+    HirModule hir_spp(2);
     hir_spp.final_tableau.emplace(2);
     clifft::test::append_phase_rotation(hir_spp, 0, X(0) | X(1), false, 0.5);
 
@@ -706,7 +703,7 @@ TEST_CASE("Peephole: square-root product rotations use fusion and absorption", "
     pass_spp.run(hir_spp);
     REQUIRE(hir_spp.ops.empty());
 
-    HirModule hir_cancel(2, 2);
+    HirModule hir_cancel(2);
     hir_cancel.final_tableau.emplace(2);
     clifft::test::append_phase_rotation(hir_cancel, 0, X(0) | X(1), false, 0.5);
     clifft::test::append_phase_rotation(hir_cancel, 0, X(0) | X(1), false, -0.5);
@@ -782,7 +779,7 @@ TEST_CASE("Peephole: S absorption conjugates noise and conditional Pauli", "[opt
 TEST_CASE("Peephole: negative-sign T plus T preserves the state ray", "[optimizer]") {
     // X conjugates Z -> -Z, so both T gates see -Z axis (sign=true).
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so T(-Z)+T(-Z) = exp(i*pi/2) * S_dag(+Z) = i * S_dag.
-    HirModule hir(1, /*pauli_capacity=*/16);
+    HirModule hir(1);
     hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true);
@@ -799,7 +796,7 @@ TEST_CASE("Peephole: negative-sign T plus T preserves the state ray", "[optimize
 
 TEST_CASE("Peephole: negative-sign T_dag plus T_dag preserves the state ray", "[optimizer]") {
     // T_dag(-Z) = exp(-i*pi/4) * T(+Z), two of them: exp(-i*pi/2) * S(+Z) = -i * S.
-    HirModule hir(1, /*pauli_capacity=*/16);
+    HirModule hir(1);
     hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/true, /*dagger=*/true);
@@ -817,7 +814,7 @@ TEST_CASE("Peephole: mixed-sign T cancellation preserves the state ray", "[optim
     // T(+Z) + T(-Z): effective_angles sum to 0 (cancellation), but
     // T(-Z) = exp(i*pi/4) * T_dag(+Z), so the physical result is
     // T(+Z) * exp(i*pi/4) * T_dag(+Z) = exp(i*pi/4) * I.
-    HirModule hir(1, /*pauli_capacity=*/16);
+    HirModule hir(1);
     hir.final_tableau.emplace(1);
 
     clifft::test::append_tgate(hir, 0, Z(0), /*sign=*/false);
@@ -1238,7 +1235,7 @@ TEST_CASE("Squeeze: multi-bucket compaction matches pairwise swap order", "[opti
         if (used_by_detector[rec]) {
             continue;
         }
-        const MaskView az = actual.stab_mask(op);
+        const SparseMaskView az = actual.stab_mask(op);
         bool spectator = false;
         uint32_t spectator_slot = 0;
         for (uint32_t s = 0; s < 12; ++s) {
@@ -1409,11 +1406,7 @@ size_t basis_index(PauliStringView pauli) {
 
 PauliString op_axis(const HirModule& hir, const HeisenbergOp& op) {
     PauliString result(hir.num_qubits);
-    const MaskView x = hir.destab_mask(op);
-    const MaskView z = hir.stab_mask(op);
-    for (uint32_t q = 0; q < hir.num_qubits; ++q) {
-        result.set_pauli(q, x.bit_get(q), z.bit_get(q));
-    }
+    hir.mask_view(op).xor_into(result.mut_x(), result.mut_z());
     result.set_sign(hir.sign(op));
     return result;
 }

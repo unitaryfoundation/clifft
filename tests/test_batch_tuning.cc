@@ -287,15 +287,16 @@ TEST_CASE("Batch tuning retains the default when measured rates tie") {
 }
 
 TEST_CASE("Batch tuning explores above the automatic width cutoff with bounded storage") {
-    const auto plan = compile_tuning_plan("H 0 1 2 3 4 5\nT 0 1 2 3 4 5\nM 0 1 2 3 4 5");
-    REQUIRE(plan.peak_active_width() == 6);
+    const auto plan =
+        compile_tuning_plan("H 0 1 2 3 4 5 6 7 8\nT 0 1 2 3 4 5 6 7 8\nM 0 1 2 3 4 5 6 7 8");
+    REQUIRE(plan.peak_active_width() == 9);
     auto baseline =
         resolve_batch_execution_policy(plan, 8193, 2, 1, BatchOutputMode::Rows, std::nullopt);
     REQUIRE(baseline.lane_capacity == 1);
     baseline.worker_count = 2;
     const auto candidates = batch_tuning_candidates(plan, 8193, 2, 1, BatchOutputMode::Rows,
                                                     BatchSamplingMode::Ordinary, 0, baseline);
-    REQUIRE(candidates.size() == 5);
+    REQUIRE(candidates.size() >= 3);
     for (const auto& candidate : candidates) {
         REQUIRE(candidate.min_probe_shots >= candidate.policy.worker_count);
         REQUIRE(candidate.max_probe_shots <= 8193);

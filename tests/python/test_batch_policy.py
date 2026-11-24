@@ -22,18 +22,21 @@ def test_postselected_auto_replays_its_explicit_capacity(
     if width:
         targets = " ".join(map(str, range(width)))
         source += f"H {targets}\nT {targets}\nH {targets}\nEXP_VAL Z0\nM {targets}"
-    program = clifft.compile(source, postselection_mask=[1], hir_passes=None)
+    program = clifft.compile(source, postselection_mask=[1], hir_passes=None, reconstruction=False)
     assert program.peak_active_width == width
     shots = 1025
     sample: Any = clifft.sample_k_survivors if fixed_faults else clifft.sample_survivors
     options: dict[str, Any] = {"k": 1} if fixed_faults else {}
-    # Ordinary width-zero plans batch every requested shot and select their
-    # noise preparation; the other plans keep the narrow postselected limit.
-    if width == 0 and not fixed_faults:
-        capacity = shots
-    else:
-        capacity = 256 if width < 5 else 1
+    # Nonzero-width postselected calls without retained EXP_VAL probes share trajectories;
+    # width-zero ordinary calls batch all shots; remaining calls use ordinary limits.
+    expect_shared = width != 0 and not fixed_faults and not keep_records
     for threads in (1, 4):
+        if expect_shared:
+            capacity = 1024 if threads > 1 else shots
+        elif width == 0 and not fixed_faults:
+            capacity = shots
+        else:
+            capacity = 256 if width < 5 else 1
         automatic = sample(
             program,
             shots,
@@ -42,10 +45,14 @@ def test_postselected_auto_replays_its_explicit_capacity(
             keep_records=keep_records,
             **options,
         )
+        assert automatic.execution.sharing == expect_shared
         assert automatic.execution.batch_size == capacity
         replay = dict(options)
-        if not fixed_faults and automatic.execution.noise_preparation is not None:
-            replay["noise_preparation"] = automatic.execution.noise_preparation
+        if not fixed_faults:
+            if automatic.execution.sharing:
+                replay["sharing"] = True
+            if automatic.execution.noise_preparation is not None:
+                replay["noise_preparation"] = automatic.execution.noise_preparation
         explicit = sample(
             program,
             shots,
@@ -124,21 +131,27 @@ def test_terminal_postselection_batches_classical_work_with_bounded_parallel_cap
     source = f"H {targets}\nT {targets}\n"
     source += f"REPEAT 256 {{\nX_ERROR(0.01) {width}\nM {width}\n}}\n"
     source += f"H {targets}\nM {targets}\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2]"
-    program = clifft.compile(source, hir_passes=None, postselection_mask=[1])
+    program = clifft.compile(source, hir_passes=None, postselection_mask=[1], reconstruction=False)
     assert program.peak_active_width == width
     for threads, capacity in (
         (1, 512 if width == 6 else 128),
         (4, 256 if width == 6 else 128),
         (32, 512 if width == 6 else 128),
     ):
-        options = dict(seed=48, threads=threads, keep_records=True)
+        options = dict(seed=48, threads=threads, keep_records=True, sharing=False)
         automatic = clifft.sample_survivors(program, 1025, **options)
         reported = clifft.sample_survivors(
             program, 1025, **options, batch_size="tune", tuning_budget_seconds=0
         )
         assert reported.batch_tuning.baseline_batch_size == capacity
         explicit = clifft.sample_survivors(
-            program, 1025, seed=48, threads=1, keep_records=True, batch_size=capacity
+            program,
+            1025,
+            seed=48,
+            threads=1,
+            keep_records=True,
+            batch_size=capacity,
+            noise_preparation=automatic.execution.noise_preparation,
         )
         repeated = clifft.sample_survivors(program, 1025, **options)
         for result in (reported, explicit, repeated):

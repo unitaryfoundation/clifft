@@ -74,7 +74,7 @@ SamplingPlanOptions source_map_options() {
 }  // namespace
 
 TEST_CASE("Sampling planner preserves empty module metadata") {
-    HirModule hir(3, 0);
+    HirModule hir(3);
 
     const SamplingPlan plan = plan_sampling(hir);
 
@@ -110,7 +110,7 @@ TEST_CASE("Sampling planner validates detector records before XOR cancellation")
 }
 
 TEST_CASE("Sampling planner promotes rotations and keeps later active support") {
-    HirModule hir(1, 2);
+    HirModule hir(1);
     clifft::test::append_tgate(hir, X(0), 0, false);
     clifft::test::append_phase_rotation(hir, X(0), 0, false, 0.5);
 
@@ -128,7 +128,7 @@ TEST_CASE("Sampling planner promotes rotations and keeps later active support") 
 }
 
 TEST_CASE("Sampling planner emits direct multi-coordinate active Paulis") {
-    HirModule hir(2, 3);
+    HirModule hir(2);
     clifft::test::append_tgate(hir, X(0), 0, false);
     clifft::test::append_tgate(hir, X(0) | X(1), 0, false);
     clifft::test::append_phase_rotation(hir, X(1), 0, false, 0.5);
@@ -144,10 +144,11 @@ TEST_CASE("Sampling planner emits direct multi-coordinate active Paulis") {
 }
 
 TEST_CASE("Sampling planner preserves high physical Pauli coordinates") {
-    HirModule hir(129, 2);
-    hir.append_tgate(false, [](clifft::MutablePauliMaskView slot) { slot.x().bit_set(128, true); });
-    hir.append_phase_rotation(
-        0.5, [](clifft::MutablePauliMaskView slot) { slot.x().bit_set(128, true); });
+    HirModule hir(129);
+    clifft::PauliMask x128;
+    x128.toggle(128, true, false);
+    hir.append_tgate(false, x128);
+    hir.append_phase_rotation(0.5, x128);
 
     const SamplingPlan plan = plan_sampling(hir);
 
@@ -159,7 +160,7 @@ TEST_CASE("Sampling planner preserves high physical Pauli coordinates") {
 }
 
 TEST_CASE("Sampling planner records repeat dormant measurements consistently") {
-    HirModule hir(1, 2);
+    HirModule hir(1);
     hir.num_measurements = 2;
     clifft::test::append_measure(hir, X(0), 0, false, MeasRecordIdx{0});
     clifft::test::append_measure(hir, X(0), 0, false, MeasRecordIdx{1});
@@ -180,7 +181,7 @@ TEST_CASE("Sampling planner correlates arbitrary repeated dormant measurements")
     for (uint64_t x = 1; x < 4; ++x) {
         for (uint64_t z = 0; z < 4; ++z) {
             CAPTURE(x, z);
-            HirModule hir(2, 2);
+            HirModule hir(2);
             hir.num_measurements = 2;
             clifft::test::append_measure(hir, x, z, true, MeasRecordIdx{0});
             clifft::test::append_measure(hir, x, z, true, MeasRecordIdx{1});
@@ -195,7 +196,7 @@ TEST_CASE("Sampling planner correlates arbitrary repeated dormant measurements")
 }
 
 TEST_CASE("Sampling planner correlates mixed active and dormant measurements") {
-    HirModule hir(2, 3);
+    HirModule hir(2);
     hir.num_measurements = 2;
     clifft::test::append_tgate(hir, X(0), 0, false);
     clifft::test::append_measure(hir, X(0) | X(1), 0, false, MeasRecordIdx{0});
@@ -370,7 +371,7 @@ TEST_CASE("Sampling planner preserves mixed symbol order at instrument boundarie
 }
 
 TEST_CASE("Sampling planner collapses active measurements and propagates branches") {
-    HirModule hir(1, 3);
+    HirModule hir(1);
     hir.num_measurements = 2;
     clifft::test::append_tgate(hir, X(0), 0, false);
     clifft::test::append_measure(hir, 0, Z(0), false, MeasRecordIdx{0});
@@ -398,7 +399,7 @@ TEST_CASE("Sampling planner correlates arbitrary repeated active measurements") 
                 continue;
             }
             CAPTURE(x, z);
-            HirModule hir(2, 4);
+            HirModule hir(2);
             hir.num_measurements = 2;
             clifft::test::append_tgate(hir, X(0), 0, false);
             clifft::test::append_tgate(hir, X(1), 0, false);
@@ -418,7 +419,7 @@ TEST_CASE("Sampling planner correlates arbitrary repeated active measurements") 
 }
 
 TEST_CASE("Sampling planner keeps geometric Pauli signs") {
-    HirModule hir(1, 2);
+    HirModule hir(1);
     clifft::test::append_tgate(hir, X(0), Z(0), false);
     clifft::test::append_phase_rotation(hir, X(0), 0, false, 0.5);
 
@@ -431,7 +432,7 @@ TEST_CASE("Sampling planner keeps geometric Pauli signs") {
 }
 
 TEST_CASE("Sampling planner omits identity rotations") {
-    HirModule hir(1, 2);
+    HirModule hir(1);
     clifft::test::append_phase_rotation(hir, 0, Z(0), false, 0.5);
     clifft::test::append_tgate(hir, 0, Z(0), false);
 
@@ -442,7 +443,7 @@ TEST_CASE("Sampling planner omits identity rotations") {
 
 TEST_CASE("Sampling planner omits signed identity rotations") {
     SECTION("constant sign") {
-        HirModule hir(1, 1);
+        HirModule hir(1);
         clifft::test::append_tgate(hir, 0, Z(0), true);
 
         const SamplingPlan plan = plan_sampling(hir);
@@ -627,7 +628,7 @@ TEST_CASE("Sampling planner cancels observable snapshots before freshness testin
 }
 
 TEST_CASE("Sampling planner reports the dense active width limit") {
-    HirModule hir(60, 60);
+    HirModule hir(60);
     for (uint32_t q = 0; q < 60; ++q) {
         clifft::test::append_tgate(hir, X(q), 0, false);
     }
@@ -660,7 +661,7 @@ TEST_CASE("Sampling planner does not activate absorbed Pauli rotations") {
 }
 
 TEST_CASE("Sampling planner output is deterministic") {
-    HirModule hir(2, 4);
+    HirModule hir(2);
     hir.num_measurements = 2;
     clifft::test::append_tgate(hir, X(0), 0, false);
     clifft::test::append_phase_rotation(hir, X(0) | X(1), Z(1), true, -0.25);

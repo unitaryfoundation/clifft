@@ -45,7 +45,7 @@ class UnitaryCase:
     source: str
     num_qubits: int
     witness_for: str | None = None
-    reconstructed_width: int | None = None
+    reconstructed_widths: tuple[int | None, int | None] = (None, None)
 
     @property
     def measured_source(self) -> str:
@@ -72,18 +72,26 @@ INTERFERENCE_SOURCE = "H 0 1\nT 0 1\nH 0 1"
 
 CASES = (
     # Neither pass alone can satisfy the other pass's width-reduction witness.
-    UnitaryCase("fusion", "H 0\nT 0\nT_DAG 0\nH 0", 1, "PeepholeFusionPass"),
-    UnitaryCase("squeeze", INTERFERENCE_SOURCE, 2, "StatevectorSqueezePass", reconstructed_width=1),
-    UnitaryCase("bell", "H 0\nCX 0 1\nT 0", 2, reconstructed_width=0),
-    UnitaryCase("phase", PHASE_SOURCE, 4),
     UnitaryCase(
-        "mixed-pauli", "R_X(0.3) 0\nR_Y(0.2) 1\nH 2\nCX 1 2\nR_PAULI(0.17) X0*Y1*Z2\nH 0 1", 3
+        "fusion", "H 0\nT 0\nT_DAG 0\nH 0", 1, "PeepholeFusionPass", reconstructed_widths=(0, 0)
+    ),
+    UnitaryCase(
+        "squeeze", INTERFERENCE_SOURCE, 2, "StatevectorSqueezePass", reconstructed_widths=(1, 1)
+    ),
+    UnitaryCase("bell", "H 0\nCX 0 1\nT 0", 2, reconstructed_widths=(0, 0)),
+    UnitaryCase("phase", PHASE_SOURCE, 4, reconstructed_widths=(None, 1)),
+    UnitaryCase(
+        "mixed-pauli",
+        "R_X(0.3) 0\nR_Y(0.2) 1\nH 2\nCX 1 2\nR_PAULI(0.17) X0*Y1*Z2\nH 0 1",
+        3,
+        reconstructed_widths=(1, 0),
     ),
     UnitaryCase(
         "mirror",
         "H 0\nT 0\nCX 0 1\nH 1\nT 1\nCX 1 2\nR_X(0.3) 2\n"
         "R_X(-0.3) 2\nCX 1 2\nT_DAG 1\nH 1\nCX 0 1\nT_DAG 0\nH 0",
         3,
+        reconstructed_widths=(0, 0),
     ),
 )
 
@@ -151,38 +159,35 @@ def test_samples_and_annotations_match_independent_oracle(
 
 
 @pytest.mark.parametrize("mode", RECONSTRUCTION_MODES, ids=lambda mode: mode.name)
-@pytest.mark.parametrize(
-    "case",
-    [case for case in CASES if case.reconstructed_width is not None],
-    ids=lambda case: case.name,
-)
 def test_reconstructed_samples_share_unitary_oracles(
     case: UnitaryCase, mode: CpuSamplingMode
 ) -> None:
     program = mode.compile(case.annotated_source, hir_passes=None, reconstruction=True)
-    for keep_records in (False, True):
+    rec_width, det_width = case.reconstructed_widths
+    for keep_records, expected_width in ((True, rec_width), (False, det_width)):
         plan = program.sampling_plan(keep_records=keep_records)
-        assert plan.reconstruction_selected and not plan.fallback_reason
-        assert plan.peak_active_width == case.reconstructed_width
-        assert plan.peak_active_width < program.original_plan.peak_active_width
-    result = mode.sample(program, 4097, seed=1907)
-    probabilities = np.abs(unitary_reference(case.source)) ** 2
-    _assert_annotated_distribution(result, probabilities, 4097, case.num_qubits)
-
-
-def test_reconstruction_fallback_preserves_original_plan_width() -> None:
-    for case in (case for case in CASES if case.reconstructed_width is None):
-        program = clifft.compile(case.annotated_source, hir_passes=None, reconstruction=True)
-        reason = (
-            "does not reduce peak active width"
-            if case.name == "fusion"
-            else "unsupported source operation"
-        )
-        for keep_records in (False, True):
-            plan = program.sampling_plan(keep_records=keep_records)
+        if expected_width is None:
             assert not plan.reconstruction_selected
-            assert reason in plan.fallback_reason
+            assert "does not reduce peak active width" in plan.fallback_reason
             assert plan.peak_active_width == program.original_plan.peak_active_width
+        else:
+            assert plan.reconstruction_selected and not plan.fallback_reason
+            assert plan.peak_active_width == expected_width
+            assert plan.peak_active_width < program.original_plan.peak_active_width
+    probabilities = np.abs(unitary_reference(case.source)) ** 2
+    if rec_width is not None:
+        result = mode.sample(program, 4097, seed=1907)
+        _assert_annotated_distribution(result, probabilities, 4097, case.num_qubits)
+    if det_width is not None:
+        syndromes = clifft.sample(
+            program, 4097, seed=1907, batch_size=mode.batch_size, keep_records="syndromes"
+        )
+        idx = np.arange(1 << case.num_qubits)
+        det_bits = ((idx & 1) ^ ((idx >> (case.num_qubits - 1)) & 1)).astype(np.uint8)
+        obs_bits = ((idx >> (case.num_qubits - 1)) & 1).astype(np.uint8)
+        expected_joint = np.bincount(det_bits + 2 * obs_bits, weights=probabilities, minlength=4)
+        joint = np.hstack((syndromes.detectors, syndromes.observables))
+        assert_joint_distribution(joint, expected_joint)
 
 
 def _assert_annotated_distribution(
@@ -303,6 +308,17 @@ def test_noisy_joint_outputs_and_survivor_reuse(
         assert plan.peak_active_width == (1 if reconstruction else 2)
         result = mode.sample_survivors(program, shots, seed=803, keep_records=keep_records)
         _assert_noisy_survivors(result, expected, shots, keep_records)
+
+
+def test_default_reconstructed_syndromes_match_joint_oracle(
+    noisy_joint_probabilities: np.ndarray,
+) -> None:
+    program = clifft.compile(
+        NOISY_INTERFERENCE_SOURCE, expected_detectors=[1, 1], expected_observables=[1, 0]
+    )
+    assert program.sampling_plan(keep_records=False).reconstruction_selected
+    result = clifft.sample_survivors(program, 4097, seed=803, keep_records=False)
+    _assert_noisy_survivors(result, noisy_joint_probabilities, 4097, False)
 
 
 def test_joint_output_check_detects_unwritten_observable(
@@ -558,12 +574,14 @@ def test_default_profile_uses_fresh_production_factory(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(clifft, "default_hir_pass_manager", factory)
     monkeypatch.setattr(
-        clifft, "compile", lambda source, *, hir_passes: received.append(hir_passes)
+        clifft,
+        "compile",
+        lambda source, *, hir_passes, reconstruction: received.append((hir_passes, reconstruction)),
     )
     DEFAULT.compile("H 0")
     DEFAULT.compile("H 0")
     assert len(managers) == 2 and managers[0] is not managers[1]
-    assert received == managers
+    assert received == [(manager, False) for manager in managers]
 
 
 def test_cpu_sampling_modes_include_batch_and_worker_configurations() -> None:
@@ -700,3 +718,86 @@ def test_reusable_sharing_preserves_noisy_aggregate_masses(
         group_by_noise=group,
     )
     _assert_noisy_survivors(result, expected, 8193, keep_records=False)
+
+
+def test_bare_default_postselected_pipeline_matches_aer_oracle(
+    noisy_joint_probabilities: np.ndarray,
+) -> None:
+    source = (
+        NOISY_INTERFERENCE_SOURCE
+        + "\nR_PAULI(0.19) X6*X7\nR_PAULI(0.31) Z6*Y7\nMPP Y6*Y7\nMY 6\nM 7\n"
+        + "DETECTOR rec[-3]\nOBSERVABLE_INCLUDE(2) rec[-2]"
+    )
+    mask = [1, 1, 1]
+    expected_det = [1, 1, 0]
+    expected_obs = [1, 0, 0]
+
+    # Verify ActiveWidthSchedulePass strictly lowers peak active width within the
+    # default pipeline before optional reconstruction.
+    schedule = clifft.ActiveWidthSchedulePass()
+    scheduled_only = clifft.compile(
+        source,
+        hir_passes=clifft.default_hir_pass_manager(overrides=[schedule]),
+        reconstruction=False,
+        postselection_mask=mask,
+        expected_detectors=expected_det,
+        expected_observables=expected_obs,
+    )
+    assert schedule.applied
+    assert schedule.incumbent_peak == 2
+    assert schedule.result_peak == 1
+    assert scheduled_only.sampling_plan(keep_records=False).peak_active_width == 1
+
+    program = clifft.compile(
+        source,
+        postselection_mask=mask,
+        expected_detectors=expected_det,
+        expected_observables=expected_obs,
+    )
+    plan = program.sampling_plan(keep_records=False)
+    assert plan.reconstruction_selected
+    assert plan.peak_active_width == 1
+
+    shots = 32768
+    result = clifft.sample_survivors(program, shots, seed=803)
+    assert result.execution is not None
+    assert result.execution.executor == "shared"
+    assert result.execution.sharing is True
+
+    # S_DAG 0 1; H 0 1; CX 1 0 maps Y0*Y1 -> Z0 (det2) and MY0 -> Z0 ^ Z1 (obs2).
+    p_sched = (
+        np.abs(
+            unitary_reference("R_PAULI(0.19) X0*X1\nR_PAULI(0.31) Z0*Y1\nS_DAG 0 1\nH 0 1\nCX 1 0")
+        )
+        ** 2
+    )
+    p_d2_0_o2_0 = float(p_sched[0])
+    p_d2_0_o2_1 = float(p_sched[2])
+
+    keys = np.arange(1024)
+    base_expected = noisy_joint_probabilities.copy()
+    base_expected[((keys >> 6) & 3) != 0] = 0
+    base_obs_probs = np.bincount(
+        ((keys >> 8) & 1) + 2 * ((keys >> 9) & 1), weights=base_expected, minlength=4
+    )
+    obs_probs_8 = np.concatenate([base_obs_probs * p_d2_0_o2_0, base_obs_probs * p_d2_0_o2_1])
+    p_pass = float(obs_probs_8.sum())
+    masses = [
+        p_pass,
+        float(obs_probs_8[1:].sum()),
+        float(obs_probs_8[[1, 3, 5, 7]].sum()),
+        float(obs_probs_8[[2, 3, 6, 7]].sum()),
+        float(obs_probs_8[4:].sum()),
+    ]
+    assert result.passed_shots is not None and result.logical_errors is not None
+    assert result.observable_ones is not None
+    counts = [result.passed_shots, result.logical_errors, *result.observable_ones]
+    for count, mass in zip(counts, masses, strict=True):
+        assert abs(count / shots - mass) < binomial_tolerance(mass, shots) + 1e-14
+
+    syndromes = clifft.sample_survivors(program, shots, seed=809, keep_records="syndromes")
+    assert syndromes.execution is not None
+    assert syndromes.execution.executor == "shared"
+    assert syndromes.execution.sharing is True
+    assert not syndromes.detectors.any()
+    assert_joint_distribution(syndromes.observables, obs_probs_8 / p_pass)

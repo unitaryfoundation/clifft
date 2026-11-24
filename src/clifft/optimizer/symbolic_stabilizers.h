@@ -66,8 +66,8 @@ class SymbolicStabilizers {
     [[nodiscard]] std::optional<AffineBool> fresh_symbol();
     bool multiply(Row& left, const Row& right, size_t& products) const;
     bool insert_row(Row row);
-    void intersect(MaskView ax, MaskView az);
-    void apply_pauli(MaskView ax, MaskView az, const AffineBool& condition);
+    void intersect(const PauliCommutation& axis);
+    void apply_pauli(const PauliCommutation& axis, const AffineBool& condition);
     void assign_record(uint32_t record, AffineBool value);
     void flush_feedback();
     void forget();
@@ -88,6 +88,8 @@ class SymbolicStabilizers {
     std::optional<Feedback> feedback_;
     KnownStabilizers fixed_;
     bool fixed_valid_ = false;
+    // Dense copy of the HIR mask being advanced over.
+    DensePauliScratch dense_;
 };
 
 }  // namespace clifft

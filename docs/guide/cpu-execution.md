@@ -27,10 +27,11 @@ result = clifft.sample(program, shots=10_000, seed=42, threads=4)
 Clifft chooses whether that budget is better spent across shots or within a
 wide shot. `sample()` and `sample_survivors()` can also share coefficient
 evolution between shots that follow the same quantum trajectory. This is useful
-for sufficiently large postselected workloads and noiseless circuits with a
-shared unitary prefix. Short calls and uncertain cases use ordinary scalar or
-packed execution. Requested expectation-value rows use ordinary execution so
-every probe is retained.
+for sufficiently large postselected workloads, circuits whose shots rarely
+leave a common trajectory, and noiseless circuits with a shared unitary prefix.
+Short calls and uncertain cases use ordinary scalar or packed execution.
+Requested expectation-value rows use ordinary execution so every probe is
+retained.
 
 Calls can run concurrently on the same `Program` and reuse its preparation.
 For a fixed seed and execution configuration, results are independent of earlier
@@ -41,7 +42,7 @@ calls. [Benchmark before overriding](#benchmark-before-overriding) the defaults.
 | Argument | Default | Meaning |
 |---|---|---|
 | `threads` | `1` | Total CPU worker budget; `"auto"` uses reported hardware concurrency. |
-| `batch_size` | `"auto"` | Select execution automatically; `1` forces scalar execution, another integer requests ordinary packed execution, and `"tune"` measures capacities within the selected path. |
+| `batch_size` | `"auto"` | Select execution automatically; `1` forces scalar execution, another integer requests ordinary packed execution, and `"tune"` measures eligible executors and capacities. |
 | `tuning_budget_seconds` | `None` | Keyword-only soft calibration budget for `batch_size="tune"`; `None` uses 0.25 seconds. |
 | `thread_layout` | `None` | Expert `(shot_workers, intra_shot_workers)` override. |
 | `intra_shot_min_active_width` | `None` | Expert threshold for enabling an explicit intra-shot layout. |
@@ -114,14 +115,15 @@ before the requested shots run. Keep these points in mind:
   and warns that calibration could not fit. Fewer workers or fewer retained
   record types can make calibration fit; a longer time budget does not help.
 
-The selected capacity and timings are returned in `result.batch_tuning`, and the
-resolved settings appear on `result.execution`. Calibration compares capacities
-within the selected execution path. To reproduce a calibrated run, pass
-`batch_size=result.execution.batch_size` together with
-`sharing=result.execution.sharing` and any explicit noise or grouping
-overrides; a numeric `batch_size` with `sharing="auto"` selects ordinary
-execution and does not reproduce a shared call. Retune when the workload or
-machine changes; selections are not cached automatically.
+The selected executor, capacity, and timings are returned in `result.batch_tuning`,
+and the resolved settings appear on `result.execution`. When `sharing="auto"` on
+nonzero-width plans, calibration evaluates both ordinary and shared candidates;
+pin `sharing=True` or `sharing=False` to calibrate within one executor. To
+reproduce a calibrated run, pass `batch_size=result.execution.batch_size`
+together with `sharing=result.execution.sharing` and any explicit noise or
+grouping overrides; a numeric `batch_size` with `sharing="auto"` selects
+ordinary execution and does not reproduce a shared call. Retune when the
+workload or machine changes; selections are not cached automatically.
 
 ??? note "Calibration report details"
 
@@ -130,6 +132,7 @@ machine changes; selections are not cached automatically.
 
     | Field | Meaning |
     |---|---|
+    | `sharing` | Whether the winning configuration uses shared execution. |
     | `batch_size`, `baseline_batch_size` | Selected and automatic batch sizes; `1` means scalar. |
     | `shot_workers`, `intra_shot_workers` | Resolved worker layout. |
     | `elapsed_seconds` | Total calibration time, including setup and cleanup. |
@@ -151,7 +154,7 @@ machine changes; selections are not cached automatically.
     `zero_shots`, `zero_budget`, and `single_candidate` indicate that no
     calibration was needed or requested. These cases do not issue a warning.
 
-    Each trial records `batch_size`, `shot_workers`, `setup_seconds`,
+    Each trial records `sharing`, `batch_size`, `shot_workers`, `setup_seconds`,
     `warmup_shots`, `warmup_seconds`, subsequent measured `shots` and
     `elapsed_seconds`, and `shots_per_second`. `used_warmup` indicates that
     throughput comes from the first probe alone; setup time is excluded.
@@ -171,12 +174,51 @@ postselected shots that fail noise-only entrance checks or completed detector
 checks before later evolution.
 
 `sample()`, `sample_detectors()`, and `sample_survivors()` select shared
-execution automatically on eligible postselected workloads and noiseless
-unitary-prefix circuits when `sharing="auto"` and `batch_size="auto"`. On first
+execution automatically on nonzero-width plans when `sharing="auto"` and
+`batch_size="auto"` (independent of thread count) in three plan-driven cases:
+
+- **Postselected plans** with at least 64 requested shots.
+- **Noiseless unitary-prefix plans** of width at least 8 with at least 16
+  requested shots, when measurement branches shrink monotonically after the
+  unitary prefix.
+- **Plans whose shots stay on few trajectories**, of width at least 3 with at
+  least 64 requested shots. Shots leave a common trajectory when a non-Clifford
+  rotation sign differs between them or a measurement of the active state
+  gives them different outcomes. Three limits from the compiled plan bound
+  this:
+    - at most one expected noise fault or readout flip per shot that changes a
+      later rotation sign;
+    - at least 16 requested shots for every combination of random measurement
+      outcomes outside the active state that change such a sign, so 4 of these
+      measurements need 256 shots and 8 need 4096;
+    - at most 12 measurements in total of that kind and of the active state
+      before its last rotation.
+
+    Noise that only flips measurement records does not count, so a circuit
+    with many noise sites can still qualify. The shot count in the second
+    limit is an estimate for the whole call: it is capped at 8192 and at the
+    number of states `max_worker_state_bytes` holds, and it does not depend on
+    the thread count, although each shot worker runs its own smaller batch.
+
+The third case cannot tell whether a measurement of the active state is random.
+Circuits with many of them before the last rotation therefore run ordinary
+execution even when most outcomes are deterministic. A circuit within the limit
+whose outcomes are random can run slower shared, most of all on a short call or
+when the measurements all precede the non-Clifford work. Pass `sharing=True` to
+share a circuit the rule declines, or `sharing=False` to keep ordinary
+execution for one that qualifies.
+
+All three require `max_worker_state_bytes` to hold at least two shared states. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
-checks, and any grouping key; later or concurrent calls on the same `Program`
-reuse that immutable preparation and allocate their own workers per call. Pass
-keyword overrides when benchmarking or pinning shared settings:
+checks, and any grouping key. Repeated calls on a `Program` with the same
+execution settings reuse idle shared workers instead of reallocating their
+buffers and state storage. Idle shared workers are capped at 512 MiB total
+across all live `Program` instances: returning workers evicts the least
+recently used idle workers from other programs, switching settings (batch size,
+noise preparation, grouping, or state budget) replaces the program's cached
+workers before allocating replacements, concurrent calls allocate extra workers
+as needed, and dropping a `Program` releases its cached workers immediately.
+Pass keyword overrides when benchmarking or pinning shared settings:
 
 ```python
 import clifft
@@ -225,11 +267,14 @@ classical batches than ordinary packed execution:
   capacities up to that safe limit for the call. An explicit shared capacity can
   exceed the safe limit when you know trajectories share states.
 - **`max_worker_state_bytes`** (default `64 MiB`): Memory limit per worker for
-  quantum coefficient storage, measurement-collapse scratch, and page alignment
-  (classical buffers, output rows, and compiled plans are separate). The limit
-  applies per worker rather than across all threads, so state storage can reach
-  `max_worker_state_bytes * shot_workers` when every lane diverges; states are
-  allocated at explicit suspension boundaries as trajectories split. With
+  quantum coefficient storage and measurement-collapse scratch, counting each
+  state at page granularity (classical buffers, output rows, and compiled plans
+  are separate; narrow states are packed into contiguous slabs so actual state
+  memory can be lower than the limit). The limit applies per worker rather than
+  across all threads, so active state storage can reach
+  `max_worker_state_bytes * shot_workers` when every lane diverges; states grow
+  at explicit suspension boundaries as trajectories split (and idle workers
+  follow the 512 MiB process-wide retention limit described above). With
   `sharing=True` on nonzero-width plans, the budget must hold at least two
   states. Automatic and tuned capacities fit one state per lane within this
   budget. With a larger explicit capacity, Clifft checks a conservative bound
@@ -249,7 +294,7 @@ larger batches.
 |---|---|---|
 | `sharing` | `"auto"` | `"auto"` lets Clifft choose; `True` requires shared execution (or packed classical batches at width zero); `False` keeps ordinary scalar or packed execution, such as when sparse postselection rejects few shots and most trajectories diverge. |
 | `group_by_noise` | `"auto"` | `"auto"` resolves to `False`. Set `True` (with `sharing=True`) to partition shots upfront by their effect on future rotation signs, avoiding per-rotation sign scans at the cost of earlier measurement splits. |
-| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path and `DENSE` on the ordinary packed path, except on [width-zero plans](#noise-preparation-on-width-zero-plans). `SPARSE` shares `DENSE`'s random stream while skipping non-firing faults when few faults occur per batch; `SITE_ROWS` accumulates per-shot fault effects before transposing when individual faults touch many expressions. |
+| `noise_preparation` | `"auto"` | `"auto"` uses `SITE_SPARSE` on the shared path, and chooses `SPARSE` or `SITE_SPARSE` on the ordinary packed path from [expected faults per batch](#automatic-noise-preparation). `SPARSE` shares `DENSE`'s random stream while skipping non-firing faults when few faults occur per batch; `SITE_ROWS` accumulates per-shot fault effects before transposing when individual faults touch many expressions. |
 | `max_worker_state_bytes` | `67108864` | Per-worker quantum state pool limit (64 MiB) when `result.execution.executor == "shared"`. |
 
 Inspection of the resolved choices is available on `result.execution`
@@ -311,27 +356,24 @@ When shared execution is not selected, `batch_size="auto"` considers packed exec
 | Program | Automatic packed capacity limit |
 | --- | --- |
 | Width 0, or no postselection at width 1-4 | 2048 lanes |
-| Postselected, width 1-4 | 256 lanes |
-| No early postselection, width 5 | Up to 1024 lanes when coefficient work is limited or amortized by classical work |
-| No early postselection, width 6-8 | Up to 512, 256, or 128 lanes respectively when classical work amortizes the quantum kernels |
-| Early postselection at width 5 or above, or width above 8 | Scalar |
+| Postselected (with `sharing=False` or fixed faults), width 1-4 | 256 lanes |
+| No early postselection, width 5-8 | Up to 1024, 512, 256, or 128 lanes respectively within the state and worker memory budgets |
+| Early postselection at width 5 or above (with `sharing=False`), or width above 8 | Scalar |
 
 An early postselection check can reject a shot before further coefficient work.
 Checks after the last quantum action, including reconstructed detector checks,
-do not impose that restriction. Expectation-value probes count as coefficient
-work only when retaining rows. Width and work refer to the selected executable
+do not impose that restriction. Width refers to the selected executable
 plan; use `program.sampling_plan(keep_records=...)` to inspect its width.
-Postselected plans of width 1-4 keep the 256-lane cap so rejected lanes carry
-less work. Width-zero plans have no coefficient work, and their classical cost
-per shot falls as batches grow; fixed-fault sampling keeps the 256-lane cap
-there.
+Postselected plans of width 1-4 keep the 256-lane cap under ordinary packed
+execution so rejected lanes carry less work. Width-zero plans have no
+coefficient work and keep the 2048-lane cap; fixed-fault sampling keeps the
+256-lane cap there.
 
 For widths 6-8, capacities are also bounded by attempted shots per worker
 when each requested worker has at least 64 shots. Shorter requests retain their
 packed capacity and use fewer workers. Memory budgets can further reduce capacity
-and concurrency. When early detectors reject most shots, packed execution can be
-slower than scalar execution. Fixed noncomputational sampling also accounts for
-its classical input-generation work when considering wider packed states.
+and concurrency. When early detectors reject most shots, ordinary packed
+execution can be slower than shared or scalar execution.
 
 Set `batch_size=1` to require scalar execution. A positive integer requests a
 capacity of up to 2048 lanes, bounded by the shot count and safety limits:
@@ -350,12 +392,10 @@ scalar execution. Use an explicit cross-shot layout such as
 Packed execution is unavailable for transition instruments, traps,
 continuations, and WebAssembly.
 
-#### Noise preparation on width-zero plans
+#### Automatic noise preparation
 
-A width-zero plan, such as a Clifford circuit with Pauli noise, spends all of
-its sampling time on classical work, so how faults are drawn sets its
-throughput. `noise_preparation="auto"` chooses from the expected number of
-faults in one batch:
+On the ordinary packed path, `noise_preparation="auto"` chooses how faults are
+drawn from the expected number of faults in one batch:
 
 - **`SPARSE`** while a batch expects no more faults than the plan has noise
   sites. It draws once per fault, which suits low noise rates and short calls.
@@ -443,7 +483,7 @@ Peak width alone does not determine the best layout.
 
 ## Compile-time scheduling
 
-For repeated sampling, the opt-in active-width scheduler can reduce the active
-state at extra compilation cost. See
-[Active-width scheduling](compilation.md#active-width-scheduling) for setup,
-playground controls, and how to compare compilation plus sampling time.
+The default compilation pipeline includes a bounded active-width scheduler to
+reduce active state width. See
+[Active-width scheduling](compilation.md#active-width-scheduling) for overrides,
+playground controls, and disabling scheduling on short runs.
