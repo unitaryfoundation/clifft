@@ -80,7 +80,7 @@ The standalone sampler benchmark now provides a concrete Clifford example:
 on surface-code d7/r7 with all-detector postselection, Clifft reaches
 **4.13 million attempted shots/s**, compared with **1.12 million for Stim**,
 a **3.69x** ratio under the same sampling protocol. See the
-[Performance guide](../guide/performance.md#clifford-postselection-with-stim)
+[v0.11 Performance guide](https://unitaryfoundation.github.io/clifft/0.11.0/guide/performance/#clifford-postselection-with-stim)
 for the configuration and scope of that comparison.
 
 The new optional `clifft.sinter.PerfectionistSampler` supports experiments

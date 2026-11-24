@@ -100,19 +100,22 @@ For QEC workflows, Clifft also supports detector-based post-selection, survivor 
 [Quick Start](getting-started/quickstart.md){ .md-button .md-button--primary }
 [Try the Playground]({{ playground_url }}){ .md-button }
 
-## What's New in 0.13.0
+## What's New in 0.14.0
 
-Leakage and loss can change which gates act later in a circuit. Clifft 0.13.0
-adds two ways to handle that work: [reusable fixed execution](guide/leakage-and-loss.md#compiling-and-execution)
-compiles eligible models once and samples shots in batches, while opt-in
-[online execution](guide/leakage-and-loss.md#online-execution) handles changes
-as each shot runs without recompiling the remaining circuit.
+Clifft 0.14.0 brings two major performance features—inspired by QuEra's
+[Tsim](acknowledgments.md#tsim)—into the default compilation and sampling path:
+[global sampling reconstruction](guide/compilation.md#global-reconstruction-for-sampling)
+builds narrower plans for the outputs you request, and
+[shared trajectory execution](guide/cpu-execution.md#shared-trajectory-execution)
+reuses active-state evolution across shots that follow the same path while
+pruning failed postselected shots early. The release also adds
+[selective and bit-packed decoder outputs](guide/simulation.md#select-and-pack-outputs)
+(`clifft.sample_detectors()`, `bit_packed=True`), default active-width
+scheduling, and runtime AVX2/AVX-512 batch dispatch, delivering an
+[11.1x median speedup on one core and 9.83x on eight cores over v0.13](guide/performance.md#changes-in-v014).
 
-The compiler also uses more information from measurement, feedback, and
-postselection to simplify non-Clifford operations, reaching
-[223x v0.12 throughput on 15-to-1 distillation and 16.2x on Reed–Muller](guide/performance.md#changes-in-v013).
-Read [Improved Leakage and Loss Sampling Throughput](updates/sampling-through-leakage-and-loss.md)
-for the release story and examples, and the
+Read [Smaller Plans, Shared Trajectories](updates/smaller-plans-shared-trajectories.md)
+for the release walkthrough and examples, and the
 [release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)
 for changed defaults and compatibility details. Earlier releases are covered
 in the [development blog](updates/index.md).
