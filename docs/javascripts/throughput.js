@@ -9,7 +9,11 @@
     const lifetime = new AbortController();
     const interactive = root.querySelector(".throughput-interactive");
     const tooltip = root.querySelector(".throughput-tooltip");
-    const controls = [...root.querySelectorAll("input[type=checkbox]")];
+    const modeControls = [...root.querySelectorAll("input[name=throughput-mode]")];
+    const coreControls = [...root.querySelectorAll("input[name=throughput-cores]")];
+    const simControls = [...root.querySelectorAll(".throughput-simulators input[type=checkbox]")];
+    const panels = [...root.querySelectorAll(".throughput-panel")];
+    const status = root.querySelector(".throughput-status");
     let activePoint = null;
     let hideTimer;
 
@@ -46,6 +50,46 @@
       positionTooltip();
     }
 
+    function applyFilters(announce) {
+      dismiss();
+      const modeInput = modeControls.find((input) => input.checked) || modeControls[0];
+      const coreInput = coreControls.find((input) => input.checked) || coreControls[0];
+      const activeMode = modeInput ? modeInput.value : "";
+      const activeCores = coreInput ? coreInput.value : "";
+      const checkedSims = new Set(
+        simControls.filter((control) => control.checked).map((control) => control.value),
+      );
+
+      const presentSims = new Set();
+      panels.forEach((panel) => {
+        const match = panel.dataset.mode === activeMode && panel.dataset.cores === activeCores;
+        panel.hidden = !match;
+        if (match && panel.dataset.simulators) {
+          panel.dataset.simulators.split(",").forEach((id) => {
+            if (id) presentSims.add(id);
+          });
+        }
+      });
+
+      simControls.forEach((control) => {
+        const label = control.closest("[data-simulator-control]");
+        if (label) label.dataset.empty = presentSims.has(control.value) ? "false" : "true";
+      });
+
+      root.querySelectorAll(".throughput-entry").forEach((entry) => {
+        entry.hidden = !checkedSims.has(entry.dataset.simulator);
+      });
+
+      if (announce) {
+        const shownInView = [...presentSims].filter((id) => checkedSims.has(id)).length;
+        const modeText = activeMode === "survivors" ? "survivor counts" : "packed samples";
+        const coreText = activeCores === "1" ? "1 core" : `${activeCores} cores`;
+        status.textContent = shownInView
+          ? `Showing ${modeText} on ${coreText}: ${shownInView} of ${presentSims.size} measured simulators selected. Panel scales are unchanged.`
+          : `No measured simulators selected for ${modeText} on ${coreText}. Select a simulator to show its measurements.`;
+      }
+    }
+
     root.querySelectorAll(".throughput-point").forEach((point) => {
       point.addEventListener("pointerenter", () => show(point));
       point.addEventListener("focus", () => show(point));
@@ -64,16 +108,9 @@
     root.addEventListener("pointerdown", (event) => {
       if (!event.target.closest(".throughput-point, .throughput-tooltip")) dismiss();
     });
-    controls.forEach((input) => input.addEventListener("change", () => {
-      dismiss();
-      root.querySelectorAll(".throughput-entry").forEach((entry) => {
-        entry.hidden = !controls.some((control) => control.checked && control.value === entry.dataset.simulator);
-      });
-      const count = controls.filter((control) => control.checked).length;
-      root.querySelector(".throughput-status").textContent = count
-        ? `${count} of ${controls.length} simulators shown. Panel scales are unchanged.`
-        : "No simulators selected. Select a simulator to show its measurements.";
-    }));
+    [...modeControls, ...coreControls, ...simControls].forEach((input) => {
+      input.addEventListener("change", () => applyFilters(true));
+    });
     root.querySelector(".throughput-table-link").addEventListener("click", () => {
       root.querySelector("#throughput-table").open = true;
     });
@@ -84,6 +121,7 @@
       if (event.key === "Escape") dismiss();
     }, { signal: lifetime.signal });
     cleanup = () => { dismiss(); lifetime.abort(); };
+    applyFilters(false);
     root.dataset.ready = "true";
     interactive.hidden = false;
     root.querySelector(".throughput-fallback").hidden = true;

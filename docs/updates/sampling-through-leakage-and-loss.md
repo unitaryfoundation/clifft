@@ -177,7 +177,7 @@ On the single-core CPU benchmark suite, these compiler and sampling
 improvements increase throughput over v0.12 by **223x** on 15-to-1
 distillation, **16.2x** on Reed–Muller, and **8.21%** on the fixed-input
 16-bit Draper adder. See the
-[performance guide](../guide/performance.md#changes-in-v013) for the full
+[performance guide](../guide/performance.md) for the current
 release comparison and simulator benchmarks.
 
 See the [release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)

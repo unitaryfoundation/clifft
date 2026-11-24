@@ -162,7 +162,8 @@ raw results and figure generation. This repository owns the reader-facing prose 
 3. Copy these files from the merged execution's `report/` directory to
    `docs/assets/performance/`:
 
-   - `simulator-throughput-{light,dark}.png`
+   - `simulator-throughput-packed-{light,dark}.png`
+   - `simulator-throughput-survivors-{light,dark}.png`
    - `release-change-{light,dark}.png`
    - `simulator-throughput.json`
 

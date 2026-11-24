@@ -110,7 +110,7 @@ as each shot runs without recompiling the remaining circuit.
 
 The compiler also uses more information from measurement, feedback, and
 postselection to simplify non-Clifford operations, reaching
-[223x v0.12 throughput on 15-to-1 distillation and 16.2x on Reed–Muller](guide/performance.md#changes-in-v013).
+[223x v0.12 throughput on 15-to-1 distillation and 16.2x on Reed–Muller](guide/performance.md).
 Read [Improved Leakage and Loss Sampling Throughput](updates/sampling-through-leakage-and-loss.md)
 for the release story and examples, and the
 [release notes](https://github.com/unitaryfoundation/clifft/blob/main/CHANGELOG.md)

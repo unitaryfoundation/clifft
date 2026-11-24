@@ -7,10 +7,30 @@
 {%- endmacro %}
 <div class="throughput" data-throughput>
   <div class="throughput-interactive" hidden>
-    <fieldset class="throughput-controls">
+    <div class="throughput-toolbar">
+      <fieldset class="throughput-controls throughput-choices">
+        <legend>Output mode</legend>
+        {% for mode in modes %}
+        <label class="throughput-choice">
+          <input type="radio" name="throughput-mode" value="{{ mode.key }}"{% if mode.key == default_mode %} checked{% endif %}>
+          <span>{{ mode.label }} <small>({{ mode.detail }})</small></span>
+        </label>
+        {% endfor %}
+      </fieldset>
+      <fieldset class="throughput-controls throughput-choices">
+        <legend>CPU cores</legend>
+        {% for opt in core_options %}
+        <label class="throughput-choice">
+          <input type="radio" name="throughput-cores" value="{{ opt.key }}"{% if opt.key == default_cores %} checked{% endif %}>
+          <span>{{ opt.label }}</span>
+        </label>
+        {% endfor %}
+      </fieldset>
+    </div>
+    <fieldset class="throughput-controls throughput-simulators">
       <legend>Show simulators</legend>
       {% for id, item in simulators.items() %}
-      <label style="{{ style(item) }}">
+      <label data-simulator-control="{{ id }}" style="{{ style(item) }}">
         <input type="checkbox" value="{{ id }}" checked>
         {{ marker(item) }} {{ item.simulator.name }} {{ item.simulator.display_version }}
       </label>
@@ -22,10 +42,15 @@
     {% for panel in view.panels %}
     {% set panel_index = loop.index %}
     <section class="throughput-panel" aria-labelledby="throughput-panel-{{ panel_index }}"
+      data-mode="{{ panel.mode }}" data-cores="{{ panel.cores }}"
+      data-simulators="{{ panel.simulators_present | join(',') }}"
+      {% if panel.mode != default_mode or panel.cores != default_cores %} hidden{% endif %}
       style="--plot-light: {{ view.themes.light.background }}; --plot-dark: {{ view.themes.dark.background }};
         --text-light: {{ view.themes.light.foreground }}; --text-dark: {{ view.themes.dark.foreground }};
         --grid-light: {{ view.themes.light.grid }}; --grid-dark: {{ view.themes.dark.grid }};">
-      <h3 id="throughput-panel-{{ panel_index }}">{{ panel.title }}</h3>
+      <h3 id="throughput-panel-{{ panel_index }}">{{ panel.category }}
+        <span class="throughput-panel-meta">{{ panel.mode_label }} &middot; {{ panel.cores_label }}</span>
+      </h3>
       {% for row in panel.rows %}
       {% set row_index = loop.index %}
       <div class="throughput-row">
@@ -43,7 +68,7 @@
             {% endif %}
             <button type="button" class="throughput-point" style="left: {{ value.position | default(0) }}%"
               data-detail="throughput-detail-{{ panel_index }}-{{ row_index }}-{{ value.variant_id }}"
-              aria-label="{{ row.label }}, {{ item.simulator.name }}: {% if value.outcome == 'measured' %}{{ value.median_attempted_shots_per_second | number }} attempted shots per second{% else %}{{ value.outcome }}{% endif %}">
+              aria-label="{{ row.label }}, {{ item.simulator.name }} ({{ panel.mode_label }}, {{ panel.cores_label }}): {% if value.outcome == 'measured' %}{{ value.median_attempted_shots_per_second | rate }} attempted shots per second{% else %}{{ value.outcome }}{% endif %}">
               {% if value.outcome == 'measured' %}{{ marker(item) }} {{ value.label }}{% else %}{{ item.simulator.name }}: {{ value.outcome }}{% endif %}
             </button>
           </div>
@@ -62,18 +87,25 @@
   </div>
   <div class="throughput-fallback">
     {% for theme in view.themes %}
-    <img src="{{ assets }}simulator-throughput-{{ theme }}.png#only-{{ theme }}" alt="CPU simulator throughput across {{ view.panels | map(attribute='rows') | map('length') | sum }} workloads in {{ view.panels | length }} panels; exact rates and outcomes are in the data table below.">
+    <img src="{{ assets }}simulator-throughput-packed-{{ theme }}.png#only-{{ theme }}" alt="Packed detector and observable sample throughput in attempted shots per second on one and eight physical cores; exact rates and outcomes are in the data table below.">
+    {% endfor %}
+    {% for theme in view.themes %}
+    <img src="{{ assets }}simulator-throughput-survivors-{{ theme }}.png#only-{{ theme }}" alt="Survivor-count throughput with postselection on in attempted shots per second on one and eight physical cores; exact rates and outcomes are in the data table below.">
     {% endfor %}
   </div>
-  <p>Download: <a href="{{ assets }}simulator-throughput-light.png" download>light figure</a> &middot;
-    <a href="{{ assets }}simulator-throughput-dark.png" download>dark figure</a> &middot;
+  <p class="throughput-downloads">Download:
+    packed (<a href="{{ assets }}simulator-throughput-packed-light.png" download>light</a> &middot;
+    <a href="{{ assets }}simulator-throughput-packed-dark.png" download>dark</a>) &middot;
+    survivors (<a href="{{ assets }}simulator-throughput-survivors-light.png" download>light</a> &middot;
+    <a href="{{ assets }}simulator-throughput-survivors-dark.png" download>dark</a>) &middot;
     <a href="{{ assets }}simulator-throughput.json" download>JSON data</a>.</p>
   <details id="throughput-table">
     <summary>Complete throughput data and measurement details</summary>
-    <p>Rates and median absolute deviations (MAD) are in attempted shots/s.
-      MAD describes dispersion across samples, not a confidence interval.
-      Unsupported pairings have no chart marker; failures and unmeasured cases are labeled.
-      This table always includes every simulator.</p>
+    <p>Rates and median absolute deviations (MAD) are in attempted shots/s across timed repetitions
+      after compilation and the first full call. MAD describes dispersion across samples, not a
+      confidence interval. Unsupported pairings have no chart marker; failures and unmeasured cases
+      are labeled. This table retains every simulator, output mode, and core budget, including
+      Clifft-only circuits (<code>BT27</code>, <code>BT81</code>).</p>
     {% for panel in view.panels %}
     {% set panel_index = loop.index %}
     <div class="throughput-table-scroll" role="region" aria-label="{{ panel.title }} data" tabindex="0">
@@ -87,21 +119,27 @@
         {% set item = series[value.variant_id] %}
         <tr>
           <th scope="row"><a href="{{ row.circuit_url }}">{{ row.label }}</a><br><small>{{ row.workload_id }}<br>
-            {% if row.semantics.postselect_all_detectors %}All-detector postselection{% else %}No detector postselection{% endif %};
+            {{ row.postselection_summary }};
             observable {{ row.semantics.observable_index }}</small></th>
           <td>{{ item.simulator.name }}</td>
           <td id="throughput-detail-{{ panel_index }}-{{ row_index }}-{{ value.variant_id }}">
-            <strong>{{ row.label }} &middot; {{ item.simulator.name }}</strong>
+            <strong>{{ row.label }} &middot; {{ item.simulator.name }} &middot; {{ panel.cores_label }}</strong>
             <dl>
               <dt>Outcome</dt><dd>{{ value.outcome }}</dd>
-              {% if value.error %}<dt>Error</dt><dd>{{ value.error }}</dd>{% endif %}
+              {% if value.error %}<dt>Detail</dt><dd>{{ value.error | error_text }}</dd>{% endif %}
               {% if value.outcome == 'measured' %}
-              <dt>Median shots/s</dt><dd>{{ value.median_attempted_shots_per_second | number }}</dd>
-              <dt>MAD shots/s</dt><dd>{{ value.mad_attempted_shots_per_second | number }}</dd>
+              <dt>Median shots/s</dt><dd>{{ value.median_attempted_shots_per_second | rate }}</dd>
+              <dt>MAD shots/s</dt><dd>{{ value.mad_attempted_shots_per_second | rate }}</dd>
+              {% if value.eight_core_speedup is not none %}
+              <dt>8-core / 1-core</dt><dd>{{ value.eight_core_speedup | speedup }}</dd>
+              {% endif %}
+              <dt>Compile time</dt><dd>{{ value.compile_seconds | duration }}</dd>
+              <dt>First full call</dt><dd>{{ value.first_call_warmup_seconds | duration }}</dd>
               {% endif %}
               <dt>Version</dt><dd>{{ item.simulator.display_version }}</dd>
               {% if value.source %}
               {% set source = sources[value.source] %}
+              <dt>Cores</dt><dd>{{ value.threads_effective | default(value.threads_requested, true) | number }}</dd>
               <dt>Samples</dt><dd>{{ value.sample_count | number }}</dd>
               <dt>Shots per call</dt><dd>{{ value.shots_per_call | number }}</dd>
               <dt>Effective batch</dt><dd>{{ value.batch_size_effective | number }}</dd>

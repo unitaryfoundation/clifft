@@ -23,8 +23,8 @@ def define_env(env: Any) -> None:
         """Render the published benchmark view and its no-JavaScript table."""
         asset_dir = "assets/performance/"
         view = json.loads((docs_dir / asset_dir / "simulator-throughput.json").read_text())
-        if view["format"] != "clifft-bench/throughput/v1":
-            raise ValueError("Unsupported throughput export format")
+        if view["format"] != "clifft-bench/throughput/v2":
+            raise ValueError(f"Unsupported throughput export format: {view['format']!r}")
         evidence = env.page.meta["throughput_evidence"]
         sources = {
             key: {**source, "url": evidence[source["run"]["id"]]}
@@ -39,26 +39,129 @@ def define_env(env: Any) -> None:
                     return f"{value / scale:.3g}{suffix}"
             return f"{value:.3g}"
 
+        def rate_detail(value: float | None) -> str:
+            if value is None:
+                return "Not recorded"
+            if value >= 100:
+                return f"{value:,.0f}"
+            if value >= 10:
+                return f"{value:,.2f}"
+            return f"{value:,.3f}"
+
+        def duration_label(value: float | None) -> str:
+            if value is None:
+                return "Not recorded"
+            if value >= 1.0:
+                return f"{value:.3g} s"
+            if value >= 1e-3:
+                return f"{value * 1e3:.3g} ms"
+            return f"{value * 1e6:.3g} \u00b5s"
+
+        def speedup_label(value: float | None) -> str:
+            if value is None:
+                return "Not recorded"
+            return f"{value:.3g}\u00d7"
+
+        def error_label(value: Any) -> str:
+            if isinstance(value, dict):
+                return str(value.get("message") or value.get("type") or value)
+            return str(value)
+
+        mode_meta = {
+            "packed": {
+                "key": "packed",
+                "label": "Packed samples",
+                "detail": "postselection off",
+            },
+            "survivors": {
+                "key": "survivors",
+                "label": "Survivor counts",
+                "detail": "postselection on",
+            },
+        }
+        modes_seen: set[str] = set()
+        cores_seen: set[int] = set()
+
         # Positions and ticks use the supplied panel limits, even when a series is hidden.
         for panel in view["panels"]:
+            postselects = {row["postselect"] for row in panel["rows"]}
+            if postselects == {"off"}:
+                mode_key = "packed"
+            elif postselects == {"on"}:
+                mode_key = "survivors"
+            else:
+                raise ValueError(f"Mixed or unknown postselect values in panel {panel['title']!r}")
+
+            thread_counts = {
+                value["threads_requested"]
+                for row in panel["rows"]
+                for value in row["values"]
+                if value.get("threads_requested") is not None
+            }
+            if len(thread_counts) != 1:
+                raise ValueError(
+                    f"Expected one core budget in panel {panel['title']!r}, got {thread_counts!r}"
+                )
+            cores = next(iter(thread_counts))
+            modes_seen.add(mode_key)
+            cores_seen.add(cores)
+
+            parts = [part.strip() for part in panel["title"].split("\u00b7")]
+            panel["mode"] = mode_key
+            panel["mode_label"] = mode_meta[mode_key]["label"]
+            panel["cores"] = str(cores)
+            panel["cores_label"] = "1 core" if cores == 1 else f"{cores} cores"
+            panel["category"] = parts[-1] if parts else panel["title"]
+
             low, high = map(math.log10, panel["x_limits"])
             step = max(1, math.ceil((high - low) / 6))
             panel["ticks"] = [
                 {"position": 100 * (power - low) / (high - low), "label": rate_label(10**power)}
                 for power in range(math.ceil(low), math.floor(high) + 1, step)
             ]
+            simulators_present: set[str] = set()
             for row in panel["rows"]:
                 row["circuit_url"] = env.page.meta["throughput_circuits"][row["artifact_sha256"]]
+                semantics = row["semantics"]
+                if row["postselect"] == "off":
+                    row["postselection_summary"] = "Postselection off (packed samples)"
+                elif semantics.get("postselect_all_detectors"):
+                    row["postselection_summary"] = "All-detector postselection (survivor counts)"
+                elif semantics.get("postselection_detector_indices"):
+                    count = len(semantics["postselection_detector_indices"])
+                    row["postselection_summary"] = (
+                        f"{count}-detector postselection (survivor counts)"
+                    )
+                else:
+                    row["postselection_summary"] = "Postselection on (survivor counts)"
+
                 for value in row["values"]:
                     rate = value["median_attempted_shots_per_second"]
+                    if value["outcome"] != "unsupported":
+                        simulators_present.add(
+                            series[value["variant_id"]]["simulator"]["implementation_id"]
+                        )
                     if value["outcome"] == "measured":
                         value["position"] = 100 * (math.log10(rate) - low) / (high - low)
                         value["label"] = rate_label(rate) + "/s"
+            panel["simulators_present"] = sorted(simulators_present)
+
+        modes = [mode_meta[key] for key in ("packed", "survivors") if key in modes_seen]
+        core_options = [
+            {"key": str(c), "label": "1 core" if c == 1 else f"{c} cores"}
+            for c in sorted(cores_seen)
+        ]
+        default_mode = modes[0]["key"]
+        default_cores = core_options[0]["key"]
 
         templates = env.env.overlay(autoescape=True)
         templates.filters = {
             **templates.filters,
             "number": lambda value: "Not recorded" if value is None else format(value, ","),
+            "rate": rate_detail,
+            "duration": duration_label,
+            "speedup": speedup_label,
+            "error_text": error_label,
         }
         template = (docs_dir / "templates/throughput.html").read_text()
         return str(
@@ -67,6 +170,10 @@ def define_env(env: Any) -> None:
                 series=series,
                 simulators=simulators,
                 sources=sources,
+                modes=modes,
+                core_options=core_options,
+                default_mode=default_mode,
+                default_cores=default_cores,
                 assets=posixpath.relpath(asset_dir, posixpath.dirname(env.page.url)) + "/",
             )
         )
