@@ -2,6 +2,7 @@
 
 #include "clifft/sampling/batch/classical.h"
 #include "clifft/sampling/batch/tuning.h"
+#include "clifft/sampling/online_frame.h"
 #include "clifft/sampling/state.h"
 #include "clifft/util/page_allocation.h"
 
@@ -17,6 +18,18 @@ namespace clifft::sampling {
 // SharingKey, prepared before execution, groups shots upfront by noise effects
 // on future rotation signs. SharingExecutor applies prepared actions to each
 // group and splits it when needed.
+//
+// For a plan with a runtime Clifford frame, every group also refers to a frame
+// tableau, and each shot keeps one sign bit per tableau row: its frame is that
+// tableau with the flagged rows negated. Tableau updates do not depend on row
+// signs, so groups that differ only in their coefficients keep sharing one
+// tableau and each update runs once for all of them. Random frame measurements
+// and conditional Pauli rotations change only sign bits. Shots take a new
+// tableau where a conditional quarter turn fires, and a group splits where its
+// shots differ in a frame rotation's sign or in the outcome of a measurement
+// that collapses the coefficients. Groups sharing a tableau merge again when
+// its last active coordinate is measured. A run of consecutive quarter turns
+// that the frame fixes regroups the shots once, by the set each one fires.
 
 // Default bound on the coefficients, collapse scratch, and page alignment of
 // the states one shared worker holds. States are allocated as trajectories
@@ -35,9 +48,17 @@ inline constexpr uint32_t kMinAutoSharedLanesPerWorker = 1024;
 
 class SharingKey;
 
+// True when shared execution groups the plan's shots: they share coefficient
+// states, or the tableau of a runtime Clifford frame. Other plans run on the
+// packed executor.
+[[nodiscard]] inline bool shares_groups(const ExecutablePlan& plan) noexcept {
+    return plan.peak_active_width() != 0 || plan.uses_runtime_frame();
+}
+
 // Largest lane capacity, up to kMaxAutoSharedBatchShots, that one worker can
 // run within max_worker_state_bytes when every lane keeps its own state and
 // within the classical buffer bound. Zero when the budget cannot hold a state.
+// A frame plan is sized for the width where its frame begins.
 [[nodiscard]] uint32_t max_safe_shared_capacity(
     const ExecutablePlan& plan, const PreparedBatchNoise& noise, const SharingKey* key,
     uint64_t max_worker_state_bytes,
@@ -73,7 +94,8 @@ class SharingKey {
 // Shares coefficient states across shots with identical prepared evolution.
 // Dormant measurements and sparse symmetric readout use packed draws;
 // active measurements and all other readout retain per-shot RNG streams. A pool
-// growth boundary suspends dispatch before an action can require more states.
+// growth boundary suspends dispatch before an action can require more states,
+// or before a frame rotation promotes past the width the states were sized for.
 class SharingExecutor : public BatchClassicalState {
   public:
     SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
@@ -81,6 +103,11 @@ class SharingExecutor : public BatchClassicalState {
                     uint32_t initial_states, bool share = true, const SharingKey* key = nullptr,
                     uint64_t max_worker_state_bytes = kDefaultSharedWorkerStateBudget,
                     BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
+
+    // Bytes one group holds within max_worker_state_bytes: a coefficient state
+    // of the given width and, for a plan with a runtime Clifford frame, its
+    // tableau.
+    [[nodiscard]] static uint64_t group_storage_bytes(const ExecutablePlan& plan, uint32_t width);
 
     // Classical buffers retained by one worker, excluding its state pool.
     [[nodiscard]] static uint64_t classical_storage_bytes(
@@ -96,16 +123,58 @@ class SharingExecutor : public BatchClassicalState {
     [[nodiscard]] uint32_t storage_boundaries() const noexcept { return storage_boundaries_; }
     [[nodiscard]] uint32_t entrance_rejected() const noexcept { return entrance_rejected_; }
     [[nodiscard]] uint64_t num_splits() const noexcept { return num_splits_; }
+    [[nodiscard]] uint64_t num_merges() const noexcept { return num_merges_; }
 
   private:
     using BatchClassicalState::execute_action;
     static constexpr uint32_t kNoShot = std::numeric_limits<uint32_t>::max();
 
+    // Storage an action needs before dispatch can resume.
+    struct StorageRequest {
+        uint32_t states = 0;
+        uint32_t width = 0;
+        [[nodiscard]] explicit operator bool() const noexcept { return states != 0; }
+    };
+
+    // One frame tableau and what the action in progress has prepared for the
+    // groups that share it.
+    struct SharedFrame {
+        enum class Axis : uint8_t { Identity, Dormant, Active };
+
+        SharedFrame(uint32_t width, size_t sign_words)
+            : frame(width), mapped(width), rows(sign_words) {}
+        OnlineFrame frame;
+        // Image of the action's Pauli, mapped before the action changes the frame.
+        PauliString mapped;
+        // Rows whose sign a measurement branch flips.
+        std::vector<uint64_t> rows;
+        // Groups that refer to this tableau.
+        uint32_t users = 0;
+        // Value of frame_stamp_ when the fields below were prepared.
+        uint32_t stamp = 0;
+        // Conditional quarter turn: the tableau taking the shots that fire.
+        // Measurement of the last active coordinate: the group collecting them.
+        uint32_t link = 0;
+        // Dormant pivot of a promotion or measurement, or the measured active
+        // coordinate.
+        uint32_t pivot = 0;
+        ActivePauli active{};
+        Axis axis = Axis::Identity;
+        bool axis_sign = false;
+        // True once the action's frame update has run.
+        bool applied = false;
+        // False while the frame still holds its reset rows.
+        bool changed = false;
+    };
+
+    // Tableau bytes of one group of a plan with a runtime Clifford frame.
+    [[nodiscard]] static uint64_t frame_storage_bytes(const ExecutablePlan& plan);
+
     void initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
-    void grow_state_pool(uint32_t required);
-    // Returns zero on completion, otherwise the capacity required to resume.
+    void grow_state_pool(StorageRequest request);
+    // Returns an empty request on completion, otherwise what resuming needs.
     template <ExecutorBackend Backend>
-    [[nodiscard]] uint32_t dispatch_until_storage_boundary() noexcept;
+    [[nodiscard]] StorageRequest dispatch_until_storage_boundary() noexcept;
     void copy_state(uint32_t to, uint32_t from) noexcept;
     [[nodiscard]] std::span<const uint32_t> lanes(uint32_t group) const noexcept {
         return {order_.data() + begin_[group], end_[group] - begin_[group]};
@@ -137,9 +206,36 @@ class SharingExecutor : public BatchClassicalState {
     void execute_action(const ExecutablePlan::ExecuteExpectation&) noexcept;
     void execute_action(const ExecutablePlan::ExecuteInstrument&) noexcept;
     void execute_action(const ExecutablePlan::ExecuteBoundary&) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteFrameClifford&) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteFrameRotation&) noexcept;
-    void execute_action(const ExecutablePlan::ExecuteFrameMeasurement&) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameClifford& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameMeasurement& action) noexcept;
+
+    // Rows of the frame that a stored frame Pauli selects: bit q for the image
+    // of X_q and bit 64 * frame_words + q for the image of Z_q. A shot's sign
+    // bits use the same layout.
+    [[nodiscard]] std::span<const uint64_t> frame_pauli_rows(uint32_t pauli) const noexcept;
+    // Whether the shot's frame maps the Pauli to minus its tableau's image.
+    [[nodiscard]] bool shot_flips(uint32_t shot, std::span<const uint64_t> rows) const noexcept;
+    void flip_shot_signs(uint32_t shot, std::span<const uint64_t> rows) noexcept;
+    // Takes a free tableau, as a copy of another when one is given.
+    [[nodiscard]] uint32_t acquire_frame(const SharedFrame* source) noexcept;
+    void release_frame(uint32_t frame) noexcept;
+    // Maps the rotation's Pauli through the group's frame, once per action.
+    SharedFrame& prepare_frame_rotation(
+        uint32_t group, const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
+    // True when some group's frame rotation would promote past state_width_.
+    [[nodiscard]] bool frame_rotation_needs_width(
+        const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
+    // Frees the groups whose lanes another group took and lays every group
+    // out again as a range of order_.
+    void collect_merged_groups() noexcept;
+    // For the run of conditional quarter turns that starts at action_index_,
+    // records which of them each live shot fires and names the class of every
+    // shot that fires any: the shots of one tableau that fire the same set.
+    // Returns the number of groups the run adds.
+    [[nodiscard]] uint32_t prepare_clifford_run(uint32_t length) noexcept;
+    // Moves each class of the prepared run to its own group and tableau.
+    void execute_clifford_run(uint32_t length) noexcept;
 
     const EarlyPostselection* checks_;
     bool share_;
@@ -169,6 +265,47 @@ class SharingExecutor : public BatchClassicalState {
     uint32_t storage_boundaries_ = 0;
     uint32_t entrance_rejected_ = 0;
     uint64_t num_splits_ = 0;
+    uint64_t num_merges_ = 0;
+    // Width every pooled state is allocated for, and the budget that bounds
+    // the pool when that width grows.
+    uint32_t state_width_ = 0;
+    uint64_t max_worker_state_bytes_ = 0;
+
+    // Runtime Clifford frame storage; empty for a plan without one. The pool
+    // holds one tableau per state, so every group can have its own.
+    std::vector<SharedFrame> frames_;
+    std::vector<uint32_t> frame_of_, free_frames_;
+    uint32_t free_frame_count_ = 0;
+    // Advances with every dispatched action.
+    uint32_t frame_stamp_ = 0;
+    // Sign bits per lane, stored lane by lane.
+    size_t sign_stride_ = 0;
+    std::vector<uint64_t> shot_signs_;
+    std::vector<uint64_t> frame_random_;
+    // Groups that hold a lane on which the conditional quarter turn in
+    // progress fires, and the rows that turn changes.
+    std::vector<uint32_t> fired_groups_;
+    std::vector<uint64_t> changed_rows_;
+    // Length of the run of conditional quarter turns fixed by the frame that
+    // starts at each dispatch position, or zero. Empty when the plan has none.
+    std::vector<uint32_t> clifford_runs_;
+    // One bit per turn of the longest run for every lane: the turns it fires.
+    std::vector<uint64_t> run_bits_;
+    // A class is named by its first shot, which indexes the class tables.
+    std::vector<uint32_t> run_table_;
+    // Per shot: its class, or kNoShot when it fires nothing.
+    std::vector<uint32_t> run_class_;
+    // Per class: the tableau it came from and the one it moves to.
+    std::vector<uint32_t> class_source_, class_frame_;
+    // Per class: the group that last counted it while preparing the run, the
+    // group being regrouped that holds some of its shots, how many, and the
+    // group made for them.
+    std::vector<uint32_t> class_seen_by_, class_owner_, class_size_, class_group_;
+    // Per group: the class that keeps the group, or kNoShot when the shots
+    // that fire nothing do.
+    std::vector<uint32_t> run_stay_;
+    // The lanes of the group being regrouped, and the classes leaving it.
+    std::vector<uint32_t> run_lanes_, run_leaving_;
 };
 
 }  // namespace clifft::sampling

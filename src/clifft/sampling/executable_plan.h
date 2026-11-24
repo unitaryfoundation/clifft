@@ -98,7 +98,7 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
     // True when the plan carries a runtime Clifford frame. Such plans run on
-    // the scalar Executor only.
+    // the scalar Executor or, on request, the SharingExecutor.
     [[nodiscard]] bool uses_runtime_frame() const { return frame_width_ != 0; }
     // Coefficient capacity an executor allocates up front. For a frame plan
     // this is the peak width up to the first frame action; peak_active_width

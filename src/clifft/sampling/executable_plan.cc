@@ -76,7 +76,7 @@ bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
                 } else if constexpr (std::is_same_v<T, ExecuteFrameClifford> ||
                                      std::is_same_v<T, ExecuteFrameRotation> ||
                                      std::is_same_v<T, ExecuteFrameMeasurement>) {
-                    // A runtime Clifford frame keeps the plan on the scalar executor.
+                    // Shared execution of a runtime Clifford frame is by request only.
                     return true;
                 } else {
                     static_assert(!sizeof(T*), "Unhandled ExecutablePlan action alternative");
