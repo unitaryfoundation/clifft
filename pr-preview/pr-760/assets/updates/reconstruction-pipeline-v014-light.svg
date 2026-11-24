@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 212" width="820" height="212" role="img" aria-labelledby="pipe-title pipe-desc">
+  <title id="pipe-title">How Clifft global sampling reconstruction rewrites a circuit</title>
+  <desc id="pipe-desc">Four-stage pipeline: 1 Original circuit in fixed gate order, 2 Fold Cliffords and tails into a stabilizer tableau frame over |0...0>, 3 Drop dead faults, fixed |0> axes, commuting checks, and merge equivalent noise channels while preserving exact output distributions, 4 Reschedule surviving operations measurement-first into a narrower HIR sampling plan.</desc>
+  <style>
+    text { font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; }
+  </style>
+  <text x="16" y="22" font-size="14.5" font-weight="700" fill="#172033">How global sampling reconstruction shrinks a circuit</text>
+  <text x="16" y="38" font-size="11.5" fill="#52627a">Native stabilizer-tableau reduction inspired by Tsim’s closed-output ZX workflow</text>
+  
+  <rect x="16.5" y="48.5" width="182" height="152" rx="9" fill="#f8fafc" stroke="#dbe2eb" stroke-opacity="1"/>
+  <circle cx="38" cy="71" r="10" fill="#fdf3ec"/>
+  <text x="38" y="75" text-anchor="middle" font-size="11" font-weight="700" fill="#c25912">1</text>
+  <text x="54" y="75" font-size="12.5" font-weight="700" fill="#172033">Original circuit</text>
+  <text x="30" y="106" font-size="11" fill="#52627a">Interleaved Cliffords,</text><text x="30" y="122" font-size="11" fill="#52627a">rotations, noise, resets,</text><text x="30" y="138" font-size="11" fill="#52627a">and trailing Clifford rounds</text><text x="30" y="154" font-size="11" fill="#52627a">in original time order.</text>
+  <rect x="28" y="170" width="158" height="20" rx="5" fill="#fdf3ec"/>
+  <text x="107.0" y="183.5" text-anchor="middle" font-size="10.2" font-weight="600" fill="#c25912">Fixed gate order</text>
+  <line x1="202" y1="124.0" x2="209" y2="124.0" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M 208 120.0 L 213 124.0 L 208 128.0" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="218.5" y="48.5" width="182" height="152" rx="9" fill="#f8fafc" stroke="#dbe2eb" stroke-opacity="1"/>
+  <circle cx="240" cy="71" r="10" fill="#f5eff8"/>
+  <text x="240" y="75" text-anchor="middle" font-size="11" font-weight="700" fill="#7b4b94">2</text>
+  <text x="256" y="75" font-size="12.5" font-weight="700" fill="#172033">Fold into tableau</text>
+  <text x="232" y="106" font-size="11" fill="#52627a">Absorb Cliffords and</text><text x="232" y="122" font-size="11" fill="#52627a">pure-Clifford tails; express</text><text x="232" y="138" font-size="11" fill="#52627a">rotations, noise, &amp; outputs</text><text x="232" y="154" font-size="11" fill="#52627a">over the |0…0⟩ frame.</text>
+  <rect x="230" y="170" width="158" height="20" rx="5" fill="#f5eff8"/>
+  <text x="309.0" y="183.5" text-anchor="middle" font-size="10.2" font-weight="600" fill="#7b4b94">Tableau analog of ZX</text>
+  <line x1="404" y1="124.0" x2="411" y2="124.0" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M 410 120.0 L 415 124.0 L 410 128.0" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="420.5" y="48.5" width="182" height="152" rx="9" fill="#f8fafc" stroke="#dbe2eb" stroke-opacity="1"/>
+  <circle cx="442" cy="71" r="10" fill="#ebf7f4"/>
+  <text x="442" y="75" text-anchor="middle" font-size="11" font-weight="700" fill="#12846e">3</text>
+  <text x="458" y="75" font-size="12.5" font-weight="700" fill="#172033">Drop unseen work</text>
+  <text x="434" y="106" font-size="11" fill="#52627a">Prune dead faults, fixed</text><text x="434" y="122" font-size="11" fill="#52627a">|0⟩ axes, and commuting</text><text x="434" y="138" font-size="11" fill="#52627a">checks; merge noise with</text><text x="434" y="154" font-size="11" fill="#52627a">identical output effects.</text>
+  <rect x="432" y="170" width="158" height="20" rx="5" fill="#ebf7f4"/>
+  <text x="511.0" y="183.5" text-anchor="middle" font-size="10.2" font-weight="600" fill="#12846e">Exact distribution kept</text>
+  <line x1="606" y1="124.0" x2="613" y2="124.0" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round"/>
+  <path d="M 612 120.0 L 617 124.0 L 612 128.0" fill="none" stroke="#94a3b8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="622.5" y="48.5" width="182" height="152" rx="9" fill="#f8fafc" stroke="#3366b3" stroke-opacity="0.55"/>
+  <circle cx="644" cy="71" r="10" fill="#eef4fc"/>
+  <text x="644" y="75" text-anchor="middle" font-size="11" font-weight="700" fill="#3366b3">4</text>
+  <text x="660" y="75" font-size="12.5" font-weight="700" fill="#172033">Reschedule &amp; lower</text>
+  <text x="636" y="106" font-size="11" fill="#52627a">Order surviving quantum</text><text x="636" y="122" font-size="11" fill="#52627a">ops measurement-first to</text><text x="636" y="138" font-size="11" fill="#52627a">minimize peak active width,</text><text x="636" y="154" font-size="11" fill="#52627a">then emit standard HIR.</text>
+  <rect x="634" y="170" width="158" height="20" rx="5" fill="#eef4fc"/>
+  <text x="713.0" y="183.5" text-anchor="middle" font-size="10.2" font-weight="600" fill="#3366b3">Narrower sampling plan</text>
+</svg>
