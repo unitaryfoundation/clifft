@@ -77,8 +77,8 @@ evolution across equivalent quantum trajectories so exact near-Clifford
 simulation scales cleanly with CPU cores.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-packed-dark.png">
-  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft/main/docs/assets/performance/simulator-throughput-packed-light.png" alt="Packed detector and observable sample throughput in attempted shots per second for Clifft 0.14, xtim, Stim, and Tsim on one and eight physical CPU cores side by side">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8f1c023d963b2b05316cc074ade7542c8925c950/reporting/figures/web/simulator-throughput-packed-dark.png">
+  <img src="https://raw.githubusercontent.com/unitaryfoundation/clifft-bench/8f1c023d963b2b05316cc074ade7542c8925c950/reporting/figures/web/simulator-throughput-packed-light.png" alt="Packed detector and observable sample throughput in attempted shots per second for Clifft 0.14, xtim, Stim, and Tsim on one and eight physical CPU cores side by side">
 </picture>
 
 See the [Performance guide](https://unitaryfoundation.github.io/clifft/stable/guide/performance/)

@@ -73,35 +73,38 @@ its single matched workload (1-core packed `Surface code d7, r7`); and leads
 
 - **Magic-state preparation:** On 15-to-1 distillation, compiler simplification
   collapses the active state to width `0`, reaching **179 million** (1 core) and
-  **701 million** (8 cores) packed shots/s, and **733 million** / **1.21
-  billion** survivor shots/s. On Reed–Muller, Clifft reaches **93.1 million**
-  (1 core) and **481 million** (8 cores) packed shots/s (vs. **22.8 million**
-  and **150 million** in Tsim). On fold-transversal `d=3` and `d=5`, Clifft
-  leads Tsim in both modes—reaching **89.7 million** packed and **161 million**
-  survivor shots/s at `d=3` on 8 cores (**5.73x** and **7.77x** Tsim's rates).
-  On cultivation `d=3`, `d=5`, and end-to-end cultivation `d=5`, Clifft leads
-  Tsim across every mode and core count (up to **213 million**, **90.5
-  million**, and **6.76 million** survivor shots/s on 8 cores) and leads xtim
-  across all four xtim-supported circuits on 8-core survivor counts, while xtim
-  is faster on packed `d=3` and `d=5` cultivation and 1-core survivor
-  cultivation. On Cain 15-to-1 (`d=5` and `d=9`), 1-core packed throughput is
-  close to Tsim (**929 thousand** vs. **929 thousand** at `d=5`; **271
-  thousand** vs. **344 thousand** at `d=9`), while 8-core scaling puts Clifft
-  ahead (**4.70 million** vs. **1.51 million** at `d=5`; **1.24 million** vs.
-  **756 thousand** at `d=9`).
+  **701 million** (8 cores) attempted shots/s for packed samples, and **733
+  million** / **1.21 billion** attempted shots/s in survivor-count mode. On
+  Reed–Muller, Clifft reaches **93.1 million** (1 core) and **481 million** (8
+  cores) attempted shots/s for packed samples (vs. **22.8 million** and **150
+  million** in Tsim). On fold-transversal `d=3` and `d=5`, Clifft leads Tsim in
+  both modes—reaching **89.7 million** attempted shots/s (packed samples) and
+  **161 million** attempted shots/s (survivor counts) at `d=3` on 8 cores
+  (**5.73x** and **7.77x** Tsim's rates). On cultivation `d=3`, `d=5`, and
+  end-to-end cultivation `d=5`, Clifft leads Tsim across every mode and core
+  count (up to **213 million**, **90.5 million**, and **6.76 million** attempted
+  shots/s in survivor-count mode on 8 cores) and leads xtim across all four
+  xtim-supported circuits on 8-core survivor counts, while xtim is faster on
+  packed `d=3` and `d=5` cultivation and 1-core survivor cultivation. On Cain
+  15-to-1 (`d=5` and `d=9`), 1-core packed throughput is close to Tsim (**929
+  thousand** vs. **929 thousand** at `d=5`; **271 thousand** vs. **344
+  thousand** at `d=9`), while 8-core scaling puts Clifft ahead (**4.70
+  million** vs. **1.51 million** at `d=5`; **1.24 million** vs. **756
+  thousand** at `d=9`).
 - **Surface-code memory and coherent noise:** On coherent `d=3, r=3`, Clifft
-  reaches **10.2 million** (1 core) and **75.6 million** (8 cores) packed
-  shots/s (vs. **9.45 million** and **16.9 million** in Tsim) and **140
-  million** survivor shots/s on 8 cores. On coherent `d=5, r=5`, Clifft leads
-  by an order of magnitude or more: **16.5 thousand** / **129 thousand** packed
-  shots/s (**19.4x** / **36.7x** Tsim) and **695 thousand** / **4.96 million**
-  survivor shots/s (**50.9x** / **67.2x** Tsim).
+  reaches **10.2 million** (1 core) and **75.6 million** (8 cores) attempted
+  shots/s for packed samples (vs. **9.45 million** and **16.9 million** in Tsim)
+  and **140 million** attempted shots/s in survivor-count mode on 8 cores. On
+  coherent `d=5, r=5`, Clifft leads by an order of magnitude or more: **16.5
+  thousand** / **129 thousand** attempted shots/s for packed samples (**19.4x**
+  / **36.7x** Tsim) and **695 thousand** / **4.96 million** attempted shots/s
+  in survivor-count mode (**50.9x** / **67.2x** Tsim).
 - **Arithmetic and code switching:** On the fixed-input 16-bit Draper adder,
-  Tsim leads on 1 core (**403 million** vs. **235 million** packed shots/s),
+  Tsim leads on 1 core (**403 million** vs. **235 million** attempted shots/s),
   while Clifft scales ahead on 8 cores (**795 million** vs. **599 million**).
   The measured `BT27` and `BT81` code-switching circuits (no peer measurements)
   reach **230 thousand** / **1.75 million** (`BT27`) and **2.09 million** /
-  **12.3 million** (`BT81`) packed shots/s on 1 and 8 cores.
+  **12.3 million** (`BT81`) attempted shots/s on 1 and 8 cores.
 - **Quantum Volume:** Dense circuits drive active width to the full qubit count
   (`10` and `20`). Shared unitary-prefix execution lets Clifft lead Tsim at
   both `QV10` (**2.68 million** vs. **2.15 million** on 1 core; **15.7
@@ -113,12 +116,13 @@ its single matched workload (1-core packed `Surface code d7, r7`); and leads
 On the Clifford `Surface code d7, r7` workload with postselection off (packed
 detector and observable records on 1 core), both Clifft and Stim return native
 bit-packed detector and observable arrays directly. Clifft reaches **7.70
-million shots/s** compared with **858 thousand** for Stim (**8.98x**), while
-Tsim reaches **8.08 million** and xtim reaches **12.9 million**. On 8 cores
-(Stim is single-threaded), Clifft scales to **56.2 million** packed shots/s
-(ahead of Tsim at **42.2 million**, behind xtim at **67.5 million**) and
-**68.0 million** survivor shots/s (ahead of Tsim at **60.7 million**, xtim at
-**51.4 million**, and SymFT at **27.8 million**).
+million attempted shots/s** compared with **858 thousand** for Stim (**8.98x**),
+while Tsim reaches **8.08 million** and xtim reaches **12.9 million**. On 8
+cores (Stim is single-threaded), Clifft scales to **56.2 million** attempted
+shots/s for packed samples (ahead of Tsim at **42.2 million**, behind xtim at
+**67.5 million**) and **68.0 million** attempted shots/s in survivor-count mode
+(ahead of Tsim at **60.7 million**, xtim at **51.4 million**, and SymFT at
+**27.8 million**).
 
 ### Measurement setup
 
@@ -157,12 +161,13 @@ throughput over v0.13 at both core counts, ranging from **1.08x** to **65.0x**:
 - **Cultivation `d=3`** (**11.1x** / **9.83x**), **coherent `d=3, r=3`**
   (**7.34x** / **6.62x**), **85q distillation** (**5.71x** / **5.33x**),
   **surface code `d=7, r=7`** (**2.47x** / **2.45x**), and **15-to-1
-  distillation** (**1.74x** / **1.08x**, reaching **1.21 billion shots/s** on
-  8 cores at width `0`) all improve as well.
+  distillation** (**1.74x** / **1.08x**, reaching **1.21 billion attempted
+  shots/s** on 8 cores at width `0`) all improve as well.
 
 Fold-transversal `d=5` appears in the peer comparison above (**7.94 million**
-and **59.9 million** survivor shots/s on 1 and 8 cores); its v0.13 survivor
-baselines were omitted from the paired campaign because of their runtime.
+and **59.9 million** attempted shots/s in survivor-count mode on 1 and 8 cores);
+its v0.13 survivor baselines were omitted from the paired campaign because of
+their runtime.
 
 Three changes drive the v0.14 gains:
 

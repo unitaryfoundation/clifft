@@ -119,8 +119,7 @@
         {% set item = series[value.variant_id] %}
         <tr>
           <th scope="row"><a href="{{ row.circuit_url }}">{{ row.label }}</a><br><small>{{ row.workload_id }}<br>
-            {{ row.postselection_summary }};
-            observable {{ row.semantics.observable_index }}</small></th>
+            {{ row.postselection_summary }}</small></th>
           <td>{{ item.simulator.name }}</td>
           <td id="throughput-detail-{{ panel_index }}-{{ row_index }}-{{ value.variant_id }}">
             <strong>{{ row.label }} &middot; {{ item.simulator.name }} &middot; {{ panel.cores_label }}</strong>
