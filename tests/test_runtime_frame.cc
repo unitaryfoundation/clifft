@@ -647,6 +647,10 @@ TEST_CASE("Sign flips about one Pauli under one condition compose", "[runtime_fr
         {"T 0\nT 0\nT 0\nT 0\n", 0},
         {"T 0\nT_DAG 0\n", 0},
         {"T_DAG 0\nT_DAG 0\nT 1\nT 1\n", 0},
+        // An X gate adds a constant to every later sign. The half turn two
+        // T gates then leave applies on the fault alone.
+        {"X 0\nT 0\nT 0\n", 0},
+        {"X 0\nT 0\nT 0\nT 0\nT_DAG 1\n", 1},
         // A second fault between the gates gives them different conditions.
         {"T 0\nX_ERROR(0.2) 0\nT 0\n", 2},
         {"T 0\nT 0\nX_ERROR(0.2) 1\nT 0\nT 1\n", 2},
@@ -1464,12 +1468,16 @@ std::vector<FrameProgram> leading_clifford_programs() {
                          measure(0, 0b1000),
                          measure(0b0011, 0b1100)};
     // A run of 70 commuting quarter turns, so the set a shot fires takes two
-    // words. Eight noise bits fire them in groups, and the turns past the
-    // first word act about X products the earlier ones do not use.
+    // words. Eight noise bits fire them in groups. The first 66 turns act
+    // about distinct X products. The last four repeat an earlier axis under
+    // another noise bit: two repeat a turn of the second word and two a turn
+    // of the first.
     programs[3].num_qubits = 7;
     programs[3].noise_probabilities.assign(8, 0.3);
     for (uint32_t turn = 0; turn < 70; ++turn) {
-        programs[3].steps.push_back(rotate(turn + 1, 0, turn % 2 == 0 ? 0.5 : 1.5, {}, {turn % 8}));
+        const uint32_t repeated = turn < 66 ? turn : turn < 68 ? turn - 2 : turn - 62;
+        programs[3].steps.push_back(
+            rotate(repeated + 1, 0, turn % 2 == 0 ? 0.5 : 1.5, {}, {turn % 8}));
     }
     programs[3].steps.push_back(rotate(0, 0b0000001, 0.25));
     for (uint32_t q = 0; q < programs[3].num_qubits; ++q) {
