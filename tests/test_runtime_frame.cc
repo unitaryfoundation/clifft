@@ -724,8 +724,8 @@ TEST_CASE("Frame planning reduces a later region on fresh coordinates",
     };
     struct Later {
         const char* entangle;
-        size_t conditionals;
-        size_t frame_rotations;
+        std::ptrdiff_t conditionals;
+        std::ptrdiff_t frame_rotations;
         uint32_t peak;
     };
     // Entangled with qubit 1 of the checked pair, the later pair is on
