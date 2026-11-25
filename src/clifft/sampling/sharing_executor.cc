@@ -206,16 +206,17 @@ uint64_t SharingExecutor::frame_storage_bytes(const ExecutablePlan& plan) {
     if (!plan.uses_runtime_frame()) {
         return 0;
     }
-    // Two rows per frame coordinate, the frame's six scratch Paulis and the
-    // mapped Pauli, each with separately allocated X and Z words, and the row
-    // mask.
-    constexpr uint64_t kScratchPaulis = 7;
+    // The frame's tableau, two rows per coordinate and six of scratch, each
+    // its X and Z words and a phase byte, in two allocations. The mapped
+    // Pauli allocates its X and Z words, and the row mask is a fifth.
+    constexpr uint64_t kScratchRows = 6;
+    constexpr uint64_t kAllocations = 5;
     constexpr uint64_t kAllocationOverhead = 16;
     const uint64_t words_bytes = uint64_t{plan.frame_words()} * sizeof(uint64_t);
-    const uint64_t paulis = 2 * uint64_t{plan.frame_width_} + kScratchPaulis;
-    const uint64_t pauli_bytes = sizeof(PauliString) + 2 * (words_bytes + kAllocationOverhead);
-    return saturating_add_u64(saturating_multiply_u64(paulis, pauli_bytes),
-                              sizeof(SharedFrame) + 2 * words_bytes + kAllocationOverhead);
+    const uint64_t rows = 2 * uint64_t{plan.frame_width_} + kScratchRows;
+    return saturating_add_u64(
+        saturating_multiply_u64(rows, 2 * words_bytes + 1),
+        sizeof(SharedFrame) + 4 * words_bytes + kAllocations * kAllocationOverhead);
 }
 
 uint64_t SharingExecutor::group_storage_bytes(const ExecutablePlan& plan, uint32_t width) {
@@ -1053,9 +1054,7 @@ uint32_t SharingExecutor::acquire_frame(const SharedFrame* source) noexcept {
     const uint32_t frame = free_frames_[--free_frame_count_];
     SharedFrame& slot = frames_[frame];
     if (source != nullptr && source->changed) {
-        for (size_t row = 0; row < source->frame.rows.size(); ++row) {
-            copy_pauli(source->frame.rows[row].view(), slot.frame.rows[row]);
-        }
+        slot.frame.copy_tableau(source->frame);
         slot.changed = true;
     } else if (slot.changed) {
         slot.frame.reset();
@@ -1244,7 +1243,13 @@ void SharingExecutor::execute_clifford_run(uint32_t length) noexcept {
                 const size_t k = word * 64 + static_cast<size_t>(std::countr_zero(bits));
                 const auto& action = std::get<ExecutablePlan::ExecuteFrameClifford>(
                     plan_->actions_[order[action_index_ + k]]);
-                slot.frame.rotate_fixed_clifford(plan_->frame_pauli(action.pauli), action.rotation);
+                if (action.x_only) {
+                    slot.frame.rotate_fixed_x_clifford(plan_->frame_pauli_x(action.pauli),
+                                                       action.rotation);
+                } else {
+                    slot.frame.rotate_fixed_clifford(plan_->frame_pauli(action.pauli),
+                                                     action.rotation);
+                }
             }
         }
         slot.changed = true;
@@ -1357,7 +1362,9 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameClifford&
         return;
     }
     const auto rotate = [&](SharedFrame& slot) noexcept {
-        if (action.fixed_by_frame) {
+        if (action.x_only) {
+            slot.frame.rotate_fixed_x_clifford(plan_->frame_pauli_x(action.pauli), action.rotation);
+        } else if (action.fixed_by_frame) {
             slot.frame.rotate_fixed_clifford(plan_->frame_pauli(action.pauli), action.rotation);
         } else {
             slot.frame.map(plan_->frame_pauli_x(action.pauli), plan_->frame_pauli_z(action.pauli),
@@ -1528,8 +1535,8 @@ void SharingExecutor::execute_action(
             const auto collect_rows = [&](bool z_bits, uint32_t coordinate) noexcept {
                 std::ranges::fill(slot.rows, uint64_t{0});
                 for (uint32_t q = 0; q < frame.n; ++q) {
-                    const PauliString& x_image = frame.rows[q];
-                    const PauliString& z_image = frame.rows[frame.n + q];
+                    const PauliStringView x_image = frame.row(q);
+                    const PauliStringView z_image = frame.row(frame.n + q);
                     if (z_bits ? x_image.z().bit_get(coordinate)
                                : x_image.x().bit_get(coordinate)) {
                         slot.rows[q >> 6] |= uint64_t{1} << (q & 63);

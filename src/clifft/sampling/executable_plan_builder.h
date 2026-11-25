@@ -58,6 +58,8 @@ class ExecutablePlanBuilder {
     // row holding X words followed by Z words.
     struct CommutingFramePrefix {
         bool open = true;
+        // No Pauli of the prefix has a Z factor.
+        bool x_only = true;
         std::vector<std::vector<uint64_t>> basis;
         std::vector<uint32_t> pivots;
 
