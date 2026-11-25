@@ -664,6 +664,57 @@ TEST_CASE(
         REQUIRE(ref.observables == std::vector<uint8_t>{1});
     }
 
+    // Random parities sign a T pair on each of 40 Bell pairs, so the sequential
+    // reference plan needs 40 active qubits: it plans, and no state holds it.
+    // A frame plans the pairs at width zero.
+    {
+        std::string qubits;
+        std::string evens;
+        std::string odds;
+        std::string parities;
+        for (uint32_t p = 0; p < 40; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            qubits += " " + a + " " + b;
+            evens += " " + a;
+            odds += " " + b;
+            parities += "MPP Z" + a + "*Z" + b + "\n";
+        }
+        const auto signed_hir = trace(
+            parse("H" + qubits + "\n" + parities + "T" + evens + "\nT_DAG" + odds + "\nH" + qubits +
+                  "\nM" + qubits + "\nMPAD 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"));
+        const auto ref = compute_reference_syndrome(signed_hir, nullptr, {}, true);
+        REQUIRE(ref.detectors == std::vector<uint8_t>{1});
+        REQUIRE(ref.observables == std::vector<uint8_t>{1});
+    }
+
+    // 65 such pairs, chained by CX gates and checked one by one. The default
+    // passes split the regions a frame reduces, so the frame reference needs
+    // the circuit traced again; from the optimized HIR it stays too wide.
+    {
+        constexpr uint32_t kPairs = 65;
+        std::string text;
+        for (uint32_t p = 0; p < kPairs; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            text +=
+                "H " + a + " " + b + "\nMPP Z" + a + "*Z" + b + "\nT " + a + "\nT_DAG " + b + "\n";
+        }
+        for (uint32_t p = 0; p + 1 < kPairs; ++p) {
+            text += "CX " + std::to_string(2 * p) + " " + std::to_string(2 * p + 2) + "\n";
+        }
+        for (uint32_t p = 0; p < kPairs; ++p) {
+            text += "MPP X" + std::to_string(2 * p) + "*X" + std::to_string(2 * p + 1) +
+                    "\nDETECTOR rec[-1]\n";
+        }
+        const auto chained_source = parse(text);
+        auto chained_hir = trace(chained_source);
+        default_hir_pass_manager().run(chained_hir);
+        const auto ref =
+            compute_reference_syndrome(chained_hir, nullptr, {}, true, &chained_source);
+        REQUIRE(ref.detectors.size() == kPairs);
+    }
+
     // Asymmetric record-only success: zero detectors and observables skip detector reconstruction.
     const auto record_source = make_wide(false);
     auto record_hir = trace(record_source);
