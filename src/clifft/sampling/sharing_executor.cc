@@ -44,6 +44,7 @@ SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
         for (uint32_t reg : plan.expression_dependencies_.dependent_registers(symbol)) {
             split_symbols_[symbol] |= required[reg];
         }
+        separates_groups_ |= split_symbols_[symbol] != 0;
     }
 }
 
@@ -1522,9 +1523,9 @@ void SharingExecutor::execute_action(
             state.set_active_width(0);
             state.real()[0] = 1.0;
             state.imag()[0] = 0.0;
-            // Groups prepared by a sharing key keep the uniform rotation
+            // Groups a sharing key separates keep the uniform rotation
             // signs that static actions after a retirement rely on.
-            if (!share_ || key_ != nullptr) {
+            if (!share_ || (key_ != nullptr && key_->separates_groups())) {
                 continue;
             }
             if (slot.link == kNoShot) {
@@ -1572,9 +1573,9 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetiremen
         assert(states_[group].active_width() == 0 && "a retired frame has no active coordinates");
         release_frame(frame_of_[group]);
     }
-    // Groups prepared by a sharing key keep the uniform rotation signs that
+    // Groups a sharing key separates keep the uniform rotation signs that
     // later static actions rely on, so they stay apart.
-    const bool merge = share_ && key_ == nullptr;
+    const bool merge = share_ && (key_ == nullptr || !key_->separates_groups());
     uint32_t frame = kNoShot;
     for (uint32_t index = 0; index < group_count_; ++index) {
         const uint32_t group = groups_[index];

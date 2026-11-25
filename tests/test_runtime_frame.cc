@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <complex>
@@ -1658,27 +1659,44 @@ TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame]
     // A sharing key groups shots by the noise that decides static rotation
     // signs, here the fault between the two T gates on qubit 2. Those
     // rotations follow a frame that measures its last active qubit and then
-    // retires, the two places where groups without a key merge.
-    const std::string source =
-        "H 0 4\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4\nT_DAG 1\nCX 0 1\nH 0 4\n"
-        "MR 0 1 4\n"
-        "H 2\nT 2\nH 2\nX_ERROR(0.3) 2\nT 2\nH 2\nM 2\n";
+    // retires, the two places where groups without a key merge. Without the
+    // fault no rotation sign varies, the key separates nothing, and the groups
+    // merge as they do without a key. The last circuit ends before its frame
+    // retires: its groups split at the first of two active qubits and merge
+    // at the second.
+    struct Case {
+        const char* source;
+        bool signed_rotation;
+        bool retires;
+    };
+    const Case c = GENERATE(
+        Case{"H 0 4\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4\nT_DAG 1\nCX 0 1\nH 0 4\nMR 0 1 4\n"
+             "H 2\nT 2\nH 2\nX_ERROR(0.3) 2\nT 2\nH 2\nM 2\n",
+             true, true},
+        Case{"H 0 4\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4\nT_DAG 1\nCX 0 1\nH 0 4\nMR 0 1 4\n"
+             "H 2\nT 2\nH 2\nT 2\nH 2\nM 2\n",
+             false, true},
+        Case{"H 0 4 5\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4 5\nT_DAG 1\nCX 0 1\nH 0 4 5\nM 4 5 0\n", false,
+             false});
+    CAPTURE(c.source);
+    const bool signed_rotation = c.signed_rotation;
     const SamplingPlan plan =
-        sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+        sampling::plan_sampling(clifft::trace(clifft::parse(c.source)), {.runtime_frame = true});
     const auto holds = [&]<typename Action>() {
         return std::ranges::any_of(plan.actions, [](const PlannedAction& planned) {
             return std::holds_alternative<Action>(planned.action);
         });
     };
-    REQUIRE(holds.operator()<sampling::RetireFrame>());
+    REQUIRE(holds.operator()<sampling::RetireFrame>() == c.retires);
     REQUIRE(holds.operator()<sampling::MeasureFramePauli>());
-    REQUIRE(holds.operator()<sampling::RotateActivePauli>());
+    REQUIRE(holds.operator()<sampling::RotateActivePauli>() == c.retires);
 
     const sampling::ExecutablePlan executable(plan);
     const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
     const sampling::EarlyPostselection checks(executable);
     const sampling::SharingKey key(executable);
-    REQUIRE(key.num_bits() != 0);
+    REQUIRE((key.num_bits() != 0) == signed_rotation);
+    REQUIRE(key.separates_groups() == signed_rotation);
     constexpr uint32_t kCapacity = 300;
     const auto make = [&](bool share, const sampling::SharingKey* grouping) {
         return sampling::SharingExecutor(executable, noise, checks, kCapacity, 1, share, grouping,
@@ -1695,7 +1713,7 @@ TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame]
         keyed.run_batch(root, 0, kCapacity);
         merging.run_batch(root, 0, kCapacity);
         independent.run_batch(root, 0, kCapacity);
-        REQUIRE(keyed.num_merges() == 0);
+        REQUIRE(keyed.num_merges() == (signed_rotation ? 0 : merging.num_merges()));
         merges += merging.num_merges();
         const auto expected = shared_record_patterns(independent, plan.num_visible_records);
         REQUIRE(shared_record_patterns(keyed, plan.num_visible_records) == expected);

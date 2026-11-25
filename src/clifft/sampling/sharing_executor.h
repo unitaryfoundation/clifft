@@ -84,12 +84,16 @@ class SharingKey {
   public:
     explicit SharingKey(const ExecutablePlan& plan);
     [[nodiscard]] size_t num_bits() const noexcept { return registers_.size(); }
+    // False when no rotation sign depends on a symbol: the key then puts every
+    // shot in one group and never splits one.
+    [[nodiscard]] bool separates_groups() const noexcept { return separates_groups_; }
 
   private:
     friend class SharingExecutor;
     const ExecutablePlan* plan_;
     std::vector<uint32_t> registers_;
     std::vector<uint8_t> split_symbols_;
+    bool separates_groups_ = false;
 };
 
 // Shares coefficient states across shots with identical prepared evolution.
