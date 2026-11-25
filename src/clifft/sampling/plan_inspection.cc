@@ -210,6 +210,11 @@ void write_action_body(std::ostream& out, const SamplingAction& action,
                     << " branch=s" << index(typed.branch)
                     << " outcome=" << format_expression(typed.outcome, max_expression_terms)
                     << " record=r" << index(typed.record);
+            } else if constexpr (std::is_same_v<T, RetireFrame>) {
+                out << "RETIRE_FRAME";
+            } else if constexpr (std::is_same_v<T, ReleaseFrameCoordinate>) {
+                out << "RELEASE_FRAME " << format_pauli_product(typed.pauli.x, typed.pauli.z)
+                    << " pivot=" << typed.pivot << " width=" << typed.width;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }

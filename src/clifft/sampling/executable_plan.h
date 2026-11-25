@@ -101,8 +101,8 @@ class ExecutablePlan {
     // the scalar Executor only.
     [[nodiscard]] bool uses_runtime_frame() const { return frame_width_ != 0; }
     // Coefficient capacity an executor allocates up front. For a frame plan
-    // this is the peak width up to the first frame action; peak_active_width
-    // is then an upper bound that few shots may reach.
+    // this is the peak width outside its live frames; peak_active_width is
+    // then an upper bound that few shots may reach.
     [[nodiscard]] uint32_t initial_capacity_width() const {
         return uses_runtime_frame() ? frame_entry_peak_width_ : peak_active_width_;
     }
@@ -332,6 +332,20 @@ class ExecutablePlan {
         uint32_t pauli = 0;
     };
 
+    // Returns the shot's frame to the identity. The plan has already accounted
+    // for the frame's state, which has no active coordinates left.
+    struct ExecuteFrameRetirement {};
+
+    // Drops one coordinate of the shot's frame. The frame first follows the
+    // plan's change of frame coordinates, which made the stabilizer `pauli`
+    // of the frame's state Z on coordinate width - 1 and moved the coordinate
+    // that was there to `pivot`.
+    struct ExecuteFrameRelease {
+        uint32_t pauli = 0;
+        uint32_t pivot = 0;
+        uint32_t width = 0;
+    };
+
     struct ExecuteSymbolDefinition {
         PreparedExpression value;
         uint32_t symbol = 0;
@@ -470,7 +484,7 @@ class ExecutablePlan {
                      ExecuteClassicalRecord, ExecuteSymbolDefinition, ExecuteReadoutNoise,
                      ExecuteDetector, ExecuteObservable, ExecuteExpectation, ExecuteInstrument,
                      ExecuteBoundary, ExecuteFrameClifford, ExecuteFrameRotation,
-                     ExecuteFrameMeasurement>;
+                     ExecuteFrameMeasurement, ExecuteFrameRetirement, ExecuteFrameRelease>;
 
     // Immutable plan metadata and externally visible dimensions.
     uint32_t num_qubits_ = 0;

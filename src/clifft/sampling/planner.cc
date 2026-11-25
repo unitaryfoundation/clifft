@@ -1,6 +1,7 @@
 #include "clifft/sampling/planner.h"
 
 #include "clifft/optimizer/phase_region.h"
+#include "clifft/optimizer/stabilizer_basis.h"
 #include "clifft/sampling/planner_frame.h"
 #include "clifft/util/hir_introspection.h"
 #include "clifft/util/numeric.h"
@@ -11,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -660,8 +662,20 @@ std::optional<double> quarter_turn(double alpha) {
 // actions on a runtime frame. A region without such factors is reduced the
 // same way and needs no frame. Once a frame is live, each shot decides which
 // frame coordinates are active, so later coefficient work on them is planned
-// as frame actions and active_width is an upper bound. A later region is
-// reduced again only when it does not touch the frame's coordinates.
+// as frame actions and active_width is an upper bound. The rotations of a
+// later region that do not touch the frame's coordinates are reduced the same
+// way; the others are applied one at a time through the frame.
+//
+// A frame ends when the plan knows its state. Every frame measurement leaves a
+// stabilizer whose eigenvalue bit is the measurement's branch symbol, and it
+// holds until an action that anticommutes with it. Once such stabilizers fix
+// every frame coordinate, as after measuring or resetting every qubit of a
+// factory, the planner localizes them the way it plans active measurements
+// with known outcomes: each becomes Z on a dormant coordinate and its
+// eigenvalue bit moves into the symbolic frame. The plan then retires the
+// frame, and the next signed region starts a new one from the reference state.
+// Where the stabilizers fix only some frame coordinates, the next region
+// releases those the same way and the frame continues on the rest.
 //
 // Signs are kept factored while a region is held back. The symbolic frame at
 // region entry contributes one sign per independent axis, and every other
@@ -706,21 +720,36 @@ class FrameRegions {
             flush();
         }
         if (pending_.empty()) {
+            settle_known_frame(source_lines(operation), /*release_partial=*/true);
+            drop_inert_frame_terms();
             updates_.emplace(hir_.num_qubits, num_hir_symbols_);
         }
         op_sign ^= updates_->sign_for(x, z);
         pending_.push_back({operation, half_turns, std::move(op_sign), entry_parity(x, z)});
     }
 
-    // Emits the held-back region and returns whether a frame is live. Every
-    // other operation that reads or changes the quantum state calls this
-    // first and plans itself as a frame action when the result is true.
-    bool flush() {
+    // Called before every other operation that reads or changes the quantum
+    // state, with that operation's source lines. Emits the held-back region,
+    // retires a frame whose state the plan knows, and returns whether a frame
+    // is live; the operation then plans itself as a frame action.
+    bool begin_operation(std::span<const uint32_t> lines) {
+        flush();
+        settle_known_frame(lines, /*release_partial=*/false);
+        return live_;
+    }
+
+    // Emits the held-back region.
+    void flush() {
         if (pending_.empty()) {
-            return live_;
+            return;
         }
-        const size_t lowered = lower_region();
-        for (size_t i = lowered; i < pending_.size(); ++i) {
+        const std::vector<size_t> lowered = lower_region();
+        auto next_lowered = lowered.begin();
+        for (size_t i = 0; i < pending_.size(); ++i) {
+            if (next_lowered != lowered.end() && *next_lowered == i) {
+                ++next_lowered;
+                continue;
+            }
             const PendingRotation& rotation = pending_[i];
             emit(current_axis(rotation), full_sign(rotation), rotation.half_turns,
                  source_lines(rotation.operation));
@@ -730,7 +759,6 @@ class FrameRegions {
         entry_signs_.clear();
         entry_symbols_.clear();
         updates_.reset();
-        return live_;
     }
 
     // A rotation after the frame is live. X support outside the frame adds
@@ -748,6 +776,7 @@ class FrameRegions {
         if (pauli.is_identity()) {
             return;
         }
+        disturb(resolved.body);
         // Each shot decides whether this rotation promotes a coordinate, so
         // the bound is loose. The executor allocates for the width at frame
         // entry and grows when a shot needs more, which is also where the
@@ -769,8 +798,25 @@ class FrameRegions {
                        std::span<const uint32_t> lines) {
         assert(live_);
         if (const auto pivot = first_x_at_or_above(resolved.body, frame_width_)) {
-            return measure_dormant_random(resolved, *pivot, record, branch, plan_, active_width_,
-                                          coordinates_, symbolic_frame_, lines);
+            // The static frame absorbs this measurement by replacing a
+            // stabilizer outside the runtime frame, and it rewrites the frame
+            // coordinates so that the frame's state keeps its expression in
+            // them. The known stabilizers keep theirs as well.
+            auto carried = known_stabilizers();
+            for (auto& [axis, eigenvalue] : carried) {
+                axis = coordinates_.to_current(axis);
+                eigenvalue ^= axis.sign();
+                axis.set_sign(false);
+                restrict_below(axis, frame_width_);
+            }
+            AffineBool outcome =
+                measure_dormant_random(resolved, *pivot, record, branch, plan_, active_width_,
+                                       coordinates_, symbolic_frame_, lines);
+            known_.clear();
+            for (auto& [axis, eigenvalue] : carried) {
+                learn(axis, std::move(eigenvalue));
+            }
+            return outcome;
         }
         FramePauli pauli = frame_projection(resolved.body);
         if (pauli.is_identity()) {
@@ -780,6 +826,12 @@ class FrameRegions {
                 lines);
             return std::move(resolved.sign);
         }
+        // The frame's state becomes an eigenstate of the measured Pauli. Its Z
+        // factors outside the frame act on dormant |0> coordinates.
+        disturb(resolved.body);
+        Pauli inside = resolved.body;
+        restrict_below(inside, frame_width_);
+        learn(inside, AffineBool::symbol(branch));
         define_symbol(plan_, branch, SymbolKind::Branch);
         AffineBool outcome = resolved.sign ^ AffineBool::symbol(branch);
         append_action(plan_,
@@ -796,7 +848,8 @@ class FrameRegions {
         assert(pending_.empty() && plan_.symbols.size() == num_hir_symbols_);
         plan_.symbols.resize(static_cast<size_t>(num_hir_symbols_) + num_derived_symbols_,
                              SymbolKind::Derived);
-        const size_t words = (static_cast<size_t>(frame_width_) + 63) / 64;
+        max_frame_width_ = std::max(max_frame_width_, frame_width_);
+        const size_t words = (static_cast<size_t>(max_frame_width_) + 63) / 64;
         bool has_frame_action = false;
         for (PlannedAction& planned : plan_.actions) {
             std::visit(
@@ -809,10 +862,12 @@ class FrameRegions {
                 },
                 planned.action);
         }
-        plan_.frame_width = has_frame_action ? frame_width_ : 0;
+        plan_.frame_width = has_frame_action ? max_frame_width_ : 0;
     }
 
   private:
+    using KnownStabilizerBasis = optimizer_detail::StabilizerBasis<AffineBool>;
+
     struct PendingRotation {
         size_t operation = 0;
         double half_turns = 0.0;
@@ -946,6 +1001,162 @@ class FrameRegions {
         return pauli;
     }
 
+    // Clears a current-coordinate Pauli on the coordinates from width on.
+    static void restrict_below(Pauli& body, uint32_t width) {
+        const auto clear = [&](std::span<uint64_t> words) {
+            const size_t first = width / 64;
+            if (first < words.size() && width % 64 != 0) {
+                words[first] &= (uint64_t{1} << (width % 64)) - 1;
+            }
+            for (size_t word = (static_cast<size_t>(width) + 63) / 64; word < words.size();
+                 ++word) {
+                words[word] = 0;
+            }
+        };
+        clear(body.mut_x().words);
+        clear(body.mut_z().words);
+    }
+
+    // Forgets the known stabilizers that an action about this
+    // current-coordinate Pauli can change. Products of two that anticommute
+    // with it commute with it and stay known.
+    void disturb(const Pauli& body) {
+        if (known_.empty()) {
+            return;
+        }
+        const Pauli axis = coordinates_.to_initial(body);
+        known_.intersect(axis.x(), axis.z());
+    }
+
+    // Records that the frame's state is an eigenstate of an unsigned
+    // current-coordinate Pauli with the given eigenvalue bit.
+    void learn(const Pauli& body, AffineBool eigenvalue) {
+        known_.ensure_width(hir_.num_qubits);
+        KnownStabilizerBasis::Row row{0, coordinates_.to_initial(body), std::move(eigenvalue)};
+        size_t products = 0;
+        known_.reduce(row, products);
+        if (!KnownStabilizerBasis::identity_axis(row.axis)) {
+            known_.insert_reduced(std::move(row));
+        }
+    }
+
+    // The known stabilizers as physical Paulis with their eigenvalue bits.
+    [[nodiscard]] std::vector<std::pair<Pauli, AffineBool>> known_stabilizers() const {
+        std::vector<std::pair<Pauli, AffineBool>> stabilizers;
+        stabilizers.reserve(known_.rows().size() + known_.unit_z_count());
+        for (const KnownStabilizerBasis::Row& row : known_.rows()) {
+            stabilizers.emplace_back(row.axis, row.sign);
+        }
+        for (uint32_t q = 0; known_.unit_z_count() != 0 && q < hir_.num_qubits; ++q) {
+            const uint64_t bit = uint64_t{1} << (q % 64);
+            if ((known_.unit_z_mask()[q / 64] & bit) != 0) {
+                Pauli z(hir_.num_qubits);
+                z.set_pauli(q, false, true);
+                z.set_sign((known_.unit_z_sign()[q / 64] & bit) != 0);
+                stabilizers.emplace_back(std::move(z), AffineBool());
+            }
+        }
+        return stabilizers;
+    }
+
+    // Z on a dormant coordinate stabilizes the state, so a Z the symbolic
+    // frame carries there does nothing. It would still enter the sign of every
+    // rotation with X on that coordinate, and a region starting here would
+    // turn it into a conditional Clifford on symbols that cannot matter, such
+    // as the faults and outcomes of an earlier round that ended in resets.
+    // Removes those terms before a region reads its entry signs.
+    void drop_inert_frame_terms() {
+        const Tableau& generators = coordinates_.current_to_initial();
+        for (uint32_t q = live_ ? frame_width_ : active_width_; q < hir_.num_qubits; ++q) {
+            const PauliStringView flip = generators.x_output(q);
+            const AffineBool carried = symbolic_frame_.sign_for(flip.x(), flip.z());
+            if (carried.constant() || !carried.terms().empty()) {
+                const PauliStringView stabilizer = generators.z_output(q);
+                symbolic_frame_.apply(stabilizer.x(), stabilizer.z(), carried);
+            }
+        }
+    }
+
+    // Hands the frame coordinates that known stabilizers fix back to the
+    // static coordinates. Each stabilizer in turn becomes Z on the last frame
+    // coordinate, the step that plans an active measurement, and the frame
+    // ends one coordinate earlier. The eigenvalue bit of that Z moves into the
+    // symbolic frame as a conditional X, which leaves the coordinate in |0>.
+    // The X flips every later stabilizer with a Z factor on that coordinate,
+    // so a stabilizer's bit takes the bits of the taken coordinates it has Z
+    // on.
+    //
+    // The stabilizers are independent, commute, and act on the frame alone,
+    // so as many of them as the frame has coordinates fix its whole state, and
+    // the frame retires. Fewer fix part of it: a factory's ancillas after
+    // their reset, say, while its output stays unmeasured. With
+    // release_partial the plan then releases those coordinates one by one,
+    // and a region that starts here finds them in |0> and can be reduced on
+    // them. Called only between regions, and with release_partial only at the
+    // start of one.
+    void settle_known_frame(std::span<const uint32_t> lines, bool release_partial) {
+        assert(pending_.empty());
+        if (!live_) {
+            return;
+        }
+        const size_t fixed = known_.rows().size() + known_.unit_z_count();
+        assert(fixed <= frame_width_);
+        const bool retire = fixed == frame_width_;
+        if (!retire && (!release_partial || known_.empty())) {
+            return;
+        }
+        const auto stabilizers = known_stabilizers();
+        const uint32_t original_width = frame_width_;
+        // Eigenvalue bit of Z on each coordinate taken so far.
+        std::vector<AffineBool> taken(original_width);
+        for (const auto& [axis, eigenvalue] : stabilizers) {
+            Pauli body = coordinates_.to_current(axis);
+            AffineBool bit = eigenvalue ^ body.sign();
+            body.set_sign(false);
+            assert(!first_x_at_or_above(body, frame_width_).has_value());
+            for (uint32_t q = frame_width_; q < original_width; ++q) {
+                if (body.z().bit_get(q)) {
+                    bit ^= taken[q];
+                }
+            }
+            restrict_below(body, frame_width_);
+            std::optional<uint32_t> pivot = last_x_below(body, frame_width_);
+            if (!pivot.has_value()) {
+                pivot = first_z_below(body, frame_width_);
+            }
+            assert(pivot.has_value() && "no stabilizer is a product of those taken");
+            const uint32_t width = frame_width_;
+            if (retire) {
+                coordinates_.measure_active(body, width, *pivot);
+            } else {
+                FramePauli pauli = frame_projection(body);
+                coordinates_.release_active(body, width, *pivot);
+                // The released coordinate is dormant in every shot.
+                const uint32_t active_after = std::min(active_width_, width - 1);
+                append_action(
+                    plan_,
+                    PlannedAction{active_width_, active_after,
+                                  ReleaseFrameCoordinate{std::move(pauli), *pivot, width}},
+                    lines);
+                active_width_ = active_after;
+            }
+            coordinates_changed_ = true;
+            max_frame_width_ = std::max(max_frame_width_, width);
+            frame_width_ = width - 1;
+            const PauliStringView flip = coordinates_.current_to_initial().x_output(frame_width_);
+            symbolic_frame_.apply(flip.x(), flip.z(), bit);
+            taken[frame_width_] = std::move(bit);
+        }
+        known_.clear();
+        if (retire) {
+            assert(frame_width_ == 0);
+            // No shot has an active coordinate left once every one is fixed.
+            append_action(plan_, PlannedAction{active_width_, 0, RetireFrame{}}, lines);
+            active_width_ = 0;
+            live_ = false;
+        }
+    }
+
     // Coordinates that rotating about these physical Paulis in order would
     // promote, counted on a copy of the coordinate frame. Coordinates from
     // first_dormant on are dormant.
@@ -964,26 +1175,33 @@ class FrameRegions {
         return width - first_dormant;
     }
 
-    // Tries to replace a leading part of the pending region by its reduced T
-    // core, Clifford correction, and conditional Cliffords, and returns how
-    // many rotations that consumed. Zero leaves the plan unchanged.
-    size_t lower_region() {
+    // Tries to replace part of the pending region by its reduced T core,
+    // Clifford correction, and conditional Cliffords, and returns the pending
+    // rotations that consumed, in order. None leaves the plan unchanged.
+    std::vector<size_t> lower_region() {
         const uint32_t n = hir_.num_qubits;
         // Coordinates below first_dormant hold the active state before a frame
         // starts and the frame afterwards. The rest are dormant |0>.
         const uint32_t first_dormant = live_ ? frame_width_ : active_width_;
         std::vector<phase_detail::AxisRotation> rotations;
         std::vector<Pauli> signed_axes;
+        // The pending rotations this lowering considers.
+        std::vector<size_t> members;
         rotations.reserve(pending_.size());
         signed_axes.reserve(pending_.size());
-        for (const PendingRotation& rotation : pending_) {
+        members.reserve(pending_.size());
+        for (size_t index = 0; index < pending_.size(); ++index) {
+            const PendingRotation& rotation = pending_[index];
             Pauli axis = current_axis(rotation);
             // The frame's coordinates have no reference state shared by every
-            // shot, so a region that touches them keeps its signed rotations.
+            // shot, so a rotation that touches them keeps its sign. The
+            // rotations of a region commute, so the others, on coordinates
+            // that are still |0>, can be reduced ahead of it.
             if (live_ && (last_x_below(axis, frame_width_).has_value() ||
                           first_z_below(axis, frame_width_).has_value())) {
-                return 0;
+                continue;
             }
+            members.push_back(index);
             signed_axes.push_back(coordinates_.to_initial(axis));
             axis.set_sign(axis.sign() ^ reference_sign(rotation));
             rotations.push_back({std::move(axis), rotation.half_turns < 0});
@@ -1000,8 +1218,11 @@ class FrameRegions {
         const auto rewrite =
             phase_detail::reduce_rotations(n, rotations, dormant, kMaxRegionAxes, budget);
         if (!rewrite || rewrite->end == 0) {
-            return 0;
+            return {};
         }
+        const auto member = [&](size_t i) -> const PendingRotation& {
+            return pending_[members[i]];
+        };
 
         // Physical Paulis stay valid across the coordinate changes below. A
         // phase exp(-i pi c P / 8) is split into c = t + clifford.
@@ -1026,13 +1247,13 @@ class FrameRegions {
             count_promotions(std::span(signed_axes).first(rewrite->end), first_dormant);
         if (core_promotions >= signed_promotions ||
             (!live_ && active_width_ + core_promotions >= kDenseActiveWidthLimit)) {
-            return 0;
+            return {};
         }
 
         std::vector<uint32_t> region_lines;
         if (plan_.source_map.has_value()) {
             for (size_t i = 0; i < rewrite->end; ++i) {
-                const auto lines = source_lines(pending_[i].operation);
+                const auto lines = source_lines(member(i).operation);
                 region_lines.insert(region_lines.end(), lines.begin(), lines.end());
             }
             std::ranges::sort(region_lines);
@@ -1060,6 +1281,9 @@ class FrameRegions {
                 continue;
             }
             const Pauli axis = coordinates_.to_current(phase.axis);
+            // The correction is a gate, so it changes any known stabilizer
+            // that anticommutes with one of its rotations.
+            disturb(axis);
             if (phase.clifford == 4) {
                 correction.prepend_pauli(axis.view());
             } else {
@@ -1078,7 +1302,7 @@ class FrameRegions {
         std::vector<AffineBool> conditions;
         conditions.reserve(rewrite->end);
         for (size_t i = 0; i < rewrite->end; ++i) {
-            conditions.push_back(sign_condition(pending_[i], source_lines(pending_[i].operation)));
+            conditions.push_back(sign_condition(member(i), source_lines(member(i).operation)));
         }
         if (!live_) {
             frame_width_ = active_width_;
@@ -1087,7 +1311,7 @@ class FrameRegions {
             if (conditions[i].terms().empty()) {
                 continue;
             }
-            Pauli body = current_axis(pending_[i]);
+            Pauli body = current_axis(member(i));
             body.set_sign(false);
             if (const auto pivot = first_x_at_or_above(body, frame_width_)) {
                 coordinates_.promote_dormant(body, frame_width_, *pivot);
@@ -1095,34 +1319,87 @@ class FrameRegions {
                 ++frame_width_;
             }
         }
+        // The sign flips commute, so those about one frame Pauli under one
+        // condition compose first: quarter turns add modulo four.
+        struct Turn {
+            FramePauli pauli;
+            AffineBool condition;
+            Pauli body;
+            std::vector<size_t> rotations;
+            uint8_t quarter_turns = 0;
+        };
+        std::vector<Turn> turns;
+        std::map<std::pair<std::vector<uint64_t>, std::vector<uint64_t>>, std::vector<size_t>>
+            turns_about;
         for (size_t i = 0; i < rewrite->end; ++i) {
-            const PendingRotation& rotation = pending_[i];
+            const PendingRotation& rotation = member(i);
             if (conditions[i].terms().empty()) {
                 continue;
             }
-            const Pauli body = current_axis(rotation);
+            Pauli body = current_axis(rotation);
             FramePauli pauli = frame_projection(body);
             if (pauli.is_identity()) {
                 // A stabilizer of the reference state only contributes a phase.
                 continue;
             }
             // With reference sign c and angle direction d, the sign flip
-            // leaves exp(+i pi/4 d (-1)^c P) about the physical Pauli P.
+            // leaves exp(+i pi/4 d (-1)^c P) about the physical Pauli P: a
+            // SQRT or a SQRT_DAG, one or three quarter turns.
             const bool negative = (rotation.half_turns < 0) != reference_sign(rotation);
+            const uint8_t quarter_turns = negative != body.sign() ? 1 : 3;
+            std::vector<size_t>& same_pauli = turns_about[{pauli.x, pauli.z}];
+            const auto found = std::ranges::find_if(
+                same_pauli, [&](size_t turn) { return turns[turn].condition == conditions[i]; });
+            if (found != same_pauli.end()) {
+                Turn& turn = turns[*found];
+                turn.quarter_turns = (turn.quarter_turns + quarter_turns) & 3;
+                turn.rotations.push_back(i);
+                continue;
+            }
+            same_pauli.push_back(turns.size());
+            turns.push_back(
+                {std::move(pauli), std::move(conditions[i]), std::move(body), {i}, quarter_turns});
+        }
+        for (Turn& turn : turns) {
+            if (turn.quarter_turns == 0) {
+                continue;
+            }
+            if (turn.quarter_turns == 2) {
+                // The Pauli itself, on the shots where the condition holds.
+                // It commutes with the rest of the region, so the symbolic
+                // frame takes it here, with entry signs written out in the
+                // symbols the frame tracks.
+                AffineBool condition = full_sign(member(turn.rotations.front()));
+                condition ^= condition.constant();
+                symbolic_frame_.apply(coordinates_.to_initial(turn.body), condition);
+                continue;
+            }
+            disturb(turn.body);
+            std::vector<uint32_t> lines;
+            if (plan_.source_map.has_value()) {
+                for (size_t i : turn.rotations) {
+                    const auto added = source_lines(member(i).operation);
+                    lines.insert(lines.end(), added.begin(), added.end());
+                }
+                std::ranges::sort(lines);
+                const auto duplicates = std::ranges::unique(lines);
+                lines.erase(duplicates.begin(), duplicates.end());
+            }
             append_action(plan_,
                           PlannedAction{active_width_, active_width_,
-                                        ApplyConditionalClifford{std::move(pauli),
-                                                                 negative != body.sign()
+                                        ApplyConditionalClifford{std::move(turn.pauli),
+                                                                 turn.quarter_turns == 1
                                                                      ? CliffordRotation::SQRT
                                                                      : CliffordRotation::SQRT_DAG,
-                                                                 std::move(conditions[i])}},
-                          source_lines(rotation.operation));
+                                                                 std::move(turn.condition)}},
+                          lines);
             live_ = true;
         }
         if (!live_) {
             frame_width_ = 0;
         }
-        return rewrite->end;
+        members.resize(rewrite->end);
+        return members;
     }
 
     const HirModule& hir_;
@@ -1144,7 +1421,13 @@ class FrameRegions {
     std::vector<AffineBool> entry_signs_;
     std::vector<std::optional<SymbolId>> entry_symbols_;
 
+    // Stabilizers of the live frame's state that hold in every shot, as
+    // physical Paulis with symbolic eigenvalue bits.
+    KnownStabilizerBasis known_;
+
     uint32_t frame_width_ = 0;
+    // Widest frame the plan has used, across retirements.
+    uint32_t max_frame_width_ = 0;
     bool live_ = false;
     bool coordinates_changed_ = false;
 };
@@ -1291,7 +1574,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                     break;
                 }
                 dense.load(hir.mask_view(op));
-                if (regions && regions->flush()) {
+                if (regions && regions->begin_operation(source_lines)) {
                     regions->rotate(resolve_pauli(dense.x(), dense.z(),
                                                   noise_signs.sign_for(i, next_noise_site),
                                                   coordinates, symbolic_frame),
@@ -1307,7 +1590,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
                 const RecordSlot record{static_cast<uint32_t>(op.meas_record_idx())};
                 const SymbolId branch = reserve_symbol(plan);
                 dense.load(hir.mask_view(op));
-                if (regions && regions->flush()) {
+                if (regions && regions->begin_operation(source_lines)) {
                     assign_record(
                         record,
                         regions->measure(resolve_pauli(dense.x(), dense.z(),
