@@ -87,19 +87,14 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
                     // worker that runs it or on the batches before it.
                     uint32_t piece = capacity;
                     const auto run_piece = [&](uint32_t first, uint32_t lanes) {
-                        if constexpr (requires { executor.reset_state_pool(); }) {
-                            try {
-                                executor.run_batch(root, first, lanes);
-                            } catch (const SharedStateBudgetError&) {
-                                if (!split_on_budget || lanes == 1) {
-                                    throw;
-                                }
-                                piece = lanes / 2;
-                                executor.reset_state_pool();
-                                return false;
-                            }
-                        } else {
+                        try {
                             executor.run_batch(root, first, lanes);
+                        } catch (const SharedStateBudgetError&) {
+                            if (!split_on_budget || lanes == 1) {
+                                throw;
+                            }
+                            piece = lanes / 2;
+                            return false;
                         }
                         return true;
                     };

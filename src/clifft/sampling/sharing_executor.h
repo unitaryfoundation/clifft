@@ -80,9 +80,10 @@ class SharingKey;
     uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes = 0);
 
 // Thrown at a storage boundary when the groups of a batch need more
-// coefficient storage than max_worker_state_bytes holds. Fewer lanes make
-// fewer groups, so the batch can run again in smaller pieces after
-// SharingExecutor::reset_state_pool; one lane always fits.
+// coefficient storage than max_worker_state_bytes holds. Whether a batch fits
+// depends on the batch alone, not on the storage earlier batches left in the
+// executor. Fewer lanes make fewer groups, so the batch can run again in
+// smaller pieces; one lane always fits.
 class SharedStateBudgetError : public std::runtime_error {
   public:
     using std::runtime_error::runtime_error;
@@ -135,8 +136,7 @@ class SharingExecutor : public BatchClassicalState {
     }
     [[nodiscard]] uint64_t state_pool_bytes() const noexcept;
     // Returns the coefficient storage to one state of the width a new
-    // executor starts with. Call between batches, after one outgrew the
-    // budget, so that the pieces it is run in start narrow again.
+    // executor starts with. Call only between batches.
     void reset_state_pool();
     [[nodiscard]] uint32_t peak_groups() const noexcept { return peak_groups_; }
     [[nodiscard]] uint32_t storage_boundaries() const noexcept { return storage_boundaries_; }
@@ -152,7 +152,10 @@ class SharingExecutor : public BatchClassicalState {
     struct StorageRequest {
         uint32_t states = 0;
         uint32_t width = 0;
-        [[nodiscard]] explicit operator bool() const noexcept { return states != 0; }
+        // Set when a pool grown from one state could not hold the batch at
+        // this point within the budget.
+        bool over_budget = false;
+        [[nodiscard]] explicit operator bool() const noexcept { return states != 0 || over_budget; }
     };
 
     // One frame tableau and what the action in progress has prepared for the
@@ -189,8 +192,23 @@ class SharingExecutor : public BatchClassicalState {
     // Tableau bytes of one group of a plan with a runtime Clifford frame.
     [[nodiscard]] static uint64_t frame_storage_bytes(const ExecutablePlan& plan);
 
-    void initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
-    void grow_state_pool(StorageRequest request);
+    // Runs one batch on the pool as it is. Returns false when that pool,
+    // left wider or larger by an earlier batch, cannot hold this one within
+    // the budget although a new pool can.
+    [[nodiscard]] bool run_batch_once(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
+    [[nodiscard]] bool initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
+    // Grows the pool, or returns false when it cannot within the budget.
+    [[nodiscard]] bool grow_state_pool(StorageRequest request);
+    // The budget is checked on the storage a pool would hold at this point
+    // of the batch had it started the batch with one state, growing by the
+    // rules of the real pool. These account one more request against it and
+    // return whether it fits.
+    [[nodiscard]] bool account_fresh_states(uint32_t required) noexcept;
+    [[nodiscard]] bool account_fresh_width() noexcept;
+    [[noreturn]] void throw_over_budget() const;
+    // Slots a pool of old_count grows to for a request, up to max_states.
+    [[nodiscard]] static uint32_t grown_states(uint32_t old_count, uint32_t required,
+                                               uint32_t max_states) noexcept;
     // Returns an empty request on completion, otherwise what resuming needs.
     template <ExecutorBackend Backend>
     [[nodiscard]] StorageRequest dispatch_until_storage_boundary() noexcept;
@@ -246,8 +264,9 @@ class SharingExecutor : public BatchClassicalState {
     // Maps the rotation's Pauli through the group's frame, once per action.
     SharedFrame& prepare_frame_rotation(
         uint32_t group, const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
-    // True when some group's frame rotation would promote past state_width_.
-    [[nodiscard]] bool frame_rotation_needs_width(
+    // Widest state among the groups whose frame rotation promotes a
+    // coordinate, if any does.
+    [[nodiscard]] std::optional<uint32_t> widest_promoting_state(
         const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
     // Frees the groups whose lanes another group took and lays every group
     // out again as a range of order_.
@@ -293,6 +312,11 @@ class SharingExecutor : public BatchClassicalState {
     // the pool when that width grows.
     uint32_t state_width_ = 0;
     uint64_t max_worker_state_bytes_ = 0;
+    // Width, size and limit, at this point of the batch, of a pool that
+    // started the batch with one state.
+    uint32_t fresh_width_ = 0;
+    uint32_t fresh_states_ = 0;
+    uint32_t fresh_max_states_ = 0;
 
     // Runtime Clifford frame storage; empty for a plan without one. The pool
     // holds one tableau per state, so every group can have its own.

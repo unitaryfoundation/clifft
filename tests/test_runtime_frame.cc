@@ -2220,6 +2220,99 @@ TEST_CASE("Shared frame execution follows random rounds that release coordinates
     REQUIRE(merges > 0);
 }
 
+TEST_CASE("A shared batch fits the budget or not whatever ran before it",
+          "[runtime_frame][sampling]") {
+    // One fault decides whether ten qubits each add an active coordinate, so a
+    // few shots need wide states. Four more faults split groups without
+    // widening them. The budget holds a group for every lane while the states
+    // are empty and few groups once one of them is wide.
+    constexpr uint32_t kWide = 10;
+    std::string source;
+    for (uint32_t pair = 0; pair < 4; ++pair) {
+        const std::string a = std::to_string(12 + 2 * pair);
+        const std::string b = std::to_string(13 + 2 * pair);
+        source += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(0.5) " + a + "\nT " + a +
+                  "\nT_DAG " + b + "\n";
+    }
+    std::string targets;
+    for (uint32_t q = 0; q < kWide; ++q) {
+        targets += " " + std::to_string(q);
+        source += "CX 10 " + std::to_string(q) + "\n";
+    }
+    source = "H" + targets + "\nT" + targets + "\nX_ERROR(0.02) 10\n" + source + "T" + targets +
+             "\nH_YZ" + targets + "\nT" + targets +
+             "\nH 11\nM 11\nMPP X12*X13\nMPP X14*X15\n"
+             "MPP X16*X17\nMPP X18*X19\nM" +
+             targets + "\n";
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+    const sampling::ExecutablePlan executable(plan);
+    REQUIRE(executable.initial_capacity_width() == 0);
+    REQUIRE(executable.peak_active_width() == kWide);
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    const sampling::EarlyPostselection checks(executable);
+    constexpr uint32_t kLanes = 32;
+    const uint64_t at_start = sampling::SharingExecutor::group_storage_bytes(executable, 0);
+    const auto make = [&](uint32_t lanes, uint64_t budget) {
+        return sampling::SharingExecutor(executable, noise, checks, lanes, 1, true, nullptr, budget,
+                                         sampling::BatchOutputMode::Rows);
+    };
+    const SeedRoot root = seed_root_from_seed(91);
+
+    // An executor that keeps its storage from batch to batch decides each
+    // batch as a new executor does, and gives the same rows. Before each
+    // batch it runs one more shot alone, which always fits and now and then
+    // leaves its one state wide: the batch then needs more states than a pool
+    // of that width can hold, and a pool of one state can.
+    sampling::SharingExecutor carried = make(kLanes, kLanes * at_start);
+    const uint64_t new_pool_bytes = carried.state_pool_bytes();
+    uint32_t outgrown = 0;
+    uint32_t fit_after_outgrown = 0;
+    uint32_t fit_on_wide_pool = 0;
+    for (uint32_t batch = 0; batch < 120; ++batch) {
+        CAPTURE(batch);
+        carried.run_batch(root, 1'000'000 + batch, 1);
+        const bool wide_pool =
+            carried.state_pool_bytes() > new_pool_bytes && carried.storage_boundaries() != 0;
+        sampling::SharingExecutor fresh = make(kLanes, kLanes * at_start);
+        const auto run = [&](sampling::SharingExecutor& executor) {
+            try {
+                executor.run_batch(root, batch * kLanes, kLanes);
+            } catch (const sampling::SharedStateBudgetError&) {
+                return false;
+            }
+            return true;
+        };
+        const bool fits = run(fresh);
+        REQUIRE(run(carried) == fits);
+        if (fits) {
+            REQUIRE(shared_record_patterns(carried, plan.num_visible_records) ==
+                    shared_record_patterns(fresh, plan.num_visible_records));
+            fit_after_outgrown += outgrown != 0;
+            fit_on_wide_pool += wide_pool;
+        } else {
+            ++outgrown;
+        }
+    }
+    REQUIRE(outgrown > 0);
+    REQUIRE(fit_after_outgrown > 0);
+    REQUIRE(fit_on_wide_pool > 0);
+
+    // One lane always fits, whatever its state needs, and the executor does
+    // not keep a state the budget cannot hold.
+    const uint64_t tight = 2 * at_start;
+    REQUIRE(tight < sampling::SharingExecutor::group_storage_bytes(executable, kWide));
+    sampling::SharingExecutor single = make(2, tight);
+    const uint64_t small_pool_bytes = single.state_pool_bytes();
+    bool widened = false;
+    for (uint32_t shot = 0; shot < 400; ++shot) {
+        single.run_batch(root, shot, 1);
+        widened |= single.storage_boundaries() != 0;
+        REQUIRE(single.state_pool_bytes() == small_pool_bytes);
+    }
+    REQUIRE(widened);
+}
+
 TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame][sampling]") {
     // A sharing key groups shots by the noise that decides static rotation
     // signs, here the fault between the two T gates on qubit 2. Those
