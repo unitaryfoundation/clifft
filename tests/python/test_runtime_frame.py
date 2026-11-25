@@ -570,3 +570,22 @@ def test_bit_packed_detectors_match_unpacked_rows_on_a_frame_plan() -> None:
     unpacked = np.unpackbits(packed, axis=1, bitorder="little")[:, : rows.shape[1]]
     np.testing.assert_array_equal(unpacked.astype(bool), rows)
     assert rows.any()
+
+
+@pytest.mark.parametrize("group_by_noise", [False, True])
+def test_noise_groups_follow_a_frame_measurement_that_signs_a_later_rotation(
+    group_by_noise: bool,
+) -> None:
+    """The parity outcome applies an X between two rotations, which then cancel."""
+    text = (
+        "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nMPP X0*X1\n"
+        "H 2\nR_Z(0.2) 2\nCX rec[-1] 2\nR_Z(0.2) 2\nH 2\nM 2\n"
+    )
+    _, frame = _programs(text)
+    assert frame.original_plan.uses_runtime_frame
+    result = clifft.sample(
+        frame, 12_000, seed=1, sharing=True, batch_size=128, group_by_noise=group_by_noise
+    )
+    parity, last = result.measurements[:, 0], result.measurements[:, 1]
+    assert parity.any() and last.any()
+    assert not (parity & last).any()

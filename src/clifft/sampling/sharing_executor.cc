@@ -168,8 +168,11 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                                    typed.rotation == CliffordRotation::SQRT_DAG
                                ? 2
                                : 1;
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameRotation> ||
-                                     std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement>) {
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement>) {
+                    // A collapse splits a group in two, and so does an outcome
+                    // that a rotation sign under the sharing key reads later.
+                    return key_ && key_->split_symbols_[typed.branch] ? 4 : 2;
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameRotation>) {
                     return 2;
                 } else {
                     return 1;
@@ -1559,6 +1562,7 @@ void SharingExecutor::execute_action(
     if (merged) {
         collect_merged_groups();
     }
+    split_on_symbol(action.branch);
 }
 
 void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&) noexcept {
