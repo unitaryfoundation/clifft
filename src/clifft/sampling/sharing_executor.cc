@@ -114,18 +114,11 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
         // Find the runs of quarter turns the frame fixes, in dispatch order.
         // They commute, so a shot's tableau depends only on the set it fires.
         const auto order = checks.action_order();
-        const auto in_run = [&](size_t position) {
-            const auto* clifford =
-                std::get_if<ExecutablePlan::ExecuteFrameClifford>(&plan.actions_[order[position]]);
-            return clifford != nullptr && clifford->fixed_by_frame &&
-                   (clifford->rotation == CliffordRotation::SQRT ||
-                    clifford->rotation == CliffordRotation::SQRT_DAG);
-        };
         uint32_t longest = 0;
         bool any_repeat = false;
         for (size_t begin = 0; begin < order.size();) {
             size_t end = begin;
-            while (end < order.size() && in_run(end)) {
+            while (end < order.size() && is_run_turn(plan.actions_[order[end]])) {
                 ++end;
             }
             if (end - begin >= 2) {
@@ -191,8 +184,11 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                                    typed.rotation == CliffordRotation::SQRT_DAG
                                ? 2
                                : 1;
-                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameRotation> ||
-                                     std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement>) {
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement>) {
+                    // A collapse splits a group in two, and so does an outcome
+                    // that a rotation sign under the sharing key reads later.
+                    return key_ && key_->split_symbols_[typed.branch] ? 4 : 2;
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameRotation>) {
                     return 2;
                 } else {
                     return 1;
@@ -200,6 +196,13 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
             },
             action));
     }
+}
+
+bool SharingExecutor::is_run_turn(const ExecutablePlan::Action& action) noexcept {
+    const auto* clifford = std::get_if<ExecutablePlan::ExecuteFrameClifford>(&action);
+    return clifford != nullptr && clifford->fixed_by_frame &&
+           (clifford->rotation == CliffordRotation::SQRT ||
+            clifford->rotation == CliffordRotation::SQRT_DAG);
 }
 
 uint64_t SharingExecutor::frame_storage_bytes(const ExecutablePlan& plan) {
@@ -244,29 +247,30 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
             saturating_multiply_u64(std::bit_ceil(uint64_t{lane_capacity} * 2), sizeof(uint32_t)));
     }
     if (plan.uses_runtime_frame()) {
-        // One sign bit per tableau row for every lane, the packed draws of
-        // random frame measurements, and three group tables.
+        // One sign bit per tableau row for every lane and for the row mask of
+        // an action, the packed draws of random frame measurements, and three
+        // group tables.
         const uint64_t sign_words = 2 * uint64_t{plan.frame_words()};
-        bytes = saturating_add_u64(
-            bytes, saturating_multiply_u64(lane_capacity, sign_words * sizeof(uint64_t)));
+        bytes = saturating_add_u64(bytes, saturating_multiply_u64(uint64_t{lane_capacity} + 1,
+                                                                  sign_words * sizeof(uint64_t)));
         bytes = saturating_add_u64(
             bytes, saturating_multiply_u64(packed_word_count(lane_capacity), sizeof(uint64_t)));
         bytes =
             saturating_add_u64(bytes, saturating_multiply_u64(lane_capacity, 3 * sizeof(uint32_t)));
-        // Regrouping a run of conditional quarter turns: two entries per
-        // action, one bit per turn for every lane, bounded here by all of the
-        // plan's conditional Cliffords, the class table, and ten entries per
-        // lane.
+        // Regrouping a run of conditional quarter turns: for every action its
+        // run length, the first turn about its Pauli and a repeat flag; one
+        // bit per turn for every lane; the class table; and ten entries per
+        // lane. The dispatch order decides where a run ends, so the longest
+        // run is bounded here by all the turns a run can hold.
         bytes = saturating_add_u64(
-            bytes, saturating_multiply_u64(plan.num_actions(), 2 * sizeof(uint32_t)));
-        uint64_t cliffords = 0;
-        for (const auto& action : plan.actions_) {
-            cliffords += std::holds_alternative<ExecutablePlan::ExecuteFrameClifford>(action);
-        }
+            bytes,
+            saturating_multiply_u64(plan.num_actions(), 2 * sizeof(uint32_t) + sizeof(uint8_t)));
+        const uint64_t turns =
+            static_cast<uint64_t>(std::ranges::count_if(plan.actions_, is_run_turn));
         // The bits are stored twice when a run turns twice about one Pauli.
         bytes = saturating_add_u64(
             bytes,
-            saturating_multiply_u64(lane_capacity, 2 * ((cliffords + 63) / 64) * sizeof(uint64_t)));
+            saturating_multiply_u64(lane_capacity, 2 * ((turns + 63) / 64) * sizeof(uint64_t)));
         bytes = saturating_add_u64(
             bytes, saturating_multiply_u64(
                        std::bit_ceil(uint64_t{lane_capacity} * 2) + 10 * uint64_t{lane_capacity},
@@ -1641,6 +1645,7 @@ void SharingExecutor::execute_action(
     if (merged) {
         collect_merged_groups();
     }
+    split_on_symbol(action.branch);
 }
 
 void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&) noexcept {

@@ -15,8 +15,10 @@
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -199,6 +201,101 @@ TEST_CASE("Automatic runtime frame selection needs a wide plan and a clear reduc
     REQUIRE(rescued.has_original());
     REQUIRE(rescued.original().uses_runtime_frame());
     REQUIRE(rescued.original().peak_active_width() == 0);
+}
+
+TEST_CASE("Frame selection keeps a narrower plan that needs no frame", "[reconstruction]") {
+    // T T is an S gate. The ordinary planner activates every qubit for the
+    // first T; the frame planner reduces each pair and leaves no frame action.
+    const auto circuit = [](uint32_t qubits) {
+        std::string all;
+        for (uint32_t q = 0; q < qubits; ++q) {
+            all += " " + std::to_string(q);
+        }
+        return parse("H" + all + "\nT" + all + "\nT" + all + "\nH" + all + "\nM" + all + "\n");
+    };
+    for (const bool automatic : {false, true}) {
+        CAPTURE(automatic);
+        const std::optional<bool> runtime_frame = automatic ? std::nullopt : std::optional(true);
+        const Circuit source = circuit(16);
+        const HirModule hir = trace(source);
+        const Program ordinary = Program::compile(source, hir, false);
+        REQUIRE(ordinary.original().peak_active_width() == 16);
+        const Program reduced = Program::compile(source, hir, false, true, {}, runtime_frame);
+        REQUIRE_FALSE(reduced.original().uses_runtime_frame());
+        REQUIRE(reduced.original().peak_active_width() == 0);
+        REQUIRE_FALSE(reduced.runtime_frame_fallback_reason().empty());
+        REQUIRE(
+            reduced.runtime_frame_fallback_reason() !=
+            Program::compile(parse("H 0\nM 0\n"), trace(parse("H 0\nM 0\n")), false, true, {}, true)
+                .runtime_frame_fallback_reason());
+
+        // The reduced plan is the only one a dense state can hold.
+        const Circuit wide = circuit(kDenseActiveWidthLimit + 5);
+        const HirModule wide_hir = trace(wide);
+        REQUIRE_THROWS_AS(Program::compile(wide, wide_hir, false), std::overflow_error);
+        const Program fits = Program::compile(wide, wide_hir, false, true, {}, runtime_frame);
+        REQUIRE(fits.original().peak_active_width() == 0);
+    }
+}
+
+TEST_CASE("Frame selection reports what a frame does not support", "[reconstruction]") {
+    const std::string pair = "H 0\nCX 0 1\nX_ERROR(0.1) 0\nT 0\nT_DAG 1\n";
+    const Circuit source = parse(pair + "EXP_VAL Z0\nM 0 1\n");
+    const HirModule hir = trace(source);
+    const std::string_view unsupported = sampling::runtime_frame_unsupported_reason(hir);
+    REQUIRE_FALSE(unsupported.empty());
+    const Program probed = Program::compile(source, hir, false, true, {}, true);
+    REQUIRE_FALSE(probed.original().uses_runtime_frame());
+    REQUIRE(probed.runtime_frame_fallback_reason() == unsupported);
+
+    const Circuit plain = parse(pair + "M 0 1\n");
+    REQUIRE(sampling::runtime_frame_unsupported_reason(trace(plain)).empty());
+    sampling::ExecutablePlan frame(sampling::plan_sampling(trace(plain), {.runtime_frame = true}));
+    REQUIRE(frame.uses_runtime_frame());
+    REQUIRE(Program(std::move(frame)).runtime_frame_fallback_reason().empty());
+}
+
+TEST_CASE("Automatic frame selection takes a reconstruction below its width floor",
+          "[reconstruction]") {
+    // Bell pairs with a signed T pair each. A second T layer on eight of them
+    // can promote one coordinate per pair, so the frame plan's bound is 8 and
+    // its shots start at width 0. Reconstruction measures the pairs one at a
+    // time at width 1, which lies between the two.
+    std::string text;
+    std::string evens;
+    constexpr uint32_t kPairs = 20;
+    constexpr uint32_t kSecond = 8;
+    for (uint32_t p = 0; p < kPairs; ++p) {
+        const std::string a = std::to_string(2 * p);
+        const std::string b = std::to_string(2 * p + 1);
+        text += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(0.01) " + a + "\nT " + a +
+                "\nT_DAG " + b + "\n";
+        if (p < kSecond) {
+            evens += " " + a;
+        }
+    }
+    text += "H" + evens + "\nT" + evens + "\nH" + evens + "\n";
+    for (uint32_t p = 0; p < kPairs; ++p) {
+        const std::string a = std::to_string(2 * p);
+        const std::string b = std::to_string(2 * p + 1);
+        text += p < kSecond ? "M " + a + "\nMX " + b + "\n" : "MPP X" + a + "*X" + b + "\n";
+        text += "DETECTOR rec[-1]\n";
+    }
+    const Circuit source = parse(text);
+    const HirModule hir = trace(source);
+    const Program requested = Program::compile(source, hir, std::nullopt, true, {}, true);
+    const Program automatic = Program::compile(source, hir, std::nullopt, true, {}, std::nullopt);
+    for (const Program* program : {&requested, &automatic}) {
+        REQUIRE(program->original().uses_runtime_frame());
+        REQUIRE(program->original().initial_capacity_width() == 0);
+        REQUIRE(program->original().peak_active_width() == kSecond);
+    }
+    for (bool keep_records : {false, true}) {
+        CAPTURE(keep_records);
+        REQUIRE(requested.sampling_plan(keep_records).uses_runtime_frame());
+        REQUIRE_FALSE(automatic.sampling_plan(keep_records).uses_runtime_frame());
+        REQUIRE(automatic.sampling_plan(keep_records).peak_active_width() == 1);
+    }
 }
 
 TEST_CASE("A reconstruction replaces a runtime frame plan only up to its static width",
