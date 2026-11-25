@@ -621,6 +621,31 @@ TEST_CASE("Native automatic selection shares runtime Clifford frame plans") {
         REQUIRE(two.execution.batch_size == one.execution.batch_size);
         REQUIRE(two.measurements == one.measurements);
 
+        // Here one rare fault widens ten qubits at once, a second one splits
+        // groups without widening them, and a fair-coin measurement makes the
+        // rows depend on how lanes are batched. A worker keeps its storage
+        // between batches; whether a batch is split must not depend on it.
+        std::string rare = "H 12\nCX 12 13\nX_ERROR(0.5) 12\nT 12\nT_DAG 13\n";
+        std::string wide;
+        for (uint32_t q = 0; q < 10; ++q) {
+            wide += " " + std::to_string(q);
+            rare += "CX 10 " + std::to_string(q) + "\n";
+        }
+        rare = "H" + wide + "\nT" + wide + "\nX_ERROR(0.005) 10\n" + rare + "T" + wide + "\nH_YZ" +
+               wide + "\nT" + wide + "\nH 11\nM 11\nMPP X12*X13\nM" + wide + "\n";
+        const auto rare_plan = [&] {
+            return ExecutablePlan(plan_sampling(trace(parse(rare)), {.runtime_frame = true}));
+        };
+        const uint64_t roomy_start = 64 * SharingExecutor::group_storage_bytes(rare_plan(), 0);
+        const Program rarely_wide{rare_plan()};
+        const auto alone = clifft::sample(rarely_wide, 20000, 7, true,
+                                          {.threads = 1, .max_worker_state_bytes = roomy_start});
+        const auto paired = clifft::sample(rarely_wide, 20000, 7, true,
+                                           {.threads = 2, .max_worker_state_bytes = roomy_start});
+        REQUIRE(alone.execution.batch_size == 64);
+        REQUIRE(paired.execution.batch_size == 64);
+        REQUIRE(paired.measurements == alone.measurements);
+
         // Eight groups fit at the width bound, and more where they start.
         const uint64_t budget = 8 * at_bound;
         constexpr uint32_t kShots = 3000;
