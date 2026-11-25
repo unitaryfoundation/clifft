@@ -44,7 +44,7 @@ TEST_CASE("Online inverse frame agrees with scalar Clifford composition", "[nonc
         }
         for (uint32_t q = 0; q < n; ++q) {
             for (bool z : {false, true}) {
-                const auto actual = frame.rows[q + (z ? n : 0)].view();
+                const auto actual = frame.row(q + (z ? n : 0));
                 const auto& expected = z ? inverse.z_output(q) : inverse.x_output(q);
                 REQUIRE(actual.phase() == expected.phase());
                 for (uint32_t j = 0; j < n; ++j) {
@@ -62,14 +62,14 @@ TEST_CASE("Online activation retains a conditional filter across growth", "[nonc
     quantum.frame.physical(GateType::H, 64, 0, {});
     quantum.frame.axis(64, 'Z', axis);
     const double g = std::sqrt(0.8), e = std::sqrt(0.3), probability = 0.55;
-    const auto before = quantum.frame.rows;
+    const OnlineFrame before = quantum.frame;
     const auto* coefficients = quantum.state.real_data();
     quantum.no_fire(axis.view(), g, e, probability);
     REQUIRE(quantum.pending());
     REQUIRE(quantum.state.active_width() == 0);
     REQUIRE(quantum.state.real_data() == coefficients);
-    for (size_t row = 0; row < before.size(); ++row)
-        REQUIRE(quantum.frame.rows[row] == before[row]);
+    for (uint32_t row = 0; row < 2 * before.n; ++row)
+        REQUIRE(PauliString(quantum.frame.row(row)) == PauliString(before.row(row)));
 
     quantum.state.ensure_capacity(1);
     quantum.finish_activation();

@@ -814,7 +814,12 @@ void Executor::execute_action(const ExecutablePlan::ExecuteFrameClifford& action
         assert(frame_.has_value() && frame_->running &&
                "frame actions run through run_frame_shot or replay_frame_shot");
         frame_->changed = true;
-        frame_->frame.rotate_fixed_clifford(plan_->frame_pauli(action.pauli), action.rotation);
+        if (action.x_only) {
+            frame_->frame.rotate_fixed_x_clifford(plan_->frame_pauli_x(action.pauli),
+                                                  action.rotation);
+        } else {
+            frame_->frame.rotate_fixed_clifford(plan_->frame_pauli(action.pauli), action.rotation);
+        }
     } else {
         frame_->frame.rotate_clifford(map_frame_pauli(action.pauli), action.rotation);
     }

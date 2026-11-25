@@ -847,9 +847,10 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                     boundary_noise_starts_[boundary_index], noise_end, typed.symbol_prefix_size});
                 ++boundary_index;
             } else if constexpr (std::is_same_v<T, ApplyConditionalClifford>) {
+                const bool fixed = frame_prefix_.extend(typed.pauli);
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameClifford{
                     prepare_expression(typed.condition), store_frame_pauli(typed.pauli),
-                    typed.rotation, frame_prefix_.extend(typed.pauli)});
+                    typed.rotation, fixed, fixed && frame_prefix_.x_only});
             } else if constexpr (std::is_same_v<T, RotateFramePauli>) {
                 frame_prefix_.open = false;
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameRotation{
@@ -885,6 +886,7 @@ bool ExecutablePlanBuilder::CommutingFramePrefix::extend(const FramePauli& pauli
             return false;
         }
     }
+    x_only = x_only && std::ranges::all_of(pauli.z, [](uint64_t word) { return word == 0; });
     std::vector<uint64_t> reduced(pauli.x);
     reduced.insert(reduced.end(), pauli.z.begin(), pauli.z.end());
     for (size_t i = 0; i < basis.size(); ++i) {
