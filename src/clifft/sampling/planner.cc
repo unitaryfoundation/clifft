@@ -662,8 +662,9 @@ std::optional<double> quarter_turn(double alpha) {
 // actions on a runtime frame. A region without such factors is reduced the
 // same way and needs no frame. Once a frame is live, each shot decides which
 // frame coordinates are active, so later coefficient work on them is planned
-// as frame actions and active_width is an upper bound. A later region is
-// reduced again only when it does not touch the frame's coordinates.
+// as frame actions and active_width is an upper bound. The rotations of a
+// later region that do not touch the frame's coordinates are reduced the same
+// way; the others are applied one at a time through the frame.
 //
 // A frame ends when the plan knows its state. Every frame measurement leaves a
 // stabilizer whose eigenvalue bit is the measurement's branch symbol, and it
@@ -673,6 +674,8 @@ std::optional<double> quarter_turn(double alpha) {
 // with known outcomes: each becomes Z on a dormant coordinate and its
 // eigenvalue bit moves into the symbolic frame. The plan then retires the
 // frame, and the next signed region starts a new one from the reference state.
+// Where the stabilizers fix only some frame coordinates, the next region
+// releases those the same way and the frame continues on the rest.
 //
 // Signs are kept factored while a region is held back. The symbolic frame at
 // region entry contributes one sign per independent axis, and every other
@@ -736,10 +739,10 @@ class FrameRegions {
         return live_;
     }
 
-    // Emits the held-back region and returns whether a frame is live.
-    bool flush() {
+    // Emits the held-back region.
+    void flush() {
         if (pending_.empty()) {
-            return live_;
+            return;
         }
         const std::vector<size_t> lowered = lower_region();
         auto next_lowered = lowered.begin();
@@ -757,7 +760,6 @@ class FrameRegions {
         entry_signs_.clear();
         entry_symbols_.clear();
         updates_.reset();
-        return live_;
     }
 
     // A rotation after the frame is live. X support outside the frame adds
@@ -1165,15 +1167,13 @@ class FrameRegions {
         const uint32_t original_width = frame_width_;
         // Eigenvalue bit of Z on each coordinate released so far.
         std::vector<AffineBool> released(original_width);
-        std::vector<std::pair<Pauli, AffineBool>> kept;
         for (const auto& [axis, eigenvalue] : stabilizers) {
             Pauli body = coordinates_.to_current(axis);
             AffineBool bit = eigenvalue ^ body.sign();
             body.set_sign(false);
-            if (first_x_at_or_above(body, frame_width_).has_value()) {
-                kept.emplace_back(std::move(body), std::move(bit));
-                continue;
-            }
+            // A stabilizer of the frame's state has only Z factors on the
+            // coordinates outside the frame, which hold |0>.
+            assert(!first_x_at_or_above(body, frame_width_).has_value());
             for (uint32_t q = frame_width_; q < original_width; ++q) {
                 if (body.z().bit_get(q)) {
                     bit ^= released[q];
@@ -1206,11 +1206,9 @@ class FrameRegions {
             released[frame_width_] = std::move(bit);
         }
         // A retirement would have taken a frame whose every coordinate is known.
+        // Every stabilizer is now released or a product of released ones.
         assert(frame_width_ != 0);
         known_.clear();
-        for (auto& [body, bit] : kept) {
-            learn(body, std::move(bit));
-        }
     }
 
     // Coordinates that rotating about these physical Paulis in order would
