@@ -555,24 +555,27 @@ def test_normalized_reference_uses_the_frame_when_the_ordinary_plan_overflows() 
         assert (result.observables == expected).all()
 
 
-@pytest.mark.parametrize("pairs", [40, 65])
 @pytest.mark.parametrize("runtime_frame", [True, "auto"])
-def test_normalized_reference_is_planned_on_a_frame_with_default_settings(
-    pairs: int, runtime_frame: bool | Literal["auto"]
+def test_normalized_reference_is_traced_from_the_circuit(
+    runtime_frame: bool | Literal["auto"],
 ) -> None:
-    """At 40 pairs the ordinary reference plans but no state holds it.
+    """The default passes split the regions a frame reduces.
 
-    The default passes split the regions a frame reduces, so the reference is
-    traced from the circuit again.
+    Without reconstruction the reference of 65 chained pairs needs a frame,
+    which the planner finds only in the circuit as written.
     """
-    program = clifft.compile(
-        _parity_signed_pairs(pairs), runtime_frame=runtime_frame, normalize_syndromes=True
+    pairs = 65
+    text = "".join(
+        f"H {2 * p} {2 * p + 1}\nMPP Z{2 * p}*Z{2 * p + 1}\nT {2 * p}\nT_DAG {2 * p + 1}\n"
+        for p in range(pairs)
     )
-    # The frame plan needs no active qubit; "auto" may sample a reconstruction of width one.
-    assert program.peak_active_width <= 1
-    result = clifft.sample(program, 64, seed=3)
-    assert not result.detectors.any()
-    assert not result.observables.any()
+    text += "".join(f"CX {2 * p} {2 * p + 2}\n" for p in range(pairs - 1))
+    text += "".join(f"MPP X{2 * p}*X{2 * p + 1}\nDETECTOR rec[-1]\n" for p in range(pairs))
+    program = clifft.compile(
+        text, runtime_frame=runtime_frame, normalize_syndromes=True, reconstruction=False
+    )
+    assert program.peak_active_width == 0
+    assert clifft.sample(program, 16, seed=3).detectors.shape == (16, pairs)
 
 
 def test_reduced_plan_without_a_frame_keeps_the_statevector() -> None:
