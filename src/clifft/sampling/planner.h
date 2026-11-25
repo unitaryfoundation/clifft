@@ -4,6 +4,7 @@
 #include "clifft/sampling/plan.h"
 
 #include <span>
+#include <string_view>
 
 namespace clifft::sampling {
 
@@ -30,5 +31,9 @@ struct SamplingPlanOptions {
 // a coordinate map only for eligible unitary HIR. Instruments become explicit
 // state actions followed by continuation boundaries.
 [[nodiscard]] SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options = {});
+
+// Why SamplingPlanOptions::runtime_frame cannot apply to this circuit, or an
+// empty view when it can.
+[[nodiscard]] std::string_view runtime_frame_unsupported_reason(const HirModule& hir) noexcept;
 
 }  // namespace clifft::sampling

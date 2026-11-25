@@ -1151,6 +1151,16 @@ class FrameRegions {
 
 }  // namespace
 
+std::string_view runtime_frame_unsupported_reason(const HirModule& hir) noexcept {
+    if (!hir.instrument_sites.empty()) {
+        return "a runtime Clifford frame does not support transition instruments";
+    }
+    if (hir.num_exp_vals != 0) {
+        return "a runtime Clifford frame does not support EXP_VAL";
+    }
+    return {};
+}
+
 SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
     if (options.postselection_mask.empty()) {
         options.postselection_mask = hir.postselection.mask;
@@ -1251,7 +1261,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
 
     uint32_t active_width = plan.initial_active_width;
     std::optional<FrameRegions> regions;
-    if (options.runtime_frame && hir.instrument_sites.empty() && hir.num_exp_vals == 0) {
+    if (options.runtime_frame && runtime_frame_unsupported_reason(hir).empty()) {
         regions.emplace(hir, plan, active_width, coordinates, symbolic_frame,
                         requirements.symbol_count);
     }

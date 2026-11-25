@@ -15,8 +15,10 @@
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -199,6 +201,58 @@ TEST_CASE("Automatic runtime frame selection needs a wide plan and a clear reduc
     REQUIRE(rescued.has_original());
     REQUIRE(rescued.original().uses_runtime_frame());
     REQUIRE(rescued.original().peak_active_width() == 0);
+}
+
+TEST_CASE("Frame selection keeps a narrower plan that needs no frame", "[reconstruction]") {
+    // T T is an S gate. The ordinary planner activates every qubit for the
+    // first T; the frame planner reduces each pair and leaves no frame action.
+    const auto circuit = [](uint32_t qubits) {
+        std::string all;
+        for (uint32_t q = 0; q < qubits; ++q) {
+            all += " " + std::to_string(q);
+        }
+        return parse("H" + all + "\nT" + all + "\nT" + all + "\nH" + all + "\nM" + all + "\n");
+    };
+    for (const bool automatic : {false, true}) {
+        CAPTURE(automatic);
+        const std::optional<bool> runtime_frame = automatic ? std::nullopt : std::optional(true);
+        const Circuit source = circuit(16);
+        const HirModule hir = trace(source);
+        const Program ordinary = Program::compile(source, hir, false);
+        REQUIRE(ordinary.original().peak_active_width() == 16);
+        const Program reduced = Program::compile(source, hir, false, true, {}, runtime_frame);
+        REQUIRE_FALSE(reduced.original().uses_runtime_frame());
+        REQUIRE(reduced.original().peak_active_width() == 0);
+        REQUIRE_FALSE(reduced.runtime_frame_fallback_reason().empty());
+        REQUIRE(
+            reduced.runtime_frame_fallback_reason() !=
+            Program::compile(parse("H 0\nM 0\n"), trace(parse("H 0\nM 0\n")), false, true, {}, true)
+                .runtime_frame_fallback_reason());
+
+        // The reduced plan is the only one a dense state can hold.
+        const Circuit wide = circuit(kDenseActiveWidthLimit + 5);
+        const HirModule wide_hir = trace(wide);
+        REQUIRE_THROWS_AS(Program::compile(wide, wide_hir, false), std::overflow_error);
+        const Program fits = Program::compile(wide, wide_hir, false, true, {}, runtime_frame);
+        REQUIRE(fits.original().peak_active_width() == 0);
+    }
+}
+
+TEST_CASE("Frame selection reports what a frame does not support", "[reconstruction]") {
+    const std::string pair = "H 0\nCX 0 1\nX_ERROR(0.1) 0\nT 0\nT_DAG 1\n";
+    const Circuit source = parse(pair + "EXP_VAL Z0\nM 0 1\n");
+    const HirModule hir = trace(source);
+    const std::string_view unsupported = sampling::runtime_frame_unsupported_reason(hir);
+    REQUIRE_FALSE(unsupported.empty());
+    const Program probed = Program::compile(source, hir, false, true, {}, true);
+    REQUIRE_FALSE(probed.original().uses_runtime_frame());
+    REQUIRE(probed.runtime_frame_fallback_reason() == unsupported);
+
+    const Circuit plain = parse(pair + "M 0 1\n");
+    REQUIRE(sampling::runtime_frame_unsupported_reason(trace(plain)).empty());
+    sampling::ExecutablePlan frame(sampling::plan_sampling(trace(plain), {.runtime_frame = true}));
+    REQUIRE(frame.uses_runtime_frame());
+    REQUIRE(Program(std::move(frame)).runtime_frame_fallback_reason().empty());
 }
 
 TEST_CASE("A reconstruction replaces a runtime frame plan only up to its static width",

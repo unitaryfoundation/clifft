@@ -249,7 +249,9 @@ the leftover Clifford to its frame instead.
 
 - `runtime_frame=True` plans the circuit on a frame wherever a T region is
   narrower that way. A circuit without such a region keeps its ordinary plan,
-  and `program.runtime_frame_fallback_reason` says why.
+  and `program.runtime_frame_fallback_reason` says why. Where the corrections
+  of every region cancel, the narrower plan needs no frame and runs on every
+  executor; the reason says so.
 - `runtime_frame="auto"` plans both ways and keeps the frame plan when the
   ordinary original plan is too wide for a dense state, or is at least 16 wide
   and the frame lowers the active-width bound by 4 or more. Below those
