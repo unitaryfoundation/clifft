@@ -35,6 +35,7 @@ using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
+using clifft::sampling::RetireFrame;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::RotateFramePauli;
 using clifft::sampling::SamplingPlan;
@@ -548,6 +549,25 @@ TEST_CASE("Sampling plan validates runtime frame actions") {
         SamplingPlan plan = valid_frame_plan();
         plan.actions[2].active_after = 0;
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame retirement") {
+        SamplingPlan plan = valid_frame_plan();
+        plan.actions.push_back(PlannedAction{1, 0, RetireFrame{}});
+        REQUIRE_NOTHROW(plan.validate());
+
+        SamplingPlan active = plan;
+        active.actions.back().active_after = 1;
+        REQUIRE_THROWS_AS(active.validate(), std::invalid_argument);
+
+        SamplingPlan twice = plan;
+        twice.actions.push_back(PlannedAction{0, 0, RetireFrame{}});
+        REQUIRE_THROWS_AS(twice.validate(), std::invalid_argument);
+
+        // A frame action after the retirement starts a new frame.
+        SamplingPlan restarted = plan;
+        restarted.actions.push_back(plan.actions[0]);
+        REQUIRE_NOTHROW(restarted.validate());
     }
 
     SECTION("frame is combined with an instrument") {

@@ -320,10 +320,15 @@ std::vector<SignedRegionCase> signed_region_cases() {
          "MPP X0*X2*X1*X3\nM 0 1 2 3 4 5\n"},
         // The check of the first pair is known until the T gate rotates about
         // an axis that anticommutes with it. The second check must not then
-        // count as fixing the whole frame.
+        // count as fixing the whole frame: the first check, repeated, has a
+        // random outcome again.
         {"a rotation between two checks disturbs the first",
          "H 0 2\nCX 0 1\nCX 2 3\nX_ERROR(0.3) 0\nX_ERROR(0.2) 2\nT 0 2\nT_DAG 1 3\n"
-         "MPP X0*X1\nT 0\nMPP X2*X3\nM 0 1 2 3\n"},
+         "MPP X0*X1\nT 0\nMPP X2*X3\nMPP X0*X1\nM 0 1 2 3\n"},
+        // The same with a rotation that is no T gate and so joins no region.
+        {"a phase rotation between two checks disturbs the first",
+         "H 0 2\nCX 0 1\nCX 2 3\nX_ERROR(0.3) 0\nX_ERROR(0.2) 2\nT 0 2\nT_DAG 1 3\n"
+         "MPP X0*X1\nR_Z(0.3) 0\nMPP X2*X3\nMPP X0*X1\nM 0 1 2 3\n"},
         // The same, where a measurement that reaches an idle qubit outside the
         // frame anticommutes with the first check.
         {"a check through an idle qubit disturbs an earlier one",
@@ -740,7 +745,14 @@ TEST_CASE("Frame planning retires a frame once measurements fix its state",
     REQUIRE(repeated.peak_active_width == 0);
     REQUIRE(repeated.frame_width == 1);
     REQUIRE(holds.operator()<sampling::RetireFrame>(repeated) >= 2);
-    REQUIRE(holds.operator()<sampling::ApplyConditionalClifford>(repeated) >= 3);
+    REQUIRE(holds.operator()<sampling::ApplyConditionalClifford>(repeated) == 3);
+    // A round's correction reads its own fault and nothing an earlier round
+    // left in the Pauli frame.
+    for (const PlannedAction& planned : repeated.actions) {
+        if (const auto* turn = std::get_if<sampling::ApplyConditionalClifford>(&planned.action)) {
+            REQUIRE(turn->condition.terms().size() == 1);
+        }
+    }
     REQUIRE(holds.operator()<sampling::RotateFramePauli>(repeated) == 0);
     // The ordinary plan needs an active qubit in each round.
     REQUIRE(sampling::plan_sampling(clifft::trace(clifft::parse(rounds))).peak_active_width == 1);
@@ -1670,31 +1682,67 @@ TEST_CASE("Shared frame execution retires and restarts a frame", "[runtime_frame
     }
 }
 
+TEST_CASE("Output compaction keeps its work estimate across retired frames",
+          "[runtime_frame][sampling]") {
+    // Each round promotes qubit 2 on a frame that the round's measurements
+    // then retire, so no round is wider than the first.
+    constexpr uint32_t kRounds = 70;
+    std::string text;
+    for (uint32_t round = 0; round < kRounds; ++round) {
+        text +=
+            "H 0 2\nCX 0 1\nX_ERROR(0.2) 0\nT 0 2\nT_DAG 1\nCX 0 1\nH 0 2\nMR 0 1 2\n"
+            "DETECTOR rec[-3]\n";
+    }
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(text)), {.runtime_frame = true});
+    REQUIRE(plan.peak_active_width == 1);
+    REQUIRE(std::ranges::count_if(plan.actions, [](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::RetireFrame>(planned.action);
+            }) >= std::ptrdiff_t{kRounds} - 1);
+    const sampling::ExecutablePlan executable(plan);
+    for (const sampling::SamplingOutputs outputs :
+         {sampling::SamplingOutputs{sampling::RecordOutputs::Syndromes},
+          sampling::SamplingOutputs{sampling::RecordOutputs::None}}) {
+        const sampling::ExecutablePlan compact = executable.compact_outputs(outputs, false, true);
+        for (const sampling::BatchOutputMode mode :
+             {sampling::BatchOutputMode::Rows, sampling::BatchOutputMode::AggregateSurvivors}) {
+            // Dropping outputs removes work and adds none.
+            REQUIRE(compact.estimated_batch_lane_work(mode) <=
+                    executable.estimated_batch_lane_work(mode));
+        }
+    }
+}
+
 TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame][sampling]") {
     // A sharing key groups shots by the noise that decides static rotation
     // signs, here the fault between the two T gates on qubit 2. Those
     // rotations follow a frame that measures its last active qubit and then
     // retires, the two places where groups without a key merge. Without the
     // fault no rotation sign varies, the key separates nothing, and the groups
-    // merge as they do without a key. The last circuit ends before its frame
+    // merge as they do without a key. The third circuit ends before its frame
     // retires: its groups split at the first of two active qubits and merge
-    // at the second.
+    // at the second. In the last one the sign comes from a frame measurement:
+    // its outcome applies an X between two rotations, which then cancel.
     struct Case {
         const char* source;
-        bool signed_rotation;
+        // Whether noise, or any symbol, decides a static rotation sign.
+        bool noise_signed;
+        bool separates;
         bool retires;
     };
     const Case c = GENERATE(
         Case{"H 0 4\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4\nT_DAG 1\nCX 0 1\nH 0 4\nMR 0 1 4\n"
              "H 2\nT 2\nH 2\nX_ERROR(0.3) 2\nT 2\nH 2\nM 2\n",
-             true, true},
+             true, true, true},
         Case{"H 0 4\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4\nT_DAG 1\nCX 0 1\nH 0 4\nMR 0 1 4\n"
              "H 2\nT 2\nH 2\nT 2\nH 2\nM 2\n",
-             false, true},
+             false, false, true},
         Case{"H 0 4 5\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4 5\nT_DAG 1\nCX 0 1\nH 0 4 5\nM 4 5 0\n", false,
-             false});
+             false, false},
+        Case{"H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nMPP X0*X1\n"
+             "H 2\nR_Z(0.2) 2\nCX rec[-1] 2\nR_Z(0.2) 2\nH 2\nM 2\n",
+             false, true, true});
     CAPTURE(c.source);
-    const bool signed_rotation = c.signed_rotation;
     const SamplingPlan plan =
         sampling::plan_sampling(clifft::trace(clifft::parse(c.source)), {.runtime_frame = true});
     const auto holds = [&]<typename Action>() {
@@ -1710,8 +1758,8 @@ TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame]
     const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
     const sampling::EarlyPostselection checks(executable);
     const sampling::SharingKey key(executable);
-    REQUIRE((key.num_bits() != 0) == signed_rotation);
-    REQUIRE(key.separates_groups() == signed_rotation);
+    REQUIRE((key.num_bits() != 0) == c.noise_signed);
+    REQUIRE(key.separates_groups() == c.separates);
     constexpr uint32_t kCapacity = 300;
     const auto make = [&](bool share, const sampling::SharingKey* grouping) {
         return sampling::SharingExecutor(executable, noise, checks, kCapacity, 1, share, grouping,
@@ -1728,7 +1776,7 @@ TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame]
         keyed.run_batch(root, 0, kCapacity);
         merging.run_batch(root, 0, kCapacity);
         independent.run_batch(root, 0, kCapacity);
-        REQUIRE(keyed.num_merges() == (signed_rotation ? 0 : merging.num_merges()));
+        REQUIRE(keyed.num_merges() == (c.separates ? 0 : merging.num_merges()));
         merges += merging.num_merges();
         const auto expected = shared_record_patterns(independent, plan.num_visible_records);
         REQUIRE(shared_record_patterns(keyed, plan.num_visible_records) == expected);
