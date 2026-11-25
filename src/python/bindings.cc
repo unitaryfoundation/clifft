@@ -2241,7 +2241,8 @@ NB_MODULE(_clifft_core, m) {
             {
                 nb::gil_scoped_release release;
                 clifft::sampling::Executor executor(program);
-                result = executor.replay_shot(forced_records);
+                result = program.uses_runtime_frame() ? executor.replay_frame_shot(forced_records)
+                                                      : executor.replay_shot(forced_records);
             }
             nb::dict output;
             output["reachable"] = result.reachable;
