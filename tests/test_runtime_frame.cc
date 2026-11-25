@@ -1811,7 +1811,7 @@ TEST_CASE("Shared frame execution retires and restarts a frame", "[runtime_frame
     }
 }
 
-TEST_CASE("A shared batch reports the budget only where a new executor would",
+TEST_CASE("Shared frame states are allocated for the width bound of the plan",
           "[runtime_frame][sampling]") {
     // One fault decides whether ten qubits each add an active coordinate, so a
     // few shots need wide states. Four more faults split groups without
@@ -1843,64 +1843,75 @@ TEST_CASE("A shared batch reports the budget only where a new executor would",
     const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
     const sampling::EarlyPostselection checks(executable);
     constexpr uint32_t kLanes = 4;
-    const uint64_t at_start = sampling::SharingExecutor::group_storage_bytes(executable, 0);
     const uint64_t at_bound = sampling::SharingExecutor::group_storage_bytes(executable, kWide);
-    REQUIRE(kLanes * at_start <= at_bound);
     const auto make = [&](uint64_t budget) {
         return sampling::SharingExecutor(executable, noise, checks, kLanes, 1, true, nullptr,
                                          budget, sampling::BatchOutputMode::Rows);
     };
     const auto is_wide = [](uint64_t bits) { return (bits & 1) != 0; };
+    const auto rows = [&](const sampling::SharingExecutor& executor) {
+        return shared_record_patterns(executor, plan.num_visible_records);
+    };
     const SeedRoot root = seed_root_from_seed(91);
 
-    // The budget holds one wide state or a group for each of four narrow
-    // lanes. A wide shot run alone leaves the pool at that width, where it
-    // holds one state. The batch after it forms several narrow groups, which
-    // a pool of the starting width holds: the executor starts over on one and
-    // returns the rows a new executor returns.
-    sampling::SharingExecutor carried = make(at_bound);
-    uint32_t after_wide = 0;
-    for (uint32_t batch = 0; batch < 400; ++batch) {
-        CAPTURE(batch);
-        const uint32_t first = batch * kLanes;
-        sampling::SharingExecutor fresh = make(at_bound);
-        fresh.run_batch(root, first, 1);
-        const auto alone = shared_record_patterns(fresh, plan.num_visible_records);
-        if (!is_wide(alone.front())) {
-            continue;
-        }
-        carried.run_batch(root, first, 1);
-        REQUIRE(shared_record_patterns(carried, plan.num_visible_records) == alone);
-        sampling::SharingExecutor next = make(kLanes * at_bound);
-        next.run_batch(root, first + kLanes, kLanes);
-        const auto expected = shared_record_patterns(next, plan.num_visible_records);
-        if (std::ranges::any_of(expected, is_wide)) {
-            continue;
-        }
-        carried.run_batch(root, first + kLanes, kLanes);
-        REQUIRE(shared_record_patterns(carried, plan.num_visible_records) == expected);
-        after_wide += carried.peak_groups() > 1;
-    }
-    REQUIRE(after_wide > 0);
+    // The states start without coefficients, but a state is counted at the
+    // bound, so less than one of those holds nothing.
+    REQUIRE_THROWS_AS(make(at_bound - 1), std::invalid_argument);
 
-    // A budget below one wide state is a limit: the shot that needs the state
-    // reports it, and the shots beside it still run.
-    sampling::SharingExecutor narrow = make(at_bound - 1);
-    sampling::SharingExecutor ample = make(at_bound);
+    // With a state at the bound for every lane, a batch runs whatever it
+    // draws. A wide shot grows into its own state, so once the pool holds a
+    // state per lane no batch allocates again, and an executor that ran
+    // other batches before returns the rows of a new one.
+    sampling::SharingExecutor roomy = make(kLanes * at_bound);
+    uint32_t wide_batches = 0;
+    uint64_t full_pool_bytes = 0;
+    for (uint32_t batch = 0; batch < 300; ++batch) {
+        CAPTURE(batch);
+        roomy.run_batch(root, batch * kLanes, kLanes);
+        const auto expected = rows(roomy);
+        wide_batches += std::ranges::any_of(expected, is_wide);
+        if (roomy.state_capacity() == kLanes) {
+            if (full_pool_bytes == 0) {
+                full_pool_bytes = roomy.state_pool_bytes();
+            }
+            REQUIRE(roomy.state_pool_bytes() == full_pool_bytes);
+        }
+        sampling::SharingExecutor fresh = make(kLanes * at_bound);
+        fresh.run_batch(root, batch * kLanes, kLanes);
+        REQUIRE(rows(fresh) == expected);
+    }
+    REQUIRE(wide_batches > 10);
+    REQUIRE(full_pool_bytes != 0);
+
+    // With two states, a batch of two lanes runs and a batch of four, whose
+    // lanes could each need a state, reports the budget. An executor that ran
+    // other batches does both exactly where a new one does.
+    sampling::SharingExecutor carried = make(2 * at_bound);
     uint32_t refused = 0;
-    for (uint32_t shot = 0; shot < 400; ++shot) {
-        CAPTURE(shot);
-        ample.run_batch(root, shot, 1);
-        const auto expected = shared_record_patterns(ample, plan.num_visible_records);
-        if (is_wide(expected.front())) {
-            REQUIRE_THROWS_AS(narrow.run_batch(root, shot, 1), std::runtime_error);
-            ++refused;
+    uint32_t ran = 0;
+    for (uint32_t batch = 0; batch < 300; ++batch) {
+        CAPTURE(batch);
+        const uint32_t lanes = batch % 2 == 0 ? 2 : kLanes;
+        const auto fits = [&](sampling::SharingExecutor& executor) {
+            try {
+                executor.run_batch(root, batch * kLanes, lanes);
+            } catch (const std::runtime_error&) {
+                return false;
+            }
+            return true;
+        };
+        sampling::SharingExecutor fresh = make(2 * at_bound);
+        const bool fresh_fits = fits(fresh);
+        REQUIRE(fits(carried) == fresh_fits);
+        if (fresh_fits) {
+            REQUIRE(rows(carried) == rows(fresh));
+            ++ran;
         } else {
-            narrow.run_batch(root, shot, 1);
-            REQUIRE(shared_record_patterns(narrow, plan.num_visible_records) == expected);
+            ++refused;
         }
     }
     REQUIRE(refused > 0);
+    REQUIRE(ran > 0);
 }
 
 TEST_CASE("Output compaction keeps its work estimate across retired frames",

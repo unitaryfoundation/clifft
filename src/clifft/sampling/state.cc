@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -138,6 +139,19 @@ void State::reset_parallel(uint32_t workers, uint32_t min_active_width) noexcept
         std::fill(imag_ + begin, imag_ + end, 0.0);
     });
     real_[0] = 1.0;
+}
+
+void State::relocate(double* storage, uint32_t max_active_width) noexcept {
+    assert(allocation_.data() == nullptr && "only a borrowed state can move to other storage");
+    assert(max_active_width >= active_width_ && "the new layout holds the live coefficients");
+    const double* old_real = real_;
+    const double* old_imag = imag_;
+    const uint32_t active_width = active_width_;
+    const size_t bytes = static_cast<size_t>(size()) * sizeof(double);
+    initialize_views(storage, max_active_width, initial_active_width_);
+    active_width_ = active_width;
+    std::memmove(imag_, old_imag, bytes);
+    std::memmove(real_, old_real, bytes);
 }
 
 void State::ensure_capacity(uint32_t max_active_width) {
