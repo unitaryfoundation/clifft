@@ -720,8 +720,7 @@ class FrameRegions {
             flush();
         }
         if (pending_.empty()) {
-            retire_known_frame(source_lines(operation));
-            release_known_coordinates(source_lines(operation));
+            settle_known_frame(source_lines(operation), /*release_partial=*/true);
             drop_inert_frame_terms();
             updates_.emplace(hir_.num_qubits, num_hir_symbols_);
         }
@@ -735,7 +734,7 @@ class FrameRegions {
     // is live; the operation then plans itself as a frame action.
     bool begin_operation(std::span<const uint32_t> lines) {
         flush();
-        retire_known_frame(lines);
+        settle_known_frame(lines, /*release_partial=*/false);
         return live_;
     }
 
@@ -1060,56 +1059,6 @@ class FrameRegions {
         return stabilizers;
     }
 
-    // Changes coordinates so that every known stabilizer in turn becomes Z on
-    // the last frame coordinate not yet taken, the step that plans an active
-    // measurement. With a symbolic frame, the eigenvalue bit of that Z moves
-    // into it as a conditional X, which leaves the coordinate in |0>. The X
-    // flips every later stabilizer with a Z factor on that coordinate, so a
-    // stabilizer's bit takes the bits of the taken coordinates it has Z on.
-    // Returns whether the stabilizers fix every frame coordinate.
-    [[nodiscard]] bool localize_known(
-        CoordinateFrame& coordinates, SymbolicPauliFrame* symbolic,
-        std::span<const std::pair<Pauli, AffineBool>> stabilizers) const {
-        uint32_t width = frame_width_;
-        // Eigenvalue bit of Z on each coordinate taken so far.
-        std::vector<AffineBool> taken(frame_width_);
-        for (const auto& [axis, eigenvalue] : stabilizers) {
-            if (width == 0) {
-                break;
-            }
-            Pauli body = coordinates.to_current(axis);
-            AffineBool bit = eigenvalue ^ body.sign();
-            body.set_sign(false);
-            // The coordinates already taken, and those outside the frame,
-            // carry only Z factors. Outside the frame they act on |0>.
-            if (first_x_at_or_above(body, width).has_value()) {
-                return false;
-            }
-            for (uint32_t q = width; q < frame_width_; ++q) {
-                if (body.z().bit_get(q)) {
-                    bit ^= taken[q];
-                }
-            }
-            restrict_below(body, width);
-            std::optional<uint32_t> pivot = last_x_below(body, width);
-            if (!pivot.has_value()) {
-                pivot = first_z_below(body, width);
-            }
-            if (!pivot.has_value()) {
-                // A product of the stabilizers already taken.
-                continue;
-            }
-            coordinates.measure_active(body, width, *pivot);
-            --width;
-            if (symbolic != nullptr) {
-                const PauliStringView flip = coordinates.current_to_initial().x_output(width);
-                symbolic->apply(flip.x(), flip.z(), bit);
-            }
-            taken[width] = std::move(bit);
-        }
-        return width == 0;
-    }
-
     // Z on a dormant coordinate stabilizes the state, so a Z the symbolic
     // frame carries there does nothing. It would still enter the sign of every
     // rotation with X on that coordinate, and a region starting here would
@@ -1128,55 +1077,46 @@ class FrameRegions {
         }
     }
 
-    // Ends a live frame whose state the known stabilizers determine. Called
-    // only between regions.
-    void retire_known_frame(std::span<const uint32_t> lines) {
-        assert(pending_.empty());
-        if (!live_ || known_.rows().size() + known_.unit_z_count() < frame_width_) {
-            return;
-        }
-        const auto stabilizers = known_stabilizers();
-        CoordinateFrame trial = coordinates_;
-        if (!localize_known(trial, nullptr, stabilizers)) {
-            return;
-        }
-        [[maybe_unused]] const bool retired =
-            localize_known(coordinates_, &symbolic_frame_, stabilizers);
-        assert(retired);
-        append_action(plan_, PlannedAction{active_width_, 0, RetireFrame{}}, lines);
-        max_frame_width_ = std::max(max_frame_width_, frame_width_);
-        known_.clear();
-        frame_width_ = 0;
-        active_width_ = 0;
-        live_ = false;
-    }
-
     // Hands the frame coordinates that known stabilizers fix back to the
-    // static coordinates when they do not fix the whole frame: a factory's
-    // ancillas after their reset, say, while its output stays unmeasured. Each
-    // stabilizer in turn becomes Z on the last frame coordinate, as when a
-    // frame retires, and the frame then ends one coordinate earlier. A region
-    // that starts here finds those coordinates in |0> and can be reduced on
-    // them. Called only at the start of a region.
-    void release_known_coordinates(std::span<const uint32_t> lines) {
+    // static coordinates. Each stabilizer in turn becomes Z on the last frame
+    // coordinate, the step that plans an active measurement, and the frame
+    // ends one coordinate earlier. The eigenvalue bit of that Z moves into the
+    // symbolic frame as a conditional X, which leaves the coordinate in |0>.
+    // The X flips every later stabilizer with a Z factor on that coordinate,
+    // so a stabilizer's bit takes the bits of the taken coordinates it has Z
+    // on.
+    //
+    // The stabilizers are independent, commute, and act on the frame alone,
+    // so as many of them as the frame has coordinates fix its whole state, and
+    // the frame retires. Fewer fix part of it: a factory's ancillas after
+    // their reset, say, while its output stays unmeasured. With
+    // release_partial the plan then releases those coordinates one by one,
+    // and a region that starts here finds them in |0> and can be reduced on
+    // them. Called only between regions, and with release_partial only at the
+    // start of one.
+    void settle_known_frame(std::span<const uint32_t> lines, bool release_partial) {
         assert(pending_.empty());
-        if (!live_ || known_.empty()) {
+        if (!live_) {
+            return;
+        }
+        const size_t fixed = known_.rows().size() + known_.unit_z_count();
+        assert(fixed <= frame_width_);
+        const bool retire = fixed == frame_width_;
+        if (!retire && (!release_partial || known_.empty())) {
             return;
         }
         const auto stabilizers = known_stabilizers();
         const uint32_t original_width = frame_width_;
-        // Eigenvalue bit of Z on each coordinate released so far.
-        std::vector<AffineBool> released(original_width);
+        // Eigenvalue bit of Z on each coordinate taken so far.
+        std::vector<AffineBool> taken(original_width);
         for (const auto& [axis, eigenvalue] : stabilizers) {
             Pauli body = coordinates_.to_current(axis);
             AffineBool bit = eigenvalue ^ body.sign();
             body.set_sign(false);
-            // A stabilizer of the frame's state has only Z factors on the
-            // coordinates outside the frame, which hold |0>.
             assert(!first_x_at_or_above(body, frame_width_).has_value());
             for (uint32_t q = frame_width_; q < original_width; ++q) {
                 if (body.z().bit_get(q)) {
-                    bit ^= released[q];
+                    bit ^= taken[q];
                 }
             }
             restrict_below(body, frame_width_);
@@ -1184,31 +1124,37 @@ class FrameRegions {
             if (!pivot.has_value()) {
                 pivot = first_z_below(body, frame_width_);
             }
-            if (!pivot.has_value()) {
-                // A product of the stabilizers already released.
-                continue;
-            }
+            assert(pivot.has_value() && "no stabilizer is a product of those taken");
             const uint32_t width = frame_width_;
-            FramePauli pauli = frame_projection(body);
-            coordinates_.release_active(body, width, *pivot);
+            if (retire) {
+                coordinates_.measure_active(body, width, *pivot);
+            } else {
+                FramePauli pauli = frame_projection(body);
+                coordinates_.release_active(body, width, *pivot);
+                // The released coordinate is dormant in every shot.
+                const uint32_t active_after = std::min(active_width_, width - 1);
+                append_action(
+                    plan_,
+                    PlannedAction{active_width_, active_after,
+                                  ReleaseFrameCoordinate{std::move(pauli), *pivot, width}},
+                    lines);
+                active_width_ = active_after;
+            }
             coordinates_changed_ = true;
             max_frame_width_ = std::max(max_frame_width_, width);
             frame_width_ = width - 1;
-            // The released coordinate is dormant in every shot.
-            const uint32_t active_after = std::min(active_width_, frame_width_);
-            append_action(plan_,
-                          PlannedAction{active_width_, active_after,
-                                        ReleaseFrameCoordinate{std::move(pauli), *pivot, width}},
-                          lines);
-            active_width_ = active_after;
             const PauliStringView flip = coordinates_.current_to_initial().x_output(frame_width_);
             symbolic_frame_.apply(flip.x(), flip.z(), bit);
-            released[frame_width_] = std::move(bit);
+            taken[frame_width_] = std::move(bit);
         }
-        // A retirement would have taken a frame whose every coordinate is known.
-        // Every stabilizer is now released or a product of released ones.
-        assert(frame_width_ != 0);
         known_.clear();
+        if (retire) {
+            assert(frame_width_ == 0);
+            // No shot has an active coordinate left once every one is fixed.
+            append_action(plan_, PlannedAction{active_width_, 0, RetireFrame{}}, lines);
+            active_width_ = 0;
+            live_ = false;
+        }
     }
 
     // Coordinates that rotating about these physical Paulis in order would
