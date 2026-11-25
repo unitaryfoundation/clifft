@@ -42,7 +42,8 @@ ReconstructionLoweringResult reconstruct_noiseless_detectors(const Circuit& sour
 
 ReferenceSyndrome compute_reference_syndrome(const HirModule& hir,
                                              const Circuit* reconstruction_source,
-                                             const ReconstructionLimits& limits) {
+                                             const ReconstructionLimits& limits,
+                                             bool runtime_frame) {
     const HirModule& source_hir =
         hir.postselection.pre_postselection_hir ? *hir.postselection.pre_postselection_hir : hir;
 
@@ -68,15 +69,29 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir,
     try {
         clean_program.emplace(sampling::plan_sampling(clean_hir));
     } catch (const std::overflow_error& overflow) {
-        if (reconstruction_source == nullptr) {
-            throw;
+        if (runtime_frame) {
+            // Measurement outcomes still sign the T regions of a noiseless
+            // circuit, and the frame planner reduces them where the
+            // sequential plan cannot. It reads the circuit without the
+            // optimizations applied above.
+            HirModule frame_hir = source_hir;
+            frame_hir.postselection.clear();
+            strip.run(frame_hir);
+            try {
+                clean_program.emplace(sampling::plan_sampling(frame_hir, {.runtime_frame = true}));
+            } catch (const std::overflow_error&) {}
         }
-        if (clean_hir.num_exp_vals != 0) {
-            throw std::overflow_error(
-                std::string(overflow.what()) +
-                " (reconstruction fallback: EXP_VAL requires the original state evolution)");
+        if (!clean_program) {
+            if (reconstruction_source == nullptr) {
+                throw;
+            }
+            if (clean_hir.num_exp_vals != 0) {
+                throw std::overflow_error(
+                    std::string(overflow.what()) +
+                    " (reconstruction fallback: EXP_VAL requires the original state evolution)");
+            }
+            overflow_reason = overflow.what();
         }
-        overflow_reason = overflow.what();
     }
 
     const uint32_t width_limit =
