@@ -682,8 +682,9 @@ class FrameRegions {
           added_((hir.num_qubits + 63) / 64),
           scratch_((hir.num_qubits + 63) / 64) {}
 
-    // True when a rotation emitted without the frame promoted a coordinate.
-    [[nodiscard]] bool promoted() const { return promoted_; }
+    // True when planning changed the static coordinates, which the final
+    // tableau then has to follow.
+    [[nodiscard]] bool coordinates_changed() const { return coordinates_changed_; }
 
     // Mirrors a symbolic-frame update made while a region is held back.
     void note_frame_update(MaskView x, MaskView z, const AffineBool& condition) {
@@ -738,6 +739,7 @@ class FrameRegions {
         assert(live_);
         if (const auto pivot = first_x_at_or_above(resolved.body, frame_width_)) {
             coordinates_.promote_dormant(resolved.body, frame_width_, *pivot);
+            coordinates_changed_ = true;
             resolved.body = Pauli(hir_.num_qubits);
             resolved.body.set_pauli(frame_width_, true, false);
             ++frame_width_;
@@ -850,8 +852,8 @@ class FrameRegions {
         if (live_) {
             rotate(std::move(resolved), half_turns, lines);
         } else {
-            promoted_ |= emit_rotation(std::move(resolved), half_turns, plan_, active_width_,
-                                       coordinates_, lines);
+            coordinates_changed_ |= emit_rotation(std::move(resolved), half_turns, plan_,
+                                                  active_width_, coordinates_, lines);
         }
     }
 
@@ -1067,6 +1069,7 @@ class FrameRegions {
         }
         if (has_correction) {
             coordinates_.change_basis(correction);
+            coordinates_changed_ = true;
         }
 
         // Give each sign-dependent axis an X generator inside the frame. A new
@@ -1088,6 +1091,7 @@ class FrameRegions {
             body.set_sign(false);
             if (const auto pivot = first_x_at_or_above(body, frame_width_)) {
                 coordinates_.promote_dormant(body, frame_width_, *pivot);
+                coordinates_changed_ = true;
                 ++frame_width_;
             }
         }
@@ -1142,7 +1146,7 @@ class FrameRegions {
 
     uint32_t frame_width_ = 0;
     bool live_ = false;
-    bool promoted_ = false;
+    bool coordinates_changed_ = false;
 };
 
 }  // namespace
@@ -1456,7 +1460,7 @@ SamplingPlan plan_sampling(const HirModule& hir, SamplingPlanOptions options) {
 
     if (regions) {
         regions->flush();
-        final_coordinates_changed |= regions->promoted();
+        final_coordinates_changed |= regions->coordinates_changed();
     }
 
     if (plan.symbols.size() != requirements.symbol_count) {
