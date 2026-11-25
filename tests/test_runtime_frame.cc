@@ -806,6 +806,30 @@ TEST_CASE("Frame planning retires a frame once measurements fix its state",
                                 compute_exact_plan_distribution(wider));
 }
 
+TEST_CASE("A live frame reduces the fresh rotations of a region", "[runtime_frame][sampling]") {
+    // The first pair starts a frame. After a basis change, T gates on its two
+    // qubits share a commuting region with a second signed pair. One of the
+    // two acts on the frame's coordinate and keeps its sign. The rest of the
+    // region is on coordinates that are still |0> and is reduced as before:
+    // the second pair cancels into one conditional Clifford.
+    const Circuit circuit = clifft::parse(
+        "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nH 0 1\n"
+        "H 2\nCX 2 3\nX_ERROR(0.2) 2\nT 0 1 2\nT_DAG 3\n"
+        "MPP X2*X3\nH 0 1\nM 0 1 2 3\n");
+    const SamplingPlan frame =
+        sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
+    const auto count = [&]<typename Action>() {
+        return std::ranges::count_if(frame.actions, [](const PlannedAction& planned) {
+            return std::holds_alternative<Action>(planned.action);
+        });
+    };
+    REQUIRE(count.operator()<sampling::ApplyConditionalClifford>() == 2);
+    REQUIRE(count.operator()<sampling::RotateFramePauli>() == 2);
+    REQUIRE(frame.peak_active_width == 2);
+    require_distributions_equal(compute_dense_circuit_distribution(circuit),
+                                compute_exact_plan_distribution(frame));
+}
+
 TEST_CASE("Long entry signs are defined once and shared", "[runtime_frame][sampling]") {
     // Twenty-two faults flip the stabilizer of each Bell pair before the
     // region. Every pair gets one derived symbol for that history instead of

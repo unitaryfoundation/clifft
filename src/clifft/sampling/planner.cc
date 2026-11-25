@@ -740,8 +740,13 @@ class FrameRegions {
         if (pending_.empty()) {
             return live_;
         }
-        const size_t lowered = lower_region();
-        for (size_t i = lowered; i < pending_.size(); ++i) {
+        const std::vector<size_t> lowered = lower_region();
+        auto next_lowered = lowered.begin();
+        for (size_t i = 0; i < pending_.size(); ++i) {
+            if (next_lowered != lowered.end() && *next_lowered == i) {
+                ++next_lowered;
+                continue;
+            }
             const PendingRotation& rotation = pending_[i];
             emit(current_axis(rotation), full_sign(rotation), rotation.half_turns,
                  source_lines(rotation.operation));
@@ -1161,26 +1166,33 @@ class FrameRegions {
         return width - first_dormant;
     }
 
-    // Tries to replace a leading part of the pending region by its reduced T
-    // core, Clifford correction, and conditional Cliffords, and returns how
-    // many rotations that consumed. Zero leaves the plan unchanged.
-    size_t lower_region() {
+    // Tries to replace part of the pending region by its reduced T core,
+    // Clifford correction, and conditional Cliffords, and returns the pending
+    // rotations that consumed, in order. None leaves the plan unchanged.
+    std::vector<size_t> lower_region() {
         const uint32_t n = hir_.num_qubits;
         // Coordinates below first_dormant hold the active state before a frame
         // starts and the frame afterwards. The rest are dormant |0>.
         const uint32_t first_dormant = live_ ? frame_width_ : active_width_;
         std::vector<phase_detail::AxisRotation> rotations;
         std::vector<Pauli> signed_axes;
+        // The pending rotations this lowering considers.
+        std::vector<size_t> members;
         rotations.reserve(pending_.size());
         signed_axes.reserve(pending_.size());
-        for (const PendingRotation& rotation : pending_) {
+        members.reserve(pending_.size());
+        for (size_t index = 0; index < pending_.size(); ++index) {
+            const PendingRotation& rotation = pending_[index];
             Pauli axis = current_axis(rotation);
             // The frame's coordinates have no reference state shared by every
-            // shot, so a region that touches them keeps its signed rotations.
+            // shot, so a rotation that touches them keeps its sign. The
+            // rotations of a region commute, so the others, on coordinates
+            // that are still |0>, can be reduced ahead of it.
             if (live_ && (last_x_below(axis, frame_width_).has_value() ||
                           first_z_below(axis, frame_width_).has_value())) {
-                return 0;
+                continue;
             }
+            members.push_back(index);
             signed_axes.push_back(coordinates_.to_initial(axis));
             axis.set_sign(axis.sign() ^ reference_sign(rotation));
             rotations.push_back({std::move(axis), rotation.half_turns < 0});
@@ -1197,8 +1209,11 @@ class FrameRegions {
         const auto rewrite =
             phase_detail::reduce_rotations(n, rotations, dormant, kMaxRegionAxes, budget);
         if (!rewrite || rewrite->end == 0) {
-            return 0;
+            return {};
         }
+        const auto member = [&](size_t i) -> const PendingRotation& {
+            return pending_[members[i]];
+        };
 
         // Physical Paulis stay valid across the coordinate changes below. A
         // phase exp(-i pi c P / 8) is split into c = t + clifford.
@@ -1223,13 +1238,13 @@ class FrameRegions {
             count_promotions(std::span(signed_axes).first(rewrite->end), first_dormant);
         if (core_promotions >= signed_promotions ||
             (!live_ && active_width_ + core_promotions >= kDenseActiveWidthLimit)) {
-            return 0;
+            return {};
         }
 
         std::vector<uint32_t> region_lines;
         if (plan_.source_map.has_value()) {
             for (size_t i = 0; i < rewrite->end; ++i) {
-                const auto lines = source_lines(pending_[i].operation);
+                const auto lines = source_lines(member(i).operation);
                 region_lines.insert(region_lines.end(), lines.begin(), lines.end());
             }
             std::ranges::sort(region_lines);
@@ -1278,7 +1293,7 @@ class FrameRegions {
         std::vector<AffineBool> conditions;
         conditions.reserve(rewrite->end);
         for (size_t i = 0; i < rewrite->end; ++i) {
-            conditions.push_back(sign_condition(pending_[i], source_lines(pending_[i].operation)));
+            conditions.push_back(sign_condition(member(i), source_lines(member(i).operation)));
         }
         if (!live_) {
             frame_width_ = active_width_;
@@ -1287,7 +1302,7 @@ class FrameRegions {
             if (conditions[i].terms().empty()) {
                 continue;
             }
-            Pauli body = current_axis(pending_[i]);
+            Pauli body = current_axis(member(i));
             body.set_sign(false);
             if (const auto pivot = first_x_at_or_above(body, frame_width_)) {
                 coordinates_.promote_dormant(body, frame_width_, *pivot);
@@ -1308,7 +1323,7 @@ class FrameRegions {
         std::map<std::pair<std::vector<uint64_t>, std::vector<uint64_t>>, std::vector<size_t>>
             turns_about;
         for (size_t i = 0; i < rewrite->end; ++i) {
-            const PendingRotation& rotation = pending_[i];
+            const PendingRotation& rotation = member(i);
             if (conditions[i].terms().empty()) {
                 continue;
             }
@@ -1345,7 +1360,7 @@ class FrameRegions {
                 // It commutes with the rest of the region, so the symbolic
                 // frame takes it here, with entry signs written out in the
                 // symbols the frame tracks.
-                AffineBool condition = full_sign(pending_[turn.rotations.front()]);
+                AffineBool condition = full_sign(member(turn.rotations.front()));
                 condition ^= condition.constant();
                 symbolic_frame_.apply(coordinates_.to_initial(turn.body), condition);
                 continue;
@@ -1354,7 +1369,7 @@ class FrameRegions {
             std::vector<uint32_t> lines;
             if (plan_.source_map.has_value()) {
                 for (size_t i : turn.rotations) {
-                    const auto added = source_lines(pending_[i].operation);
+                    const auto added = source_lines(member(i).operation);
                     lines.insert(lines.end(), added.begin(), added.end());
                 }
                 std::ranges::sort(lines);
@@ -1374,7 +1389,8 @@ class FrameRegions {
         if (!live_) {
             frame_width_ = 0;
         }
-        return rewrite->end;
+        members.resize(rewrite->end);
+        return members;
     }
 
     const HirModule& hir_;
