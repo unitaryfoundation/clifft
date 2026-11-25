@@ -282,12 +282,18 @@ clifft::HirModule prepare_circuit_for_lowering(
     }
     clifft::HirModule hir = clifft::trace(circuit);
     const clifft::Circuit* reconstruction_source = allow_reconstruction ? &circuit : nullptr;
+    // A frame plan of the reference is traced from the circuit again, as the
+    // program's frame plan is, unless a pass changes what the circuit samples.
+    const clifft::Circuit* frame_source =
+        runtime_frame && (hir_passes == nullptr || hir_passes->preserves_sampling_distribution())
+            ? &circuit
+            : nullptr;
     const bool has_postselection =
         std::ranges::any_of(postselection_mask, [](uint8_t flag) { return flag != 0; });
     const bool reference_before_passes = normalize_syndromes && has_postselection;
     if (reference_before_passes) {
-        auto reference =
-            clifft::compute_reference_syndrome(hir, reconstruction_source, {}, runtime_frame);
+        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source, {},
+                                                            runtime_frame, frame_source);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
     }
@@ -298,8 +304,8 @@ clifft::HirModule prepare_circuit_for_lowering(
         hir_passes->run(hir);
     }
     if (normalize_syndromes && !reference_before_passes) {
-        auto reference =
-            clifft::compute_reference_syndrome(hir, reconstruction_source, {}, runtime_frame);
+        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source, {},
+                                                            runtime_frame, frame_source);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
         hir.postselection.expected_detectors = expected_detectors;
