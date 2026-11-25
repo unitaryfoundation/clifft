@@ -338,9 +338,8 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
     // batch keeps the tableaus it walks in the cache. Postselection discards
     // shots as they diverge, so those plans keep full batches.
     constexpr uint32_t kDivergentFrameLanes = 256;
-    const bool small_batches = !compiled.has_postselection() && safe >= 2 &&
-                               shared_preparation != nullptr &&
-                               shared_preparation->plan().frame_trajectories_diverge();
+    const bool small_batches =
+        !compiled.has_postselection() && preparation.plan().frame_trajectories_diverge();
     auto policy = resolve_shared_execution_policy(
         small_batches ? std::min(safe, kDivergentFrameLanes) : safe, shots, workers);
     if (options.batch_size) {

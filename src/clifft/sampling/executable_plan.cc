@@ -259,13 +259,11 @@ ExecutablePlan::TrajectoryDivergence ExecutablePlan::measure_trajectory_divergen
 }
 
 bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noexcept {
-    // Narrower plans have too little coefficient work to share, unless their
-    // shots also share the tableau work of a runtime Clifford frame.
+    // Narrower plans have too little coefficient work to share.
     constexpr uint32_t kMinWidth = 3;
     // At one expected sign fault per shot about 63% of a batch leaves the
     // fault-free trajectory. Sharing then breaks even with AVX-512 packed
-    // batches and is ahead at narrower vector widths. Frame plans, whose
-    // alternative is the scalar executor, break even between one and two.
+    // batches and is ahead at narrower vector widths.
     constexpr double kMaxExpectedSignFaults = 1.0;
     // Every dormant sign measurement, and every mid-circuit active measurement
     // whose outcome is random, doubles the trajectories. With all of them
@@ -280,7 +278,7 @@ bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noe
     const TrajectoryDivergence& divergence = trajectory_divergence_;
     const uint64_t branching =
         uint64_t{divergence.sign_dormant_measurements} + divergence.mid_circuit_active_measurements;
-    return (peak_active_width_ >= kMinWidth || uses_runtime_frame()) &&
+    return peak_active_width_ >= kMinWidth &&
            divergence.expected_sign_faults <= kMaxExpectedSignFaults &&
            branching <= kMaxBranchingMeasurements &&
            (lanes >> divergence.sign_dormant_measurements) >= kMinLanesPerDormantBranch;
