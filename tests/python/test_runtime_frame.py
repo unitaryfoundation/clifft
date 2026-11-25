@@ -157,7 +157,11 @@ def test_sample_survivors_follows_the_ordinary_plan(keep_records: bool) -> None:
     fixed, frame = _programs(SIGNED_PAIR, postselection_mask=[1])
     shots = 40_000
     expected = clifft.sample_survivors(fixed, shots, seed=21, keep_records=keep_records)
-    actual = clifft.sample_survivors(frame, shots, seed=22, keep_records=keep_records)
+    # The automatic choice shares a frame plan at this shot count.
+    actual = clifft.sample_survivors(
+        frame, shots, seed=22, keep_records=keep_records, sharing=False
+    )
+    assert actual.execution.executor == "scalar"
     _assert_same_survivor_counts(expected, actual, shots)
     if keep_records:
         assert actual.measurements.shape == (actual.passed_shots, 4)
