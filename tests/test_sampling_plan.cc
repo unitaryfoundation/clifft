@@ -13,17 +13,20 @@
 using clifft::sampling::ActiveExpectation;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
+using clifft::sampling::ApplyConditionalClifford;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
 using clifft::sampling::DefineSymbol;
 using clifft::sampling::DetectorSlot;
 using clifft::sampling::ExpValSlot;
+using clifft::sampling::FramePauli;
 using clifft::sampling::InstrumentBoundary;
 using clifft::sampling::InstrumentDistribution;
 using clifft::sampling::InstrumentMode;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
+using clifft::sampling::MeasureFramePauli;
 using clifft::sampling::ObservableSlot;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::PresampledNoiseOutcome;
@@ -33,6 +36,7 @@ using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
+using clifft::sampling::RotateFramePauli;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
 using clifft::sampling::SymbolKind;
@@ -81,6 +85,32 @@ SamplingPlan valid_rotation_plan() {
     plan.peak_active_width = 1;
     plan.actions = {
         PlannedAction{1, 1, RotateActivePauli{ActivePauli{1, 0}, 0.25, AffineBool{}}},
+    };
+    return plan;
+}
+
+// A frame over two coordinates: a conditional quarter turn about X0, a T
+// rotation about Z0*Z1 that promotes one coordinate, and a measurement of X1.
+SamplingPlan valid_frame_plan() {
+    const SymbolId noise{0};
+    const SymbolId branch{1};
+    SamplingPlan plan;
+    plan.num_qubits = 2;
+    plan.frame_width = 2;
+    plan.peak_active_width = 1;
+    plan.num_visible_records = 1;
+    plan.symbols = {SymbolKind::Presampled, SymbolKind::Branch};
+    plan.presampled_noise_sites = {PresampledNoiseSite{0.1, {PresampledNoiseOutcome{noise, 0.1}}}};
+    plan.actions = {
+        PlannedAction{
+            0, 0,
+            ApplyConditionalClifford{FramePauli{{0b01}, {0}}, clifft::CliffordRotation::SQRT,
+                                     AffineBool::symbol(noise)}},
+        PlannedAction{0, 1,
+                      RotateFramePauli{FramePauli{{0}, {0b11}}, 0.25, AffineBool::symbol(noise)}},
+        PlannedAction{1, 1,
+                      MeasureFramePauli{FramePauli{{0b10}, {0}}, branch, AffineBool::symbol(branch),
+                                        RecordSlot{0}}},
     };
     return plan;
 }
@@ -447,6 +477,82 @@ TEST_CASE("Sampling plan rejects invalid dimensions and action contracts") {
         SamplingPlan plan = valid_plan();
         std::get<ApplyInstrument>(plan.actions[4].action).mode =
             static_cast<InstrumentMode>(std::numeric_limits<uint8_t>::max());
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+}
+
+TEST_CASE("Sampling plan validates runtime frame actions") {
+    REQUIRE_NOTHROW(valid_frame_plan().validate());
+
+    SECTION("frame Pauli has the wrong word count") {
+        SamplingPlan plan = valid_frame_plan();
+        std::get<ApplyConditionalClifford>(plan.actions[0].action).pauli.x.push_back(0);
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame Pauli has a bit outside the frame") {
+        SamplingPlan plan = valid_frame_plan();
+        std::get<RotateFramePauli>(plan.actions[1].action).pauli.z = {0b111};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame Pauli is identity") {
+        SamplingPlan plan = valid_frame_plan();
+        std::get<MeasureFramePauli>(plan.actions[2].action).pauli = FramePauli{{0}, {0}};
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame actions need a declared frame") {
+        SamplingPlan plan = valid_frame_plan();
+        plan.frame_width = 0;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("declared frame needs a frame action") {
+        SamplingPlan plan = valid_rotation_plan();
+        plan.frame_width = 1;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame is wider than the qubit count") {
+        SamplingPlan plan = valid_frame_plan();
+        plan.num_qubits = 3;
+        plan.frame_width = 3;
+        REQUIRE_NOTHROW(plan.validate());
+        plan.num_qubits = 2;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("active action follows the start of the frame") {
+        SamplingPlan plan = valid_frame_plan();
+        plan.actions.push_back(valid_rotation_plan().actions[0]);
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame rotation lowers the width bound") {
+        SamplingPlan plan = valid_frame_plan();
+        plan.actions[1].active_after = 0;
+        plan.actions[2].active_before = 0;
+        plan.actions[2].active_after = 0;
+        plan.peak_active_width = 0;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame rotation angle is not finite") {
+        SamplingPlan plan = valid_frame_plan();
+        std::get<RotateFramePauli>(plan.actions[1].action).half_turns = clifft::test::opaque_nan();
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame measurement changes the width bound") {
+        SamplingPlan plan = valid_frame_plan();
+        plan.actions[2].active_after = 0;
+        REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
+    }
+
+    SECTION("frame is combined with an instrument") {
+        SamplingPlan plan = valid_frame_plan();
+        plan.instrument_distributions = {InstrumentDistribution{{0.0, 0.0}, {}}};
         REQUIRE_THROWS_AS(plan.validate(), std::invalid_argument);
     }
 }

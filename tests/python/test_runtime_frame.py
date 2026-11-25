@@ -14,6 +14,7 @@ from qiskit_aer.noise import pauli_error
 from utils_qiskit import qiskit_statevector, stim_to_qiskit_noiseless
 
 import clifft
+from clifft._clifft_core import _replay_record
 
 # A Bell pair whose T and T_DAG cancel unless the fault flips one sign.
 SIGNED_PAIR = (
@@ -171,6 +172,18 @@ def test_record_probabilities_match_the_ordinary_plan() -> None:
     actual = clifft.record_probabilities(frame, records)
     np.testing.assert_allclose(actual, expected, atol=1e-12)
     assert actual.sum() == pytest.approx(1.0)
+
+
+def test_reference_replay_matches_record_probabilities() -> None:
+    """The later T gates promote frame coordinates, so the replay grows storage."""
+    fixed, frame = _programs("H 0 1\nMPP Z0*Z1\nT 0\nT_DAG 1\nH 0 1\nT 0\nT 1\nH 0 1\nM 0 1\n")
+    assert frame.peak_active_width == fixed.peak_active_width == 2
+    records = [f"{value:03b}" for value in range(8)]
+    expected = clifft.record_probabilities(frame, records)
+    for record, probability in zip(records, expected):
+        replay = _replay_record(frame, [int(bit) for bit in record])
+        actual = np.exp(replay["log_probability"]) if replay["reachable"] else 0.0
+        assert actual == pytest.approx(probability, abs=1e-12)
 
 
 @pytest.mark.parametrize(
@@ -392,10 +405,17 @@ def test_runtime_frame_keeps_normalized_syndromes() -> None:
         {"keep_records": True},
         {"group_by_noise": True},
         {"batch_size": 96},
-        {"noise_preparation": clifft.NoisePreparation.DENSE},
+        *({"noise_preparation": mode} for mode in clifft.NoisePreparation),
         {"batch_size": "tune", "tuning_budget_seconds": 0.05},
     ],
-    ids=["default", "rows", "noise-groups", "capacity", "dense-noise", "tuned"],
+    ids=[
+        "default",
+        "rows",
+        "noise-groups",
+        "capacity",
+        *(f"noise-{mode.name.lower()}" for mode in clifft.NoisePreparation),
+        "tuned",
+    ],
 )
 def test_shared_survivor_sampling_follows_the_ordinary_plan(
     active_qubits: int, controls: dict
