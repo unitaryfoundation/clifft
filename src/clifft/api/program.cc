@@ -166,9 +166,16 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
     // reaches the width its static actions need. A reconstruction replaces it
     // up to that width, where it does no more coefficient work and no tableau
     // work. Between the two widths the frame plan's shots may run narrower
-    // than the reconstruction, so the frame plan stays.
+    // than the reconstruction, so the frame plan stays. The automatic choice
+    // also takes a reconstruction below the width at which it prefers a frame
+    // to an ordinary plan.
     const bool frame_original = data->original && data->original->uses_runtime_frame();
-    const uint32_t width_limit = frame_original   ? data->original->initial_capacity_width()
+    const uint32_t frame_limit =
+        !frame_original
+            ? 0
+            : std::max(data->original->initial_capacity_width(),
+                       runtime_frame.has_value() ? 0 : kMinOrdinaryWidthForRuntimeFrame - 1);
+    const uint32_t width_limit = frame_original   ? frame_limit
                                  : data->original ? data->original->peak_active_width()
                                                   : kDenseActiveWidthLimit;
     // Spend the full scheduling budget when a dense original state already costs
@@ -220,8 +227,8 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         // plan can emerge after lowering even if its schedule is too wide.
         if (data->original && result.reconstruction->peak_active_width > width_limit) {
             variant.fallback_reason =
-                frame_original ? "reconstruction schedule is wider than the static part of the "
-                                 "runtime Clifford frame plan"
+                frame_original ? "reconstruction schedule is wider than the runtime Clifford "
+                                 "frame plan allows"
                                : "reconstruction schedule does not reduce peak active width";
             continue;
         }
@@ -241,8 +248,8 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         const uint32_t width = summarize_active_width(*lowered.hir).peak_width;
         if (width > width_limit || (width == width_limit && !compare_cost && !frame_original)) {
             variant.fallback_reason =
-                frame_original   ? "reconstruction is wider than the static part of the runtime "
-                                   "Clifford frame plan"
+                frame_original   ? "reconstruction is wider than the runtime Clifford frame plan "
+                                   "allows"
                 : data->original ? "reconstruction does not reduce peak active width"
                                  : "reconstruction reaches the dense active-width limit";
             continue;

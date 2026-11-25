@@ -255,6 +255,49 @@ TEST_CASE("Frame selection reports what a frame does not support", "[reconstruct
     REQUIRE(Program(std::move(frame)).runtime_frame_fallback_reason().empty());
 }
 
+TEST_CASE("Automatic frame selection takes a reconstruction below its width floor",
+          "[reconstruction]") {
+    // Bell pairs with a signed T pair each. A second T layer on eight of them
+    // can promote one coordinate per pair, so the frame plan's bound is 8 and
+    // its shots start at width 0. Reconstruction measures the pairs one at a
+    // time at width 1, which lies between the two.
+    std::string text;
+    std::string evens;
+    constexpr uint32_t kPairs = 20;
+    constexpr uint32_t kSecond = 8;
+    for (uint32_t p = 0; p < kPairs; ++p) {
+        const std::string a = std::to_string(2 * p);
+        const std::string b = std::to_string(2 * p + 1);
+        text += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(0.01) " + a + "\nT " + a +
+                "\nT_DAG " + b + "\n";
+        if (p < kSecond) {
+            evens += " " + a;
+        }
+    }
+    text += "H" + evens + "\nT" + evens + "\nH" + evens + "\n";
+    for (uint32_t p = 0; p < kPairs; ++p) {
+        const std::string a = std::to_string(2 * p);
+        const std::string b = std::to_string(2 * p + 1);
+        text += p < kSecond ? "M " + a + "\nMX " + b + "\n" : "MPP X" + a + "*X" + b + "\n";
+        text += "DETECTOR rec[-1]\n";
+    }
+    const Circuit source = parse(text);
+    const HirModule hir = trace(source);
+    const Program requested = Program::compile(source, hir, std::nullopt, true, {}, true);
+    const Program automatic = Program::compile(source, hir, std::nullopt, true, {}, std::nullopt);
+    for (const Program* program : {&requested, &automatic}) {
+        REQUIRE(program->original().uses_runtime_frame());
+        REQUIRE(program->original().initial_capacity_width() == 0);
+        REQUIRE(program->original().peak_active_width() == kSecond);
+    }
+    for (bool keep_records : {false, true}) {
+        CAPTURE(keep_records);
+        REQUIRE(requested.sampling_plan(keep_records).uses_runtime_frame());
+        REQUIRE_FALSE(automatic.sampling_plan(keep_records).uses_runtime_frame());
+        REQUIRE(automatic.sampling_plan(keep_records).peak_active_width() == 1);
+    }
+}
+
 TEST_CASE("A reconstruction replaces a runtime frame plan only up to its static width",
           "[reconstruction]") {
     // Each loose qubit gets two T gates with a fault between them and, after a

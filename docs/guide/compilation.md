@@ -269,8 +269,10 @@ Things to know when choosing it:
   wide its state becomes, and `"auto"` compares that bound, so it can decline
   a circuit whose shots would stay narrow. Pass `True` for such a circuit.
 - Reconstruction still applies. A reconstructed plan replaces the frame plan
-  for sampling only when it is no wider than the width every shot of the frame
-  plan reaches; `program.sampling_plan(keep_records=...)` shows which plan runs.
+  for sampling when it is no wider than the width every shot of the frame
+  plan reaches. With `"auto"` it also does when it is narrower than 16, the
+  width below which `"auto"` prefers an ordinary plan to a frame.
+  `program.sampling_plan(keep_records=...)` shows which plan runs.
 - A frame lasts from its first T region to the end of the circuit. Later T
   gates on qubits it covers are applied one at a time, so a circuit that
   repeats a factory on the same qubits loses the reduction after the first
