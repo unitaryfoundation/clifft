@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <stdexcept>
 #include <vector>
 
 namespace clifft::sampling {
@@ -78,6 +79,15 @@ class SharingKey;
 [[nodiscard]] std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
     uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes = 0);
 
+// Thrown at a storage boundary when the groups of a batch need more
+// coefficient storage than max_worker_state_bytes holds. Fewer lanes make
+// fewer groups, so the batch can run again in smaller pieces after
+// SharingExecutor::reset_state_pool; one lane always fits.
+class SharedStateBudgetError : public std::runtime_error {
+  public:
+    using std::runtime_error::runtime_error;
+};
+
 // Immutable noise-sign basis shared by workers. Branches affecting this basis
 // split groups as they are sampled, keeping every later rotation sign uniform.
 class SharingKey {
@@ -124,6 +134,10 @@ class SharingExecutor : public BatchClassicalState {
         return static_cast<uint32_t>(states_.size());
     }
     [[nodiscard]] uint64_t state_pool_bytes() const noexcept;
+    // Returns the coefficient storage to one state of the width a new
+    // executor starts with. Call between batches, after one outgrew the
+    // budget, so that the pieces it is run in start narrow again.
+    void reset_state_pool();
     [[nodiscard]] uint32_t peak_groups() const noexcept { return peak_groups_; }
     [[nodiscard]] uint32_t storage_boundaries() const noexcept { return storage_boundaries_; }
     [[nodiscard]] uint32_t entrance_rejected() const noexcept { return entrance_rejected_; }

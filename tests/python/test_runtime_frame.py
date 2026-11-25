@@ -263,19 +263,28 @@ def test_automatic_selection_shares_postselected_frame_plans(active_qubits: int)
         clifft.sample_survivors(frame, 64, seed=5, noise_preparation=clifft.NoisePreparation.DENSE)
 
 
-def test_automatic_selection_without_postselection_follows_the_expected_sign_faults() -> None:
-    # Rare faults leave most shots on one frame, so the batch shares it.
+def test_automatic_selection_without_postselection_sizes_batches_by_divergence() -> None:
+    # Rare faults leave most shots on one frame, so the batch shares it whole.
     rare = _signed_pairs(pairs=8, plain=1, probability=0.01)
     _, frame = _programs(rare)
-    assert clifft.sample(frame, 4096, seed=1).execution.executor == "shared"
-    # A fair coin per pair decides its signs, so nearly every shot has its own frame.
+    quiet = clifft.sample(frame, 4096, seed=1, threads=1)
+    assert quiet.execution.executor == "shared"
+    assert quiet.execution.batch_size == 4096
+    # A fair coin per pair decides its signs, so nearly every shot has its own
+    # frame. Shared execution still matches the scalar executor there, in
+    # batches small enough to keep their tableaus in the cache.
     coins = "".join(
         f"H {a} {b}\nMPP Z{a}*Z{b}\nT {a}\nT_DAG {b}\nH {a} {b}\nM {a} {b}\n"
-        for a, b in ((2 * p, 2 * p + 1) for p in range(12))
+        for a, b in ((2 * p, 2 * p + 1) for p in range(13))
     )
     _, frame = _programs(coins)
     assert frame.original_plan.uses_runtime_frame
-    assert clifft.sample(frame, 4096, seed=1).execution.executor == "scalar"
+    divergent = clifft.sample(frame, 4096, seed=1, threads=1)
+    assert divergent.execution.executor == "shared"
+    assert divergent.execution.batch_size == 256
+    # A caller's batch size is kept.
+    chosen = clifft.sample(frame, 4096, seed=1, threads=1, sharing=True, batch_size=1024)
+    assert chosen.execution.batch_size == 1024
 
 
 def _rounds(count: int, detector: bool = False) -> str:

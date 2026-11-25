@@ -286,6 +286,22 @@ bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noe
            (lanes >> divergence.sign_dormant_measurements) >= kMinLanesPerDormantBranch;
 }
 
+bool ExecutablePlan::frame_trajectories_diverge() const noexcept {
+    // Sharing still matches the scalar executor when every shot has its own
+    // tableau, but each frame action then walks one tableau per lane, and a
+    // large batch of them leaves the cache. On five factory circuits with
+    // their noise scaled, a 256-lane batch is level with a full one at two
+    // expected sign faults and 3 to 22% faster from three.
+    constexpr double kMaxExpectedSignFaults = 3.0;
+    // Each such measurement doubles the tableaus a batch holds.
+    constexpr uint64_t kMaxBranchingMeasurements = 12;
+    const TrajectoryDivergence& divergence = trajectory_divergence_;
+    return uses_runtime_frame() && (divergence.expected_sign_faults > kMaxExpectedSignFaults ||
+                                    uint64_t{divergence.sign_dormant_measurements} +
+                                            divergence.mid_circuit_active_measurements >
+                                        kMaxBranchingMeasurements);
+}
+
 void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,
                                                       size_t num_registers) const noexcept {
 #ifndef NDEBUG

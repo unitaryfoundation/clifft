@@ -408,10 +408,13 @@ void SharingExecutor::grow_state_pool(StorageRequest request) {
                 "shared sampling active width would reach " + std::to_string(request.width) +
                 ", but the dense-state limit is " + std::to_string(kDenseActiveWidthLimit));
         }
-        const uint32_t max_states = static_cast<uint32_t>(std::min<uint64_t>(
-            lane_capacity_, max_worker_state_bytes_ / group_storage_bytes(*plan_, request.width)));
+        // One state always fits, as a shot on the scalar executor always
+        // gets its state, so a batch of one lane cannot fail here.
+        const uint32_t max_states = static_cast<uint32_t>(std::clamp<uint64_t>(
+            max_worker_state_bytes_ / group_storage_bytes(*plan_, request.width), 1,
+            lane_capacity_));
         if (states_.size() > max_states) {
-            throw std::runtime_error(
+            throw SharedStateBudgetError(
                 "shared states of active width " + std::to_string(request.width) +
                 " exceed max_worker_state_bytes; increase the budget or reduce batch_size");
         }
@@ -436,7 +439,7 @@ void SharingExecutor::grow_state_pool(StorageRequest request) {
     }
     const uint32_t required = request.states;
     if (required > max_states_) {
-        throw std::runtime_error(
+        throw SharedStateBudgetError(
             "shared state pool exceeds max_worker_state_bytes; increase the budget or reduce "
             "batch_size");
     }
@@ -470,6 +473,19 @@ void SharingExecutor::grow_state_pool(StorageRequest request) {
                                           state_width_, plan_->initial_active_width()));
         free_[free_count_++] = slot;
     }
+}
+
+void SharingExecutor::reset_state_pool() {
+    // Swapping releases the vectors' own storage as well as the slabs.
+    std::vector<State>().swap(states_);
+    std::vector<PageAlignedAllocation>().swap(state_chunks_);
+    std::vector<SharedFrame>().swap(frames_);
+    free_count_ = 0;
+    free_frame_count_ = 0;
+    state_width_ = plan_->initial_capacity_width();
+    max_states_ = static_cast<uint32_t>(std::min<uint64_t>(
+        lane_capacity_, max_worker_state_bytes_ / group_storage_bytes(*plan_, state_width_)));
+    grow_state_pool({.states = 1, .width = state_width_});
 }
 
 void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {

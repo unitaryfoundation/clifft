@@ -110,6 +110,10 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t initial_capacity_width() const {
         return uses_runtime_frame() ? frame_entry_peak_width_ : peak_active_width_;
     }
+    // True when most shots of a frame plan are expected to end on a tableau
+    // of their own, so that a large shared batch holds about as many tableaus
+    // as lanes.
+    [[nodiscard]] bool frame_trajectories_diverge() const noexcept;
     [[nodiscard]] uint32_t num_visible_records() const { return num_visible_records_; }
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
     [[nodiscard]] uint32_t num_detectors() const { return num_detectors_; }

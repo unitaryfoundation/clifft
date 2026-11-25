@@ -1589,6 +1589,92 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
         REQUIRE(peak_groups > 1);
         REQUIRE(peak_groups <= 4);
     }
+    SECTION("batches split when their groups outgrow the budget") {
+        // Six noise bits put the shots on up to 64 tableaus. A rotation about
+        // Z then widens the states of the shots that turned about X on its
+        // coordinate and only adds a phase to the others; three more
+        // coordinates turn in every shot. The budget holds a group for every
+        // lane while the states are empty and fewer at nine active
+        // coordinates, where a state outgrows its first page, so a batch
+        // with a shot that reaches them has to run again in halves.
+        constexpr uint32_t kCoordinates = 9;
+        constexpr uint32_t kNoiseBits = 6;
+        FrameProgram program;
+        program.num_qubits = kCoordinates;
+        program.noise_probabilities.assign(kNoiseBits, 0.5);
+        for (uint32_t q = 0; q < kCoordinates; ++q) {
+            program.steps.push_back(q < kNoiseBits ? rotate(uint64_t{1} << q, 0, 0.5, {}, {q})
+                                                   : rotate(uint64_t{1} << q, 0, 0.5));
+        }
+        for (uint32_t q = 0; q < kCoordinates; ++q) {
+            program.steps.push_back(rotate(0, uint64_t{1} << q, 0.11 + 0.04 * q));
+        }
+        // Five records keep every outcome likely enough to compare.
+        program.steps.push_back(measure(0b000000011, 0b000000100));
+        program.steps.push_back(measure(0b110000000, 0b000001000));
+        program.steps.push_back(measure(0b000000001, 0));
+        program.steps.push_back(measure(0b000010000, 0b000010000));
+        program.steps.push_back(measure(0, 0b010000000));
+        const SamplingPlan plan = build_frame_plan(program);
+        std::map<uint64_t, double> expected;
+        for (const ExactOutcomeEntry& entry : compute_exact_plan_distribution(plan).kept_outcomes) {
+            expected[entry.outcome.visible_records] = entry.probability;
+        }
+        const sampling::ExecutablePlan executable(plan);
+        REQUIRE(executable.initial_capacity_width() == 0);
+        const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection checks(executable);
+        constexpr uint32_t kLanes = 32;
+        constexpr uint32_t kSplitBatches = 250;
+        const uint64_t budget =
+            kLanes * sampling::SharingExecutor::group_storage_bytes(executable, 0);
+        REQUIRE(budget / sampling::SharingExecutor::group_storage_bytes(executable, kCoordinates) <
+                kLanes);
+        sampling::SharingExecutor executor(executable, noise, checks, kLanes, 1, true, nullptr,
+                                           budget, sampling::BatchOutputMode::Rows);
+        const SeedRoot root = seed_root_from_seed(seed);
+        std::map<uint64_t, uint32_t> counts;
+        uint32_t outgrown = 0;
+        for (uint32_t batch = 0; batch < kSplitBatches; ++batch) {
+            uint32_t piece = kLanes;
+            for (uint32_t done = 0; done < kLanes;) {
+                const uint32_t lanes = std::min(piece, kLanes - done);
+                try {
+                    executor.run_batch(root, batch * kLanes + done, lanes);
+                } catch (const sampling::SharedStateBudgetError&) {
+                    // One lane always fits.
+                    REQUIRE(lanes > 1);
+                    piece = lanes / 2;
+                    executor.reset_state_pool();
+                    ++outgrown;
+                    continue;
+                }
+                REQUIRE(executor.surviving_shots() == lanes);
+                for (uint64_t bits : shared_record_patterns(executor, plan.num_visible_records)) {
+                    ++counts[bits];
+                }
+                done += lanes;
+            }
+        }
+        REQUIRE(outgrown > 0);
+        // A reset leaves the storage of a new executor.
+        const sampling::SharingExecutor fresh(executable, noise, checks, kLanes, 1, true, nullptr,
+                                              budget, sampling::BatchOutputMode::Rows);
+        REQUIRE(executor.state_pool_bytes() > fresh.state_pool_bytes());
+        executor.reset_state_pool();
+        REQUIRE(executor.state_pool_bytes() == fresh.state_pool_bytes());
+        constexpr double kSplitShots = kLanes * kSplitBatches;
+        for (const auto& [bits, count] : counts) {
+            CAPTURE(bits);
+            REQUIRE(expected.contains(bits));
+        }
+        for (const auto& [bits, probability] : expected) {
+            CAPTURE(bits, probability);
+            const double observed = counts.contains(bits) ? counts[bits] / kSplitShots : 0.0;
+            const double sigma = std::sqrt(probability * (1.0 - probability) / kSplitShots);
+            REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
+        }
+    }
     SECTION("record-conditioned correction") {
         check(t_teleportation(0.3, true));
         check(t_teleportation(0.3, false));

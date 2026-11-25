@@ -209,12 +209,23 @@ share a circuit the rule declines, or `sharing=False` to keep ordinary
 execution for one that qualifies.
 
 Plans with a [runtime Clifford frame](compilation.md#runtime-clifford-frame-for-noisy-t-regions)
-follow the postselected and few-trajectories cases at any width, because their
-shots share frame updates as well as coefficients. The condition of each
-conditional Clifford counts as a rotation sign there, and the state budget is
-checked at the plan's active-width bound. Packed batch execution cannot run a
-frame, so a numeric `batch_size` without `sharing=True` runs the scalar
-executor, and `noise_preparation` requires `sharing=True`.
+share from 64 shots at any width, with or without postselection. Their shots
+share frame updates as well as coefficients, and a shared batch keeps pace with
+the scalar executor, the only other one that runs a frame, even when every
+shot ends on a frame of its own. The condition of each conditional Clifford
+counts as a rotation sign there. When a plan expects more than three sign
+faults per shot, or more than 12 measurements that decide signs by a fair
+coin, automatic batches hold 256 shots, which keeps the frames a batch walks
+in the cache.
+
+A frame plan's `peak_active_width` is an upper bound, so its states are sized
+for the width they start with. If the groups of a batch outgrow
+`max_worker_state_bytes`, the batch runs again in halves, down to single
+shots, as it would with that smaller `batch_size`; results still do not depend
+on the thread count. A `batch_size` you choose reports the budget instead.
+Packed batch execution cannot run a frame, so a numeric `batch_size` without
+`sharing=True` runs the scalar executor, and `noise_preparation` requires
+`sharing=True`.
 
 All three require `max_worker_state_bytes` to hold at least two shared states. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
