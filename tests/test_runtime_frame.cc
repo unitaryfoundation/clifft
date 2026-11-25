@@ -13,6 +13,7 @@
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
+#include "clifft/sampling/state_queries.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/xoshiro.h"
 
@@ -23,6 +24,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
+#include <complex>
 #include <functional>
 #include <map>
 #include <optional>
@@ -687,6 +689,39 @@ TEST_CASE("Frame planning reduces a region without sign flips and adds no frame"
                                 compute_exact_plan_distribution(frame));
 }
 
+TEST_CASE("Frame planning keeps the final state when a region reduces to a Clifford",
+          "[runtime_frame][sampling]") {
+    // Without noise no sign varies, so a region is replaced by its reduced T
+    // core and a Clifford correction on the static coordinates. The final
+    // tableau has to follow that correction.
+    struct Case {
+        const char* text;
+        uint32_t ordinary_width;
+        uint32_t frame_width;
+    };
+    for (const Case& c : {Case{"H 0\nT 0\nT 0\n", 1, 0}, Case{"H 0\nT 0\nT 0\nH 0\n", 1, 0},
+                          Case{"H 0\nCX 0 1\nT 0\nT 1\nH 1\n", 1, 0},
+                          Case{"H 0 1\nCX 0 1\nT 0\nT 1\nT 0\nH 0\n", 2, 1},
+                          Case{"H 0 1 2\nT 0\nT 1\nT 0\nT 1\nT 2\nCZ 0 2\nH 1\n", 3, 1}}) {
+        CAPTURE(c.text);
+        const HirModule hir = clifft::trace(clifft::parse(c.text));
+        const SamplingPlan ordinary = sampling::plan_sampling(hir);
+        const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+        REQUIRE(ordinary.peak_active_width == c.ordinary_width);
+        REQUIRE(frame.peak_active_width == c.frame_width);
+        REQUIRE(frame.frame_width == 0);
+        const auto expected = sampling::get_statevector(sampling::ExecutablePlan(ordinary));
+        const auto actual = sampling::get_statevector(sampling::ExecutablePlan(frame));
+        REQUIRE(expected.size() == actual.size());
+        std::complex<double> overlap = 0.0;
+        for (size_t i = 0; i < expected.size(); ++i) {
+            overlap += std::conj(expected[i]) * actual[i];
+        }
+        // Statevectors are defined up to a global phase.
+        REQUIRE_THAT(std::abs(overlap), Catch::Matchers::WithinAbs(1.0, 1e-12));
+    }
+}
+
 TEST_CASE("Frame planning keeps the static plan when it cannot help", "[runtime_frame][sampling]") {
     const std::vector<std::string> sources = {
         // The reference CCZ already needs every coordinate.
@@ -981,6 +1016,30 @@ TEST_CASE("Growing coefficient storage does not change a seeded frame shot",
     REQUIRE(saw_one);
     REQUIRE(lazy_executor.state().max_active_width() > 0);
     REQUIRE(eager_executor.state().max_active_width() == 3);
+}
+
+TEST_CASE("A frame shot repeated after storage growth counts its dust clamps once",
+          "[runtime_frame][sampling]") {
+    // Qubit 0 is measured with a branch of dust probability while one
+    // coefficient is active. The frame on qubits 1 and 2 later promotes two
+    // coordinates, so the first shot outgrows its storage and runs again.
+    const Circuit circuit = clifft::parse(
+        "H 0\nR_Z(0.0000000001) 0\nH 0\nM 0\n"
+        "H 1 2\nX_ERROR(0.25) 1 2\nT 1\nT 1\nT 2\nT 2\n"
+        "H 1 2\nT 1\nT 2\nM 1 2\n");
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
+    REQUIRE(plan.frame_width == 2);
+    const sampling::ExecutablePlan executable(plan);
+    REQUIRE(executable.initial_capacity_width() == 1);
+    sampling::Executor executor(executable, 7);
+    REQUIRE(executor.state().max_active_width() == 1);
+    for (uint64_t shot = 1; shot <= 4; ++shot) {
+        CAPTURE(shot);
+        executor.run_frame_shot();
+        REQUIRE(executor.state().max_active_width() == 2);
+        REQUIRE(executor.dust_clamps() == shot);
+    }
 }
 
 TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame][sampling]") {
