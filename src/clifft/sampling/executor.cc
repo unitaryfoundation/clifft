@@ -67,8 +67,10 @@ ReplayResult Executor::run_with_activation(Attempt&& attempt) {
     assert(frame_.has_value() && "only frame plans have an activation boundary");
     // A shot that outgrows its storage stops before the promotion changes the
     // frame or coefficients. Repeating it from the same RNG position gives the
-    // result it would have had with enough storage from the start.
+    // result it would have had with enough storage from the start, and the
+    // abandoned attempt leaves no trace in the dust-clamp count.
     const Xoshiro256PlusPlus start = rng_;
+    const uint64_t dust_clamps = dust_clamps_;
     for (;;) {
         if (frame_->changed) {
             frame_->frame.reset();
@@ -89,6 +91,7 @@ ReplayResult Executor::run_with_activation(Attempt&& attempt) {
         }
         state_.ensure_capacity(required);
         rng_ = start;
+        dust_clamps_ = dust_clamps;
     }
 }
 
