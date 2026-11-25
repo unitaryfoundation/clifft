@@ -140,13 +140,6 @@ class SharingExecutor : public BatchClassicalState {
     using BatchClassicalState::execute_action;
     static constexpr uint32_t kNoShot = std::numeric_limits<uint32_t>::max();
 
-    // Storage an action needs before dispatch can resume.
-    struct StorageRequest {
-        uint32_t states = 0;
-        uint32_t width = 0;
-        [[nodiscard]] explicit operator bool() const noexcept { return states != 0; }
-    };
-
     // One frame tableau and what the action in progress has prepared for the
     // groups that share it.
     struct SharedFrame {
@@ -184,22 +177,16 @@ class SharingExecutor : public BatchClassicalState {
     // so a run of them regroups the shots once.
     [[nodiscard]] static bool is_run_turn(const ExecutablePlan::Action& action) noexcept;
 
-    // Runs the batch on the pool as it is. Returns false when the pool
-    // cannot grow to hold its groups within the budget.
-    [[nodiscard]] bool run_batch_once(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
-    [[nodiscard]] bool initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
-    // Grows the pool, or returns false when it cannot within the budget.
-    [[nodiscard]] bool grow_state_pool(StorageRequest request);
-    // Returns the coefficient storage to one state of the width a new
-    // executor starts with.
-    void reset_state_pool();
-    [[noreturn]] void throw_over_budget() const;
-    // Slots a pool of old_count grows to for a request, up to max_states.
-    [[nodiscard]] static uint32_t grown_states(uint32_t old_count, uint32_t required,
-                                               uint32_t max_states) noexcept;
-    // Returns an empty request on completion, otherwise what resuming needs.
+    void initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
+    void grow_state_pool(uint32_t required);
+    // Lays every pooled state out for `width` inside its chunk, which is
+    // reserved for the plan's peak width. States pack from the start of a
+    // chunk, so narrow states share pages. With keep_coefficients the live
+    // coefficients move with their states, which requires a wider layout.
+    void lay_out_states(uint32_t width, bool keep_coefficients) noexcept;
+    // Returns zero on completion, otherwise the state capacity required to resume.
     template <ExecutorBackend Backend>
-    [[nodiscard]] StorageRequest dispatch_until_storage_boundary() noexcept;
+    [[nodiscard]] uint32_t dispatch_until_storage_boundary() noexcept;
     void copy_state(uint32_t to, uint32_t from) noexcept;
     [[nodiscard]] std::span<const uint32_t> lanes(uint32_t group) const noexcept {
         return {order_.data() + begin_[group], end_[group] - begin_[group]};
@@ -274,6 +261,9 @@ class SharingExecutor : public BatchClassicalState {
     std::vector<uint32_t> key_hash_;
     std::vector<uint32_t> split_factors_;
     uint32_t max_states_ = 0;
+    // Width the pooled states are laid out for, and the states in each chunk.
+    uint32_t state_width_ = 0;
+    std::vector<uint32_t> chunk_states_;
     // Contiguous slabs outlive the non-owning State views in states_.
     std::vector<PageAlignedAllocation> state_chunks_;
     std::vector<State> states_;
@@ -295,14 +285,6 @@ class SharingExecutor : public BatchClassicalState {
     uint32_t entrance_rejected_ = 0;
     uint64_t num_splits_ = 0;
     uint64_t num_merges_ = 0;
-    // Width every pooled state is allocated for, and the budget that bounds
-    // the pool when that width grows.
-    uint32_t state_width_ = 0;
-    uint64_t max_worker_state_bytes_ = 0;
-    // Bytes of the request the pool last refused, and whether it asked for
-    // wider states.
-    uint64_t refused_bytes_ = 0;
-    bool refused_widening_ = false;
 
     // Runtime Clifford frame storage; empty for a plan without one. The pool
     // holds one tableau per state, so every group can have its own.

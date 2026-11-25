@@ -569,17 +569,21 @@ def test_fixed_fault_survivor_sampling_follows_the_ordinary_plan(k: int) -> None
     _assert_same_survivor_counts(expected, actual, shots)
 
 
-def test_normalized_reference_uses_the_frame_when_the_ordinary_plan_overflows() -> None:
-    """Random parities sign 65 T pairs: no dense state holds the ordinary plan."""
-    pairs = 65
+def _parity_signed_pairs(pairs: int) -> str:
+    """Random parities sign a T pair on each Bell pair; one padded record is checked."""
     qubits = " ".join(map(str, range(2 * pairs)))
     evens = " ".join(str(2 * p) for p in range(pairs))
     odds = " ".join(str(2 * p + 1) for p in range(pairs))
     parities = "".join(f"MPP Z{2 * p}*Z{2 * p + 1}\n" for p in range(pairs))
-    text = (
+    return (
         f"H {qubits}\n{parities}T {evens}\nT_DAG {odds}\nH {qubits}\nM {qubits}\n"
         "MPAD 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
     )
+
+
+def test_normalized_reference_uses_the_frame_when_the_ordinary_plan_overflows() -> None:
+    """With 65 pairs no dense state holds the ordinary plan."""
+    text = _parity_signed_pairs(65)
     with pytest.raises(OverflowError):
         clifft.compile(text, normalize_syndromes=True, hir_passes=None, reconstruction=False)
     raw = clifft.compile(text, runtime_frame=True, hir_passes=None, reconstruction=False)
@@ -590,6 +594,26 @@ def test_normalized_reference_uses_the_frame_when_the_ordinary_plan_overflows() 
         result = clifft.sample(program, 64, seed=3)
         assert (result.detectors == expected).all()
         assert (result.observables == expected).all()
+
+
+@pytest.mark.parametrize("pairs", [40, 65])
+@pytest.mark.parametrize("runtime_frame", [True, "auto"])
+def test_normalized_reference_is_planned_on_a_frame_with_default_settings(
+    pairs: int, runtime_frame: bool | Literal["auto"]
+) -> None:
+    """At 40 pairs the ordinary reference plans but no state holds it.
+
+    The default passes split the regions a frame reduces, so the reference is
+    traced from the circuit again.
+    """
+    program = clifft.compile(
+        _parity_signed_pairs(pairs), runtime_frame=runtime_frame, normalize_syndromes=True
+    )
+    # The frame plan needs no active qubit; "auto" may sample a reconstruction of width one.
+    assert program.peak_active_width <= 1
+    result = clifft.sample(program, 64, seed=3)
+    assert not result.detectors.any()
+    assert not result.observables.any()
 
 
 def test_reduced_plan_without_a_frame_keeps_the_statevector() -> None:

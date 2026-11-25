@@ -46,6 +46,12 @@ class State {
     // calls this function.
     void ensure_capacity(uint32_t max_active_width);
 
+    // Moves a borrowed state, with its coefficients, to storage laid out for
+    // max_active_width. The new storage may overlap the old when every array
+    // lands at or above its old address, as when states packed in one slab
+    // spread out for a wider layout.
+    void relocate(double* storage, uint32_t max_active_width) noexcept;
+
     [[nodiscard]] uint32_t active_width() const { return active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
     [[nodiscard]] uint32_t max_active_width() const { return max_active_width_; }

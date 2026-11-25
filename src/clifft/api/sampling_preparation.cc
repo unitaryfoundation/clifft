@@ -36,7 +36,7 @@ SharedWorker::Executor make_shared_executor(const sampling::ExecutablePlan& plan
         {config.lane_capacity, kMaxInitialSharedStates,
          std::max<uint64_t>(
              1, kInitialSharedStateBytes / sampling::SharingExecutor::group_storage_bytes(
-                                               plan, plan.initial_capacity_width()))}));
+                                               plan, plan.peak_active_width()))}));
     return SharedWorker::Executor(std::in_place_type<sampling::SharingExecutor>, plan, noise,
                                   *checks, config.lane_capacity, initial_states, true, key,
                                   config.max_worker_state_bytes, config.output_mode);

@@ -69,9 +69,7 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
       departing_(lane_capacity),
       groups_(lane_capacity),
       free_(lane_capacity),
-      choices_(lane_capacity),
-      state_width_(plan.initial_capacity_width()),
-      max_worker_state_bytes_(max_worker_state_bytes) {
+      choices_(lane_capacity) {
     if (output_mode == BatchOutputMode::Rows && plan.num_exp_vals() != 0) {
         throw std::invalid_argument("shared row execution does not support expectation probes");
     }
@@ -95,8 +93,14 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
             key_hash_.resize(std::bit_ceil(size_t{lane_capacity} * 2));
         }
     }
+    // Storage is reserved for every state at the plan's peak width, so the
+    // pool cannot outgrow the budget. A frame plan's peak is a bound its
+    // shots may not reach: its states are laid out for the width the frame
+    // starts with and move apart inside that storage when a shot needs more.
+    state_width_ = plan.initial_capacity_width();
     max_states_ = static_cast<uint32_t>(std::min<uint64_t>(
-        lane_capacity, max_worker_state_bytes / group_storage_bytes(plan, state_width_)));
+        lane_capacity,
+        max_worker_state_bytes / group_storage_bytes(plan, plan.peak_active_width())));
     if (max_states_ == 0) {
         throw std::invalid_argument("max_worker_state_bytes cannot hold one shared state");
     }
@@ -163,9 +167,7 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
         }
     }
     initial_states = std::min(initial_states, max_states_);
-    [[maybe_unused]] const bool fits =
-        grow_state_pool({.states = initial_states, .width = state_width_});
-    assert(fits && "the initial states fit the budget");
+    grow_state_pool(initial_states);
     split_factors_.reserve(plan.actions_.size());
     for (const auto& action : plan.actions_) {
         split_factors_.push_back(std::visit(
@@ -295,9 +297,7 @@ uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatc
                                   const SharingKey* key, uint64_t max_worker_state_bytes,
                                   BatchOutputMode output_mode) {
     // Width-zero plans keep no coefficient states, unless a runtime Clifford
-    // frame gives every group a tableau. A frame plan's states start narrower
-    // than its width bound; counting every lane at the bound keeps a batch
-    // within the budget however far they grow.
+    // frame gives every group a tableau.
     const bool grouped = shares_groups(plan);
     uint32_t capacity = !grouped
                             ? kMaxAutoSharedBatchShots
@@ -418,62 +418,37 @@ namespace {
 
 }  // namespace
 
-bool SharingExecutor::grow_state_pool(StorageRequest request) {
-    assert(request.states <= lane_capacity_ && "shared states cannot outnumber classical lanes");
-    // This is an explicit suspension boundary. Live coefficients and sampled
-    // outcomes remain intact while storage grows, then the same action resumes.
-    if (request.width > state_width_) {
-        if (request.width >= kDenseActiveWidthLimit) {
-            throw std::overflow_error(
-                "shared sampling active width would reach " + std::to_string(request.width) +
-                ", but the dense-state limit is " + std::to_string(kDenseActiveWidthLimit));
-        }
-        const uint64_t group_bytes = group_storage_bytes(*plan_, request.width);
-        const uint32_t max_states = static_cast<uint32_t>(
-            std::min<uint64_t>(max_worker_state_bytes_ / group_bytes, lane_capacity_));
-        if (states_.size() > max_states) {
-            refused_bytes_ = saturating_multiply_u64(states_.size(), group_bytes);
-            refused_widening_ = true;
-            return false;
-        }
-        // A slab holds slots of one width, so every state moves to a new slab.
-        std::vector<State> widened;
-        widened.reserve(states_.capacity());
-        PageAlignedAllocation slab = allocate_state_slab(states_.size(), request.width);
-        for (size_t slot = 0; slot < states_.size(); ++slot) {
-            const State& narrow = states_[slot];
-            State& wide =
-                widened.emplace_back(State::borrowed(slab_slot(slab, slot, request.width),
-                                                     request.width, narrow.initial_active_width()));
-            wide.set_active_width(narrow.active_width());
-            std::ranges::copy(narrow.real(), wide.real().begin());
-            std::ranges::copy(narrow.imag(), wide.imag().begin());
-        }
-        states_ = std::move(widened);
-        state_chunks_.clear();
-        state_chunks_.push_back(std::move(slab));
-        state_width_ = request.width;
-        max_states_ = max_states;
-    }
-    const uint32_t required = request.states;
+void SharingExecutor::grow_state_pool(uint32_t required) {
+    assert(required <= lane_capacity_ && "shared states cannot outnumber classical lanes");
     if (required > max_states_) {
-        refused_bytes_ =
-            saturating_multiply_u64(required, group_storage_bytes(*plan_, state_width_));
-        refused_widening_ = false;
-        return false;
+        throw std::runtime_error(
+            "shared state pool exceeds max_worker_state_bytes; increase the budget or reduce "
+            "batch_size");
     }
     const uint32_t old_count = static_cast<uint32_t>(states_.size());
     if (required <= old_count) {
-        return true;
+        return;
     }
-    const uint32_t target = grown_states(old_count, required, max_states_);
+    // This is an explicit suspension boundary. Live coefficients and sampled
+    // outcomes remain intact while storage grows, then the same action resumes.
+    // Keep initial_states exact on construction, then grow geometrically so
+    // splitting batches allocate O(log n) contiguous slabs instead of tiny chunks.
+    const uint32_t target =
+        old_count == 0
+            ? required
+            : static_cast<uint32_t>(std::min<uint64_t>(
+                  max_states_,
+                  std::max<uint64_t>(required,
+                                     uint64_t{old_count} + std::max<uint64_t>(old_count / 2, 1))));
     const uint32_t add = target - old_count;
     states_.reserve(target);
     state_chunks_.reserve(state_chunks_.size() + 1);
+    chunk_states_.reserve(chunk_states_.size() + 1);
     if (sign_stride_ != 0) {
         frames_.reserve(target);
     }
-    state_chunks_.push_back(allocate_state_slab(add, state_width_));
+    state_chunks_.push_back(allocate_state_slab(add, plan_->peak_active_width()));
+    chunk_states_.push_back(add);
     for (uint32_t i = 0; i < add; ++i) {
         const uint32_t slot = old_count + i;
         if (sign_stride_ != 0) {
@@ -484,60 +459,31 @@ bool SharingExecutor::grow_state_pool(StorageRequest request) {
                                           state_width_, plan_->initial_active_width()));
         free_[free_count_++] = slot;
     }
-    return true;
 }
 
-uint32_t SharingExecutor::grown_states(uint32_t old_count, uint32_t required,
-                                       uint32_t max_states) noexcept {
-    // Keep initial_states exact on construction, then grow geometrically so
-    // splitting batches allocate O(log n) contiguous slabs instead of tiny chunks.
-    return old_count == 0
-               ? required
-               : static_cast<uint32_t>(std::min<uint64_t>(
-                     max_states,
-                     std::max<uint64_t>(
-                         required, uint64_t{old_count} + std::max<uint64_t>(old_count / 2, 1))));
-}
-
-void SharingExecutor::throw_over_budget() const {
-    throw std::runtime_error("shared states need " + std::to_string(refused_bytes_) +
-                             " bytes, but max_worker_state_bytes is " +
-                             std::to_string(max_worker_state_bytes_) +
-                             "; increase the budget or reduce batch_size");
-}
-
-void SharingExecutor::reset_state_pool() {
-    // Swapping releases the vectors' own storage as well as the slabs.
-    std::vector<State>().swap(states_);
-    std::vector<PageAlignedAllocation>().swap(state_chunks_);
-    std::vector<SharedFrame>().swap(frames_);
-    free_count_ = 0;
-    free_frame_count_ = 0;
-    state_width_ = plan_->initial_capacity_width();
-    max_states_ = static_cast<uint32_t>(std::min<uint64_t>(
-        lane_capacity_, max_worker_state_bytes_ / group_storage_bytes(*plan_, state_width_)));
-    [[maybe_unused]] const bool fits = grow_state_pool({.states = 1, .width = state_width_});
-    assert(fits && "one state fits the budget");
+void SharingExecutor::lay_out_states(uint32_t width, bool keep_coefficients) noexcept {
+    assert(width <= plan_->peak_active_width() && (!keep_coefficients || width > state_width_) &&
+           "states stay inside their storage, and coefficients move only apart");
+    // A wider layout puts every array at or above its old address, so the
+    // last state of a chunk moves first.
+    uint32_t end = static_cast<uint32_t>(states_.size());
+    for (size_t chunk = state_chunks_.size(); chunk-- > 0;) {
+        const uint32_t begin = end - chunk_states_[chunk];
+        for (uint32_t slot = end; slot-- > begin;) {
+            State& state = states_[slot];
+            double* storage = slab_slot(state_chunks_[chunk], slot - begin, width);
+            if (keep_coefficients) {
+                state.relocate(storage, width);
+            } else {
+                state = State::borrowed(storage, width, state.initial_active_width());
+            }
+        }
+        end = begin;
+    }
+    state_width_ = width;
 }
 
 void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
-    if (run_batch_once(root, first_shot, shots)) {
-        return;
-    }
-    // A pool that widened, in this batch or an earlier one, holds every state
-    // at that width, and can run out where a pool of one state would not. The
-    // batch then starts over on such a pool. Its draws do not depend on the
-    // pool, so its rows are the same.
-    if (state_width_ == plan_->initial_capacity_width() && !refused_widening_) {
-        throw_over_budget();
-    }
-    reset_state_pool();
-    if (!run_batch_once(root, first_shot, shots)) {
-        throw_over_budget();
-    }
-}
-
-bool SharingExecutor::run_batch_once(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
     reset_classical(root, first_shot, shots);
     sample_presampled_noise();
     apply_early_postselection(*checks_);
@@ -553,18 +499,19 @@ bool SharingExecutor::run_batch_once(const SeedRoot& root, uint32_t first_shot, 
         if (output_mode_ == BatchOutputMode::Rows) {
             active_lanes_ = 0;
         }
-        return true;
+        return;
     }
-    if (!initialize_groups(root, first_shot, shots)) {
-        return false;
+    // A batch that widened its states leaves them apart. They hold nothing
+    // now, so they pack again for the width a batch starts with.
+    if (state_width_ != plan_->initial_capacity_width()) {
+        lay_out_states(plan_->initial_capacity_width(), false);
     }
+    initialize_groups(root, first_shot, shots);
     std::fill_n(shot_signs_.begin(), size_t{shots} * sign_stride_, uint64_t{0});
     const auto run = [&]<ExecutorBackend Backend>() {
-        while (const StorageRequest request = dispatch_until_storage_boundary<Backend>()) {
+        while (const uint32_t required = dispatch_until_storage_boundary<Backend>()) {
             ++storage_boundaries_;
-            if (!grow_state_pool(request)) {
-                return false;
-            }
+            grow_state_pool(required);
         }
 #ifndef NDEBUG
         // Every listed group holds one reference to its tableau, and nothing
@@ -592,7 +539,6 @@ bool SharingExecutor::run_batch_once(const SeedRoot& root, uint32_t first_shot, 
             active_lanes_ = live_count_;
             fill_low_lane_mask(live_words_, active_lanes());
         }
-        return true;
     };
     switch (plan_->backend_) {
         case ExecutorBackend::Scalar:
@@ -617,10 +563,9 @@ bool SharingExecutor::run_batch_once(const SeedRoot& root, uint32_t first_shot, 
 #endif
     }
     assert(false && "unhandled sharing executor backend");
-    return true;
 }
 
-bool SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
+void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
     if (key_stride_ != 0) {
         std::ranges::fill(key_rows_, uint64_t{0});
         std::ranges::fill(key_hash_, kNoShot);
@@ -698,9 +643,7 @@ bool SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
     free_count_ = 0;
     if (group_count_ > states_.size()) {
         ++storage_boundaries_;
-        if (!grow_state_pool({.states = group_count_, .width = state_width_})) {
-            return false;
-        }
+        grow_state_pool(group_count_);
     }
     peak_groups_ = group_count_;
     free_count_ = static_cast<uint32_t>(states_.size()) - group_count_;
@@ -712,7 +655,7 @@ bool SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
         states_[group].reset();
     }
     if (sign_stride_ == 0) {
-        return true;
+        return;
     }
     frame_stamp_ = 0;
     free_frame_count_ = 0;
@@ -731,11 +674,10 @@ bool SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
         frame_of_[group] = frame;
         ++frames_[frame].users;
     }
-    return true;
 }
 
 template <ExecutorBackend Backend>
-SharingExecutor::StorageRequest SharingExecutor::dispatch_until_storage_boundary() noexcept {
+uint32_t SharingExecutor::dispatch_until_storage_boundary() noexcept {
     while (action_index_ < plan_->actions_.size() && live_count_ != 0) {
         const auto plan_index = checks_->action_order()[action_index_];
         const auto& action = plan_->actions_[plan_index];
@@ -758,7 +700,7 @@ SharingExecutor::StorageRequest SharingExecutor::dispatch_until_storage_boundary
             run != 0) {
             const uint32_t groups = group_count_ + prepare_clifford_run(run);
             if (groups > states_.size()) {
-                return {.states = groups, .width = state_width_};
+                return groups;
             }
             execute_clifford_run(run);
             action_index_ += run;
@@ -767,11 +709,12 @@ SharingExecutor::StorageRequest SharingExecutor::dispatch_until_storage_boundary
         const uint32_t required = static_cast<uint32_t>(
             std::min<uint64_t>(live_count_, uint64_t{group_count_} * split_factors_[plan_index]));
         if (required > states_.size()) {
-            return {.states = required, .width = state_width_};
+            return required;
         }
         if (const auto* rotation = std::get_if<ExecutablePlan::ExecuteFrameRotation>(&action);
             rotation != nullptr && frame_rotation_needs_width(*rotation)) {
-            return {.states = static_cast<uint32_t>(states_.size()), .width = state_width_ + 1};
+            // The storage is already reserved, so this allocates nothing.
+            lay_out_states(state_width_ + 1, true);
         }
         std::visit(
             [&](const auto& typed) noexcept {
@@ -786,7 +729,7 @@ SharingExecutor::StorageRequest SharingExecutor::dispatch_until_storage_boundary
             action);
         ++action_index_;
     }
-    return {};
+    return 0;
 }
 
 void SharingExecutor::copy_state(uint32_t to, uint32_t from) noexcept {

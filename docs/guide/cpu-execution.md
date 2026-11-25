@@ -219,13 +219,15 @@ signs by a fair coin, automatic batches hold 256 shots, which keeps the frames
 a batch walks in the cache. Postselection discards shots as they diverge, so
 those plans keep full batches.
 
-A frame plan's `peak_active_width` is an upper bound. Its states start at the
-width the frame begins with and grow as shots need. A batch holds as many
-shots as `max_worker_state_bytes` holds states of the bound's width, so it
-stays within the budget however far its states grow, and a plan with room for
-fewer than two such states runs on the scalar executor. Packed batch execution
-cannot run a frame, so a numeric `batch_size` without `sharing=True` runs the
-scalar executor, and `noise_preparation` requires `sharing=True`.
+A frame plan's `peak_active_width` is an upper bound that few shots may reach.
+Shared execution reserves a state of that width for every group, as it does
+for an ordinary plan, so a batch holds as many shots as
+`max_worker_state_bytes` holds such states and cannot outgrow the budget. The
+part of a state that no shot reaches is never touched. A plan with room for
+fewer than two such states runs on the scalar executor, which grows its one
+state as a shot needs. Packed batch execution cannot run a frame, so a numeric
+`batch_size` without `sharing=True` runs the scalar executor, and
+`noise_preparation` requires `sharing=True`.
 
 All three require `max_worker_state_bytes` to hold at least two shared states. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
