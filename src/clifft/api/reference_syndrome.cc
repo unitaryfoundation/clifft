@@ -84,7 +84,11 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir,
         try {
             sampling::ExecutablePlan frame(
                 sampling::plan_sampling(frame_hir, {.runtime_frame = true}));
-            if (!clean_program || frame.peak_active_width() < clean_program->peak_active_width()) {
+            // At an equal bound the frame plan still starts narrower, and
+            // its one state grows only as far as the shot goes.
+            if (!clean_program || frame.peak_active_width() < clean_program->peak_active_width() ||
+                (frame.uses_runtime_frame() &&
+                 frame.peak_active_width() == clean_program->peak_active_width())) {
                 clean_program.emplace(std::move(frame));
             }
         } catch (const std::overflow_error&) {}
@@ -100,10 +104,10 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir,
         }
     }
 
-    // A frame plan's states start at the width its static actions need, and
-    // a noiseless shot seldom grows them toward the plan's bound.
+    // A frame plan's width is a bound its shot can reach, so a narrower
+    // reconstruction is still preferred to it.
     const uint32_t width_limit =
-        clean_program ? clean_program->initial_capacity_width() : kDenseActiveWidthLimit;
+        clean_program ? clean_program->peak_active_width() : kDenseActiveWidthLimit;
     if (reconstruction_source && clean_hir.num_exp_vals == 0 &&
         width_limit > kMaxDirectReferenceWidth) {
         auto lowered = reconstruct_noiseless_detectors(*reconstruction_source, limits);
