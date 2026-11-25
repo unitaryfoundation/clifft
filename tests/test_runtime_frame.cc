@@ -326,6 +326,14 @@ std::vector<SignedRegionCase> signed_region_cases() {
          "H 0 1 4\nCX 0 2\nCX 1 3\nCX 4 5\nX_ERROR(0.3) 0\nX_ERROR(0.2) 1\nX_ERROR(0.25) 4\n"
          "T 0 1 4\nT_DAG 2 3 5\nMPP Z0*Z1\nMPP Y0*X2*Y1*X3\nT 4\n"
          "MPP X0*X2*X1*X3\nM 0 1 2 3 4 5\n"},
+        // Measuring qubit 0 fixes its coordinate while the pair keeps the
+        // frame live, and the next region releases it. A T pair about Y on
+        // that qubit then cancels and disturbs nothing, so a stabilizer the
+        // plan still held after the release would be released a second time
+        // where the last T on qubit 0 starts a region.
+        {"a released stabilizer is forgotten",
+         "H 4\nCX 4 5\nX_ERROR(0.3) 4\nT 4\nT_DAG 5\nH 0\nT 0\nH 0\nM 0\n"
+         "S_DAG 0\nH 0\nT 0\nT_DAG 0\nH 0\nS 0\nH 0\nT 0\nH 0\nM 0\nMPP X4*X5\nM 4 5\n"},
         // The check of the first pair is known until the T gate rotates about
         // an axis that anticommutes with it. The second check must not then
         // count as fixing the whole frame: the first check, repeated, has a
@@ -1214,7 +1222,6 @@ TEST_CASE("Random measured rounds match the dense oracle on a runtime frame",
     uint32_t retired = 0;
     uint32_t restarted = 0;
     uint32_t continued = 0;
-    uint32_t released = 0;
     for (uint32_t trial = 0; trial < 300; ++trial) {
         const std::string source = random_measured_rounds_source(rng, 2 + trial % 3);
         CAPTURE(trial, source);
@@ -1226,9 +1233,7 @@ TEST_CASE("Random measured rounds match the dense oracle on a runtime frame",
         bool seen_retirement = false;
         bool restarts = false;
         bool continues = false;
-        bool releases = false;
         for (const PlannedAction& planned : frame.actions) {
-            releases |= std::holds_alternative<sampling::ReleaseFrameCoordinate>(planned.action);
             seen_retirement |= std::holds_alternative<sampling::RetireFrame>(planned.action);
             restarts |= seen_retirement &&
                         std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
@@ -1237,12 +1242,11 @@ TEST_CASE("Random measured rounds match the dense oracle on a runtime frame",
         retired += seen_retirement;
         restarted += restarts;
         continued += continues;
-        released += releases;
         require_distributions_equal(compute_dense_circuit_distribution(circuit),
                                     compute_exact_plan_distribution(frame));
     }
     // The generator must reach each outcome often enough to test it.
-    CAPTURE(retired, restarted, continued, released);
+    CAPTURE(retired, restarted, continued);
     REQUIRE(retired >= 30);
     REQUIRE(restarted >= 10);
     REQUIRE(continued >= 10);
@@ -1797,27 +1801,94 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
         REQUIRE(peak_groups <= 4);
     }
     SECTION("releasing a stabilizer on two coordinates") {
-        // The outcome of X0*X1 on |00> is a fair coin, which leaves a sign on
-        // a row of X0 or of X1, whichever the frame localized. Z0*Z1 is then
-        // a stabilizer. Releasing it with either pivot multiplies the X row of
-        // the coordinate that stays by the pivot's, so that coordinate's X is
-        // the old X0*X1, and measuring it repeats the first record.
-        for (uint32_t pivot : {0U, 1U}) {
-            CAPTURE(pivot);
-            FrameProgram program;
-            program.num_qubits = 2;
-            program.steps = {measure(0b11, 0), measure(0, 0b11), measure(0b01, 0)};
-            SamplingPlan plan = build_frame_plan(program);
-            plan.actions.insert(
-                plan.actions.begin() + 2,
-                {0, 0, sampling::ReleaseFrameCoordinate{FramePauli{{0}, {0b11}}, pivot, 2}});
-            const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
-            REQUIRE(exact.kept_outcomes.size() == 2);
-            for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
-                const uint64_t records = entry.outcome.visible_records;
-                REQUIRE((records == 0b000 || records == 0b101));
+        // Coordinate b is the frame's last, and the stabilizer on a and b is
+        // released with either as pivot, which leaves the other in place a.
+        //
+        // Released Za*Zb: the outcome of Xa*Xb on |0...0> is a fair coin,
+        // which leaves a sign on a row of Xa or of Xb, whichever the frame
+        // localized, and Za*Zb is then a stabilizer. The release multiplies
+        // the X row of the coordinate that stays by the pivot's, so its X is
+        // the old Xa*Xb, and measuring it repeats the first record.
+        //
+        // Released Xa*Xb: Xa, Za*Zb and Xa*Xb in turn are three fair coins and
+        // leave both products known. The release multiplies the Z row of the
+        // coordinate that stays by the pivot's, so its Z is the old Za*Zb,
+        // and measuring it repeats the second record.
+        //
+        // A Pauli applied first, Z of the pivot before a released Za*Zb and X
+        // of it before a released Xa*Xb, changes no outcome above but signs
+        // the row of the pivot that decides which other row signs a release
+        // flips.
+        //
+        // The wider frames put the two coordinates in different words of a
+        // tableau row and of a shot's row signs, or both past the first word.
+        struct Placement {
+            uint32_t width;
+            uint32_t a;
+        };
+        for (const Placement& where : {Placement{2, 0}, Placement{65, 63}, Placement{70, 64}}) {
+            const uint32_t b = where.width - 1;
+            for (const uint32_t variant : {0U, 1U, 2U, 3U}) {
+                const bool release_x = (variant & 1) != 0;
+                const bool signed_pivot = (variant & 2) != 0;
+                for (uint32_t pivot : {where.a, b}) {
+                    CAPTURE(where.width, where.a, release_x, signed_pivot, pivot);
+                    const auto pauli = [&](bool x_type,
+                                           std::initializer_list<uint32_t> coordinates) {
+                        const size_t words = (size_t{where.width} + 63) / 64;
+                        FramePauli product{std::vector<uint64_t>(words),
+                                           std::vector<uint64_t>(words)};
+                        for (uint32_t q : coordinates) {
+                            (x_type ? product.x : product.z)[q / 64] |= uint64_t{1} << (q % 64);
+                        }
+                        return product;
+                    };
+                    SamplingPlan plan;
+                    plan.num_qubits = where.width;
+                    plan.frame_width = where.width;
+                    const auto measure_pauli = [&](FramePauli product) {
+                        const SymbolId branch{static_cast<uint32_t>(plan.symbols.size())};
+                        plan.symbols.push_back(SymbolKind::Branch);
+                        plan.actions.push_back(
+                            {0, 0,
+                             sampling::MeasureFramePauli{std::move(product), branch,
+                                                         AffineBool::symbol(branch),
+                                                         RecordSlot{index(branch)}}});
+                    };
+                    if (signed_pivot) {
+                        plan.actions.push_back({0, 0,
+                                                sampling::ApplyConditionalClifford{
+                                                    pauli(release_x, {pivot}),
+                                                    CliffordRotation::PAULI, AffineBool(true)}});
+                    }
+                    if (release_x) {
+                        measure_pauli(pauli(true, {where.a}));
+                        measure_pauli(pauli(false, {where.a, b}));
+                    }
+                    measure_pauli(pauli(true, {where.a, b}));
+                    if (!release_x) {
+                        measure_pauli(pauli(false, {where.a, b}));
+                    }
+                    plan.actions.push_back(
+                        {0, 0,
+                         sampling::ReleaseFrameCoordinate{pauli(release_x, {where.a, b}), pivot,
+                                                          where.width}});
+                    measure_pauli(pauli(!release_x, {where.a}));
+                    plan.num_visible_records = static_cast<uint32_t>(plan.symbols.size());
+                    const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+                    REQUIRE(exact.kept_outcomes.size() == (release_x ? 8 : 2));
+                    for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+                        const uint64_t records = entry.outcome.visible_records;
+                        const auto record = [&](uint32_t slot) { return (records >> slot) & 1; };
+                        if (release_x) {
+                            REQUIRE(record(3) == record(1));
+                        } else {
+                            REQUIRE((records == 0b000 || records == 0b101));
+                        }
+                    }
+                    check_plan(plan);
+                }
             }
-            check_plan(plan);
         }
     }
     SECTION("record-conditioned correction") {
