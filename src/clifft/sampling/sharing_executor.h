@@ -103,8 +103,9 @@ class SharingKey {
 // Shares coefficient states across shots with identical prepared evolution.
 // Dormant measurements and sparse symmetric readout use packed draws;
 // active measurements and all other readout retain per-shot RNG streams. A pool
-// growth boundary suspends dispatch before an action can require more states,
-// or before a frame rotation promotes past the width the states were sized for.
+// growth boundary suspends dispatch before an action can require more states.
+// The states of a frame plan widen without one, inside storage reserved for
+// the plan's peak width.
 class SharingExecutor : public BatchClassicalState {
   public:
     SharingExecutor(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
@@ -123,13 +124,17 @@ class SharingExecutor : public BatchClassicalState {
         const ExecutablePlan& plan, const PreparedBatchNoise& noise, const SharingKey* key,
         uint32_t lane_capacity, BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
 
-    // Throws std::runtime_error at a storage boundary when the groups of the
-    // batch need more coefficient storage than max_worker_state_bytes holds.
+    // Throws std::runtime_error at a storage boundary when an action could
+    // split the batch into more groups than max_worker_state_bytes holds
+    // states for.
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] uint32_t state_capacity() const noexcept {
         return static_cast<uint32_t>(states_.size());
     }
     [[nodiscard]] uint64_t state_pool_bytes() const noexcept;
+    // Width the pooled states are laid out for: the width a frame plan starts
+    // with, or the widest a shot of the current batch has reached.
+    [[nodiscard]] uint32_t state_layout_width() const noexcept { return state_width_; }
     [[nodiscard]] uint32_t peak_groups() const noexcept { return peak_groups_; }
     [[nodiscard]] uint32_t storage_boundaries() const noexcept { return storage_boundaries_; }
     [[nodiscard]] uint32_t entrance_rejected() const noexcept { return entrance_rejected_; }
