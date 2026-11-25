@@ -209,16 +209,13 @@ uint64_t SharingExecutor::frame_storage_bytes(const ExecutablePlan& plan) {
     if (!plan.uses_runtime_frame()) {
         return 0;
     }
-    // The frame's tableau, two rows per coordinate and six of scratch, each
-    // its X and Z words and a phase byte, in two allocations. The mapped
+    // The frame's tableau and scratch rows in two allocations. The mapped
     // Pauli allocates its X and Z words, and the row mask is a fifth.
-    constexpr uint64_t kScratchRows = 6;
     constexpr uint64_t kAllocations = 5;
     constexpr uint64_t kAllocationOverhead = 16;
     const uint64_t words_bytes = uint64_t{plan.frame_words()} * sizeof(uint64_t);
-    const uint64_t rows = 2 * uint64_t{plan.frame_width_} + kScratchRows;
     return saturating_add_u64(
-        saturating_multiply_u64(rows, 2 * words_bytes + 1),
+        OnlineFrame::storage_bytes(plan.frame_width_),
         sizeof(SharedFrame) + 4 * words_bytes + kAllocations * kAllocationOverhead);
 }
 
