@@ -271,13 +271,11 @@ nb::ndarray<nb::numpy, T, nb::c_contig> vec_to_numpy(std::vector<T> vec,
     return nb::ndarray<nb::numpy, T, nb::c_contig>(data, shape, owner);
 }
 
-clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
-                                               std::span<const uint8_t> postselection_mask,
-                                               bool normalize_syndromes,
-                                               clifft::HirPassManager* hir_passes,
-                                               std::vector<uint8_t>& expected_detectors,
-                                               std::vector<uint8_t>& expected_observables,
-                                               bool allow_reconstruction = false) {
+clifft::HirModule prepare_circuit_for_lowering(
+    const clifft::Circuit& circuit, std::span<const uint8_t> postselection_mask,
+    bool normalize_syndromes, clifft::HirPassManager* hir_passes,
+    std::vector<uint8_t>& expected_detectors, std::vector<uint8_t>& expected_observables,
+    bool allow_reconstruction = false, bool runtime_frame = false) {
     if (normalize_syndromes && (!expected_detectors.empty() || !expected_observables.empty())) {
         throw std::invalid_argument(
             "Cannot provide expected parities when normalize_syndromes=True");
@@ -288,7 +286,8 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         std::ranges::any_of(postselection_mask, [](uint8_t flag) { return flag != 0; });
     const bool reference_before_passes = normalize_syndromes && has_postselection;
     if (reference_before_passes) {
-        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source);
+        auto reference =
+            clifft::compute_reference_syndrome(hir, reconstruction_source, {}, runtime_frame);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
     }
@@ -299,7 +298,8 @@ clifft::HirModule prepare_circuit_for_lowering(const clifft::Circuit& circuit,
         hir_passes->run(hir);
     }
     if (normalize_syndromes && !reference_before_passes) {
-        auto reference = clifft::compute_reference_syndrome(hir, reconstruction_source);
+        auto reference =
+            clifft::compute_reference_syndrome(hir, reconstruction_source, {}, runtime_frame);
         expected_detectors = std::move(reference.detectors);
         expected_observables = std::move(reference.observables);
         hir.postselection.expected_detectors = expected_detectors;
@@ -1768,7 +1768,8 @@ NB_MODULE(_clifft_core, m) {
                 hir_passes == nullptr || hir_passes->preserves_sampling_distribution();
             const auto hir = prepare_circuit_for_lowering(
                 circuit, postselection_mask, normalize_syndromes, hir_passes, expected_detectors,
-                expected_observables, reconstruction != false && preserves_sampling);
+                expected_observables, reconstruction != false && preserves_sampling,
+                runtime_frame != false);
             return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling, {},
                                             runtime_frame);
         },
@@ -2014,8 +2015,9 @@ NB_MODULE(_clifft_core, m) {
                 const auto& preparation = owner.sampling_preparation(
                     outputs,
                     {.early_postselection = false, .fixed_faults = true, .survivor_counts = true});
+                // A frame plan runs on the scalar executor, which samples its own noise.
                 const auto* noise =
-                    batch_size == 1 || shots == 0
+                    batch_size == 1 || shots == 0 || preparation.plan().uses_runtime_frame()
                         ? nullptr
                         : &preparation.noise(clifft::sampling::BatchNoiseMode::Dense);
                 result = clifft::sampling::sample_k_survivors(preparation.plan(), shots, k, seed,
@@ -2248,7 +2250,8 @@ NB_MODULE(_clifft_core, m) {
             {
                 nb::gil_scoped_release release;
                 clifft::sampling::Executor executor(program);
-                result = executor.replay_shot(forced_records);
+                result = program.uses_runtime_frame() ? executor.replay_frame_shot(forced_records)
+                                                      : executor.replay_shot(forced_records);
             }
             nb::dict output;
             output["reachable"] = result.reachable;

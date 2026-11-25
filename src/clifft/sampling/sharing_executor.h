@@ -76,18 +76,11 @@ class SharingKey;
 // Capacities calibration compares for one call: the automatic baseline first,
 // then a fixed ladder up to the safe capacity. Each candidate uses as many of
 // the requested workers as it has batches for.
+// The first candidate is the baseline a tuned call falls back to: the capacity
+// given, or the automatic one for safe_capacity.
 [[nodiscard]] std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
-    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes = 0);
-
-// Thrown at a storage boundary when the groups of a batch need more
-// coefficient storage than max_worker_state_bytes holds. Whether a batch fits
-// depends on the batch alone, not on the storage earlier batches left in the
-// executor. Fewer lanes make fewer groups, so the batch can run again in
-// smaller pieces; one lane always fits.
-class SharedStateBudgetError : public std::runtime_error {
-  public:
-    using std::runtime_error::runtime_error;
-};
+    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes = 0,
+    std::optional<uint32_t> baseline_capacity = std::nullopt);
 
 // Immutable noise-sign basis shared by workers. Branches affecting this basis
 // split groups as they are sampled, keeping every later rotation sign uniform.
@@ -130,14 +123,13 @@ class SharingExecutor : public BatchClassicalState {
         const ExecutablePlan& plan, const PreparedBatchNoise& noise, const SharingKey* key,
         uint32_t lane_capacity, BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
 
+    // Throws std::runtime_error at a storage boundary when the groups of the
+    // batch need more coefficient storage than max_worker_state_bytes holds.
     void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] uint32_t state_capacity() const noexcept {
         return static_cast<uint32_t>(states_.size());
     }
     [[nodiscard]] uint64_t state_pool_bytes() const noexcept;
-    // Returns the coefficient storage to one state of the width a new
-    // executor starts with. Call only between batches.
-    void reset_state_pool();
     [[nodiscard]] uint32_t peak_groups() const noexcept { return peak_groups_; }
     [[nodiscard]] uint32_t storage_boundaries() const noexcept { return storage_boundaries_; }
     [[nodiscard]] uint32_t entrance_rejected() const noexcept { return entrance_rejected_; }
@@ -152,10 +144,7 @@ class SharingExecutor : public BatchClassicalState {
     struct StorageRequest {
         uint32_t states = 0;
         uint32_t width = 0;
-        // Set when a pool grown from one state could not hold the batch at
-        // this point within the budget.
-        bool over_budget = false;
-        [[nodiscard]] explicit operator bool() const noexcept { return states != 0 || over_budget; }
+        [[nodiscard]] explicit operator bool() const noexcept { return states != 0; }
     };
 
     // One frame tableau and what the action in progress has prepared for the
@@ -191,20 +180,19 @@ class SharingExecutor : public BatchClassicalState {
 
     // Tableau bytes of one group of a plan with a runtime Clifford frame.
     [[nodiscard]] static uint64_t frame_storage_bytes(const ExecutablePlan& plan);
+    // A conditional quarter turn the frame fixes. Consecutive ones commute,
+    // so a run of them regroups the shots once.
+    [[nodiscard]] static bool is_run_turn(const ExecutablePlan::Action& action) noexcept;
 
-    // Runs one batch on the pool as it is. Returns false when that pool,
-    // left wider or larger by an earlier batch, cannot hold this one within
-    // the budget although a new pool can.
+    // Runs the batch on the pool as it is. Returns false when the pool
+    // cannot grow to hold its groups within the budget.
     [[nodiscard]] bool run_batch_once(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] bool initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     // Grows the pool, or returns false when it cannot within the budget.
     [[nodiscard]] bool grow_state_pool(StorageRequest request);
-    // The budget is checked on the storage a pool would hold at this point
-    // of the batch had it started the batch with one state, growing by the
-    // rules of the real pool. These account one more request against it and
-    // return whether it fits.
-    [[nodiscard]] bool account_fresh_states(uint32_t required) noexcept;
-    [[nodiscard]] bool account_fresh_width() noexcept;
+    // Returns the coefficient storage to one state of the width a new
+    // executor starts with.
+    void reset_state_pool();
     [[noreturn]] void throw_over_budget() const;
     // Slots a pool of old_count grows to for a request, up to max_states.
     [[nodiscard]] static uint32_t grown_states(uint32_t old_count, uint32_t required,
@@ -264,9 +252,8 @@ class SharingExecutor : public BatchClassicalState {
     // Maps the rotation's Pauli through the group's frame, once per action.
     SharedFrame& prepare_frame_rotation(
         uint32_t group, const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
-    // Widest state among the groups whose frame rotation promotes a
-    // coordinate, if any does.
-    [[nodiscard]] std::optional<uint32_t> widest_promoting_state(
+    // True when some group's frame rotation would promote past state_width_.
+    [[nodiscard]] bool frame_rotation_needs_width(
         const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
     // Frees the groups whose lanes another group took and lays every group
     // out again as a range of order_.
@@ -312,11 +299,10 @@ class SharingExecutor : public BatchClassicalState {
     // the pool when that width grows.
     uint32_t state_width_ = 0;
     uint64_t max_worker_state_bytes_ = 0;
-    // Width, size and limit, at this point of the batch, of a pool that
-    // started the batch with one state.
-    uint32_t fresh_width_ = 0;
-    uint32_t fresh_states_ = 0;
-    uint32_t fresh_max_states_ = 0;
+    // Bytes of the request the pool last refused, and whether it asked for
+    // wider states.
+    uint64_t refused_bytes_ = 0;
+    bool refused_widening_ = false;
 
     // Runtime Clifford frame storage; empty for a plan without one. The pool
     // holds one tableau per state, so every group can have its own.

@@ -58,6 +58,14 @@ class OnlineFrame {
           phases_(size_t{2} * count + kScratchRows) {
         reset();
     }
+
+    // Bytes a frame over `count` coordinates allocates for its tableau and
+    // scratch rows: the X and Z words and a phase byte of each row.
+    [[nodiscard]] static uint64_t storage_bytes(uint32_t count) noexcept {
+        const uint64_t rows = 2 * uint64_t{count} + kScratchRows;
+        const uint64_t words = (uint64_t{count} + 63) / 64;
+        return rows * (2 * words * sizeof(uint64_t) + 1);
+    }
     void reset() noexcept {
         std::fill_n(storage_.begin(), size_t{2} * n * 2 * words_, uint64_t{0});
         std::fill_n(phases_.begin(), size_t{2} * n, uint8_t{0});

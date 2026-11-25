@@ -504,10 +504,14 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
         if (output.has_postselection_) {
             work.push_back(estimate);
         }
+        // No action reads the width while a frame is live, and a retired
+        // frame leaves no active coordinate.
         if (std::holds_alternative<ExecutablePlan::ExecutePromotion>(action)) {
             ++width;
         } else if (std::holds_alternative<ExecutablePlan::ExecuteActiveMeasurement>(action)) {
             --width;
+        } else if (std::holds_alternative<ExecutablePlan::ExecuteFrameRetirement>(action)) {
+            width = 0;
         }
     }
     prepare_batch_compaction_costs(output, work);

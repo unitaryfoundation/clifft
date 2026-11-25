@@ -213,19 +213,19 @@ share from 64 shots at any width, with or without postselection. Their shots
 share frame updates as well as coefficients, and a shared batch keeps pace with
 the scalar executor, the only other one that runs a frame, even when every
 shot ends on a frame of its own. The condition of each conditional Clifford
-counts as a rotation sign there. When a plan expects more than three sign
-faults per shot, or more than 12 measurements that decide signs by a fair
-coin, automatic batches hold 256 shots, which keeps the frames a batch walks
-in the cache.
+counts as a rotation sign there. When a plan without postselection expects
+more than three sign faults per shot, or more than 12 measurements that decide
+signs by a fair coin, automatic batches hold 256 shots, which keeps the frames
+a batch walks in the cache. Postselection discards shots as they diverge, so
+those plans keep full batches.
 
-A frame plan's `peak_active_width` is an upper bound, so its states are sized
-for the width they start with. If the groups of a batch outgrow
-`max_worker_state_bytes`, the batch runs again in halves, down to single
-shots, as it would with that smaller `batch_size`; results still do not depend
-on the thread count. A `batch_size` you choose reports the budget instead.
-Packed batch execution cannot run a frame, so a numeric `batch_size` without
-`sharing=True` runs the scalar executor, and `noise_preparation` requires
-`sharing=True`.
+A frame plan's `peak_active_width` is an upper bound. Its states start at the
+width the frame begins with and grow as shots need. A batch holds as many
+shots as `max_worker_state_bytes` holds states of the bound's width, so it
+stays within the budget however far its states grow, and a plan with room for
+fewer than two such states runs on the scalar executor. Packed batch execution
+cannot run a frame, so a numeric `batch_size` without `sharing=True` runs the
+scalar executor, and `noise_preparation` requires `sharing=True`.
 
 All three require `max_worker_state_bytes` to hold at least two shared states. On first
 use, `Program` caches the requested output plan, noise metadata, entrance
@@ -265,10 +265,10 @@ Use `sample_k()` or `sample_k_survivors()` for fixed-fault conditioning, and
 `clifft.noncomp` for leakage and loss instruments. Shared execution is
 incompatible with retained `EXP_VAL` probes (`keep_records=True` on a circuit
 containing `EXP_VAL`), `batch_size=1`, and intra-shot thread layouts. Circuits
-whose selected plan has zero active width have no quantum state to share; with
-`sharing=True`, they run on the packed classical executor under the shared
-batching and noise policy (`result.execution.executor == "packed"` and
-`result.execution.sharing is True`).
+whose selected plan has zero active width and no runtime Clifford frame have no
+quantum state to share; with `sharing=True`, they run on the packed classical
+executor under the shared batching and noise policy
+(`result.execution.executor == "packed"` and `result.execution.sharing is True`).
 
 ### Batch size and state memory
 
