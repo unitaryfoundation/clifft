@@ -389,7 +389,8 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
 uint64_t SharingExecutor::state_pool_bytes() const noexcept {
     uint64_t bytes = saturating_add_u64(
         saturating_multiply_u64(states_.capacity(), sizeof(State)),
-        saturating_multiply_u64(state_chunks_.capacity(), sizeof(PageAlignedAllocation)));
+        saturating_multiply_u64(state_chunks_.capacity(),
+                                sizeof(PageAlignedAllocation) + sizeof(uint32_t)));
     for (const auto& chunk : state_chunks_) {
         bytes = saturating_add_u64(bytes, chunk.size());
     }
@@ -411,9 +412,9 @@ namespace {
     return PageAlignedAllocation(slots * slot_bytes, alignment);
 }
 
-[[nodiscard]] double* slab_slot(PageAlignedAllocation& slab, size_t slot, uint32_t width) {
+[[nodiscard]] double* slab_slot(PageAlignedAllocation& slab, size_t slot, uint32_t width) noexcept {
     return reinterpret_cast<double*>(static_cast<std::byte*>(slab.data()) +
-                                     slot * State::slot_bytes(width));
+                                     slot * State::slot_bytes_unchecked(width));
 }
 
 }  // namespace
@@ -441,18 +442,31 @@ void SharingExecutor::grow_state_pool(uint32_t required) {
                   std::max<uint64_t>(required,
                                      uint64_t{old_count} + std::max<uint64_t>(old_count / 2, 1))));
     const uint32_t add = target - old_count;
+    // Every allocation happens before the pool changes, and a tableau that
+    // fails to allocate takes the ones before it back, so a failed growth
+    // leaves the executor as it was.
     states_.reserve(target);
     state_chunks_.reserve(state_chunks_.size() + 1);
     chunk_states_.reserve(chunk_states_.size() + 1);
+    PageAlignedAllocation slab = allocate_state_slab(add, plan_->peak_active_width());
     if (sign_stride_ != 0) {
         frames_.reserve(target);
+        try {
+            for (uint32_t i = 0; i < add; ++i) {
+                frames_.emplace_back(plan_->frame_width_, sign_stride_);
+            }
+        } catch (...) {
+            while (frames_.size() > old_count) {
+                frames_.pop_back();
+            }
+            throw;
+        }
     }
-    state_chunks_.push_back(allocate_state_slab(add, plan_->peak_active_width()));
+    state_chunks_.push_back(std::move(slab));
     chunk_states_.push_back(add);
     for (uint32_t i = 0; i < add; ++i) {
         const uint32_t slot = old_count + i;
         if (sign_stride_ != 0) {
-            frames_.emplace_back(plan_->frame_width_, sign_stride_);
             free_frames_[free_frame_count_++] = slot;
         }
         states_.push_back(State::borrowed(slab_slot(state_chunks_.back(), i, state_width_),
@@ -472,11 +486,7 @@ void SharingExecutor::lay_out_states(uint32_t width, bool keep_coefficients) noe
         for (uint32_t slot = end; slot-- > begin;) {
             State& state = states_[slot];
             double* storage = slab_slot(state_chunks_[chunk], slot - begin, width);
-            if (keep_coefficients) {
-                state.relocate(storage, width);
-            } else {
-                state = State::borrowed(storage, width, state.initial_active_width());
-            }
+            state.relocate(storage, width, keep_coefficients);
         }
         end = begin;
     }

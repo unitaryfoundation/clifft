@@ -2319,8 +2319,9 @@ TEST_CASE("Shared frame states are allocated for the width bound of the plan",
     REQUIRE_THROWS_AS(make(at_bound - 1), std::invalid_argument);
 
     // With a state at the bound for every lane, a batch runs whatever it
-    // draws. A wide shot grows into its own state, so once the pool holds a
-    // state per lane no batch allocates again, and an executor that ran
+    // draws. A wide shot spreads the states out inside the storage they have,
+    // so once the pool holds a state per lane no batch allocates again, and
+    // the next batch packs them for the starting width. An executor that ran
     // other batches before returns the rows of a new one.
     sampling::SharingExecutor roomy = make(kLanes * at_bound);
     uint32_t wide_batches = 0;
@@ -2329,7 +2330,9 @@ TEST_CASE("Shared frame states are allocated for the width bound of the plan",
         CAPTURE(batch);
         roomy.run_batch(root, batch * kLanes, kLanes);
         const auto expected = rows(roomy);
-        wide_batches += std::ranges::any_of(expected, is_wide);
+        const bool wide = std::ranges::any_of(expected, is_wide);
+        wide_batches += wide;
+        REQUIRE(roomy.state_layout_width() == (wide ? kWide : 0));
         if (roomy.state_capacity() == kLanes) {
             if (full_pool_bytes == 0) {
                 full_pool_bytes = roomy.state_pool_bytes();
@@ -2342,6 +2345,45 @@ TEST_CASE("Shared frame states are allocated for the width bound of the plan",
     }
     REQUIRE(wide_batches > 10);
     REQUIRE(full_pool_bytes != 0);
+
+    // Without the pairs a batch stays one group until the fault splits it at
+    // the rotation that also widens, and the wide states split again when
+    // they are measured. The pool then grows by a chunk while its states are
+    // laid out wide. An executor that held a state per lane from the start
+    // never grows and returns the same rows.
+    {
+        std::string fan_out;
+        for (uint32_t q = 0; q < kWide; ++q) {
+            fan_out += "CX 10 " + std::to_string(q) + "\n";
+        }
+        const SamplingPlan late_plan = sampling::plan_sampling(
+            clifft::trace(clifft::parse("H" + targets + "\nT" + targets + "\nX_ERROR(0.4) 10\n" +
+                                        fan_out + "T" + targets + "\nH_YZ" + targets + "\nT" +
+                                        targets + "\nM 10\nM" + targets + "\n")),
+            {.runtime_frame = true});
+        const sampling::ExecutablePlan late(late_plan);
+        REQUIRE(late.initial_capacity_width() == 0);
+        const sampling::PreparedBatchNoise late_noise(late, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection late_checks(late);
+        const auto with_states = [&](uint32_t initial_states) {
+            return sampling::SharingExecutor(late, late_noise, late_checks, kLanes, initial_states,
+                                             true, nullptr, kLanes * at_bound,
+                                             sampling::BatchOutputMode::Rows);
+        };
+        sampling::SharingExecutor reserved = with_states(kLanes);
+        uint32_t grown_wide = 0;
+        for (uint32_t batch = 0; batch < 100; ++batch) {
+            CAPTURE(batch);
+            sampling::SharingExecutor growing = with_states(1);
+            growing.run_batch(root, batch * kLanes, kLanes);
+            reserved.run_batch(root, batch * kLanes, kLanes);
+            REQUIRE(reserved.storage_boundaries() == 0);
+            REQUIRE(shared_record_patterns(growing, late_plan.num_visible_records) ==
+                    shared_record_patterns(reserved, late_plan.num_visible_records));
+            grown_wide += growing.state_layout_width() == kWide && growing.state_capacity() > 2;
+        }
+        REQUIRE(grown_wide > 10);
+    }
 
     // With two states, a batch of two lanes runs and a batch of four, whose
     // lanes could each need a state, reports the budget. An executor that ran

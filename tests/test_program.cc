@@ -713,6 +713,60 @@ TEST_CASE(
         const auto ref =
             compute_reference_syndrome(chained_hir, nullptr, {}, true, &chained_source);
         REQUIRE(ref.detectors.size() == kPairs);
+        // It is the reference of the frame planned from the circuit's own trace.
+        REQUIRE(ref.detectors ==
+                compute_reference_syndrome(trace(chained_source), nullptr, {}, true).detectors);
+    }
+
+    // The frame plan of a reference states a bound that its one shot can
+    // reach. Here 44 rotations each activate a qubit: the frame plan starts at
+    // width zero and the shot grows to 44, while reconstruction needs none of
+    // them for the detector. Reconstruction is preferred to the frame plan.
+    {
+        std::string rotated;
+        std::string parity = "MPP Z8";
+        for (uint32_t q = 8; q < 52; ++q) {
+            rotated += " " + std::to_string(q);
+            if (q != 8) {
+                parity += "*Z" + std::to_string(q);
+            }
+        }
+        const auto widening_source = parse(
+            "H 0 1 2 3 4 5 6 7\nMPP Z0*Z1 Z2*Z3 Z4*Z5 Z6*Z7\nT 0 2 4 6\nT_DAG 1 3 5 7\nR_X(0.2)" +
+            rotated + "\n" + parity +
+            "\nMPAD 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+        const auto ref = compute_reference_syndrome(trace(widening_source), &widening_source, {},
+                                                    true, &widening_source);
+        REQUIRE(ref.detectors == std::vector<uint8_t>{1});
+        REQUIRE(ref.observables == std::vector<uint8_t>{1});
+    }
+
+    // Forty rotations about Z on one qubit raise the frame plan's bound to
+    // 40, the width of the sequential plan, although the shot keeps one
+    // active qubit. With no reconstruction to turn to, the frame plan is the
+    // reference a state can hold.
+    {
+        constexpr uint32_t kPairs = 40;
+        std::string qubits;
+        std::string evens;
+        std::string odds;
+        std::string parities;
+        std::string rotations;
+        for (uint32_t p = 0; p < kPairs; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            qubits += " " + a + " " + b;
+            evens += " " + a;
+            odds += " " + b;
+            parities += "MPP Z" + a + "*Z" + b + "\n";
+            rotations += "R_Z(0.2) 0\n";
+        }
+        const auto tied_hir =
+            trace(parse("H" + qubits + "\n" + parities + "T" + evens + "\nT_DAG" + odds + "\n" +
+                        rotations + "H" + qubits + "\nM" + qubits +
+                        "\nMPAD 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"));
+        const auto ref = compute_reference_syndrome(tied_hir, nullptr, {}, true);
+        REQUIRE(ref.detectors == std::vector<uint8_t>{1});
     }
 
     // Asymmetric record-only success: zero detectors and observables skip detector reconstruction.
