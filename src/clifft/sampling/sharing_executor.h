@@ -169,6 +169,9 @@ class SharingExecutor : public BatchClassicalState {
 
     // Tableau bytes of one group of a plan with a runtime Clifford frame.
     [[nodiscard]] static uint64_t frame_storage_bytes(const ExecutablePlan& plan);
+    // A conditional quarter turn the frame fixes. Consecutive ones commute,
+    // so a run of them regroups the shots once.
+    [[nodiscard]] static bool is_run_turn(const ExecutablePlan::Action& action) noexcept;
 
     void initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     void grow_state_pool(StorageRequest request);

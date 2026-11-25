@@ -113,17 +113,10 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
         // Find the runs of quarter turns the frame fixes, in dispatch order.
         // They commute, so a shot's tableau depends only on the set it fires.
         const auto order = checks.action_order();
-        const auto in_run = [&](size_t position) {
-            const auto* clifford =
-                std::get_if<ExecutablePlan::ExecuteFrameClifford>(&plan.actions_[order[position]]);
-            return clifford != nullptr && clifford->fixed_by_frame &&
-                   (clifford->rotation == CliffordRotation::SQRT ||
-                    clifford->rotation == CliffordRotation::SQRT_DAG);
-        };
         uint32_t longest = 0;
         for (size_t begin = 0; begin < order.size();) {
             size_t end = begin;
-            while (end < order.size() && in_run(end)) {
+            while (end < order.size() && is_run_turn(plan.actions_[order[end]])) {
                 ++end;
             }
             if (end - begin >= 2) {
@@ -185,6 +178,13 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
     }
 }
 
+bool SharingExecutor::is_run_turn(const ExecutablePlan::Action& action) noexcept {
+    const auto* clifford = std::get_if<ExecutablePlan::ExecuteFrameClifford>(&action);
+    return clifford != nullptr && clifford->fixed_by_frame &&
+           (clifford->rotation == CliffordRotation::SQRT ||
+            clifford->rotation == CliffordRotation::SQRT_DAG);
+}
+
 uint64_t SharingExecutor::frame_storage_bytes(const ExecutablePlan& plan) {
     if (!plan.uses_runtime_frame()) {
         return 0;
@@ -236,15 +236,13 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
         bytes =
             saturating_add_u64(bytes, saturating_multiply_u64(lane_capacity, 3 * sizeof(uint32_t)));
         // Regrouping a run of conditional quarter turns: one bit per turn for
-        // every lane, bounded here by all of the plan's conditional Cliffords,
-        // the class table, and ten entries per lane.
-        uint64_t cliffords = 0;
-        for (const auto& action : plan.actions_) {
-            cliffords += std::holds_alternative<ExecutablePlan::ExecuteFrameClifford>(action);
-        }
+        // every lane, the class table, and ten entries per lane. The dispatch
+        // order decides where a run ends, so the longest run is bounded here
+        // by all the turns a run can hold.
+        const uint64_t turns =
+            static_cast<uint64_t>(std::ranges::count_if(plan.actions_, is_run_turn));
         bytes = saturating_add_u64(
-            bytes,
-            saturating_multiply_u64(lane_capacity, (cliffords + 63) / 64 * sizeof(uint64_t)));
+            bytes, saturating_multiply_u64(lane_capacity, (turns + 63) / 64 * sizeof(uint64_t)));
         bytes = saturating_add_u64(
             bytes, saturating_multiply_u64(
                        std::bit_ceil(uint64_t{lane_capacity} * 2) + 10 * uint64_t{lane_capacity},
