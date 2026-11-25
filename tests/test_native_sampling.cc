@@ -544,6 +544,51 @@ TEST_CASE("Native automatic selection shares runtime Clifford frame plans") {
             clifft::sample_survivors(checked, 4096, 7, true, {.threads = 1}).execution.batch_size ==
             4096);
     }
+    SECTION("a fault that widens the states is sampled as often as it occurs") {
+        // An X error on the control decides whether ten targets each add an
+        // active qubit, and the control's record reports it. With room for
+        // two wide states, most batches that hold the fault are split.
+        constexpr uint32_t kTargets = 10;
+        constexpr double kFault = 0.02;
+        std::string targets;
+        std::string fan_out;
+        for (uint32_t q = 0; q < kTargets; ++q) {
+            targets += " " + std::to_string(q);
+            fan_out += "CX 10 " + std::to_string(q) + "\n";
+        }
+        const std::string source = "H" + targets + "\nT" + targets + "\nX_ERROR(0.02) 10\n" +
+                                   fan_out + "T" + targets + "\nH_YZ" + targets + "\nT" + targets +
+                                   "\nM 10\nOBSERVABLE_INCLUDE(0) rec[-1]\n";
+        const auto make_plan = [&] {
+            return ExecutablePlan(plan_sampling(trace(parse(source)), {.runtime_frame = true}));
+        };
+        const ExecutablePlan plan = make_plan();
+        REQUIRE(plan.initial_capacity_width() == 0);
+        REQUIRE(plan.peak_active_width() == kTargets);
+        const uint64_t budget = 2 * SharingExecutor::group_storage_bytes(plan, kTargets);
+        const Program program{make_plan()};
+        constexpr uint32_t kShots = 40000;
+        const double sigma = std::sqrt(kFault * (1.0 - kFault) * kShots);
+        for (const BatchNoiseMode mode : {BatchNoiseMode::Dense, BatchNoiseMode::Sparse,
+                                          BatchNoiseMode::SiteSparse, BatchNoiseMode::SiteRows}) {
+            CAPTURE(static_cast<int>(mode));
+            const SamplingOptions options{.threads = 1,
+                                          .sharing = true,
+                                          .noise_preparation = mode,
+                                          .max_worker_state_bytes = budget};
+            const auto rows = clifft::sample(program, kShots, 42, true, options);
+            REQUIRE(rows.execution.executor == SamplingExecutor::Shared);
+            REQUIRE(rows.execution.batch_size > 2);
+            const double fired =
+                static_cast<double>(std::ranges::count(rows.measurements, uint8_t{1}));
+            REQUIRE(std::abs(fired - kFault * kShots) <= 6.0 * sigma);
+            const auto counted = clifft::sample_survivors(program, kShots, 43, false, options);
+            REQUIRE(counted.passed_shots == kShots);
+            REQUIRE(std::abs(static_cast<double>(counted.observable_ones.at(0)) -
+                             kFault * kShots) <= 6.0 * sigma);
+        }
+    }
+
     SECTION("an automatic call splits a batch whose groups outgrow the budget") {
         // A second T layer acts on qubits the frame already covers, so each of
         // its rotations may add an active qubit: the plan bounds its width by
@@ -572,27 +617,25 @@ TEST_CASE("Native automatic selection shares runtime Clifford frame plans") {
         REQUIRE(plan.uses_runtime_frame());
         REQUIRE(plan.initial_capacity_width() == 0);
         REQUIRE(plan.peak_active_width() == kPairs);
-        // The budget is checked where the states start.
+        // Sharing needs two states where they start and one at the bound:
+        // a batch split down to one lane then always fits.
         const uint64_t at_start = SharingExecutor::group_storage_bytes(plan, 0);
         const uint64_t at_bound = SharingExecutor::group_storage_bytes(plan, kPairs);
-        REQUIRE(shares(plan, 4096, 2 * at_start));
-        REQUIRE_FALSE(shares(plan, 4096, 2 * at_start - 1));
-
-        // With room for two states where they start and less than one at the
-        // bound, every batch ends up as single shots, which always fit.
         REQUIRE(2 * at_start < at_bound);
+        REQUIRE(shares(plan, 4096, at_bound));
+        REQUIRE_FALSE(shares(plan, 4096, at_bound - 1));
+        // Below that the automatic call keeps the scalar executor.
         const Program narrow{make_plan(false)};
-        const auto singles = clifft::sample(narrow, 64, 7, true,
-                                            {.threads = 1, .max_worker_state_bytes = 2 * at_start});
-        REQUIRE(singles.execution.executor == SamplingExecutor::Shared);
-        REQUIRE(singles.execution.batch_size == 2);
-        REQUIRE(singles.measurements.size() == size_t{kPairs} * 64);
+        const auto scalar = clifft::sample(narrow, 64, 7, true,
+                                           {.threads = 1, .max_worker_state_bytes = at_bound - 1});
+        REQUIRE(scalar.execution.executor == SamplingExecutor::Scalar);
 
         // On each of these qubits a fault between two T gates decides whether
         // a third T adds an active qubit, so few shots reach nine of them,
         // where a state outgrows its first page, and only the batches that
-        // hold such a shot are split. Each batch starts whole again, so the
-        // results do not depend on which worker ran the batches before it.
+        // hold such a shot are split. A split batch returns the rows of the
+        // whole one, so the results depend neither on the worker that ran the
+        // batches before it nor on the budget.
         constexpr uint32_t kLoose = 12;
         std::string loose;
         for (uint32_t q = 0; q < kLoose; ++q) {
@@ -620,11 +663,19 @@ TEST_CASE("Native automatic selection shares runtime Clifford frame plans") {
         REQUIRE(one.execution.executor == SamplingExecutor::Shared);
         REQUIRE(two.execution.batch_size == one.execution.batch_size);
         REQUIRE(two.measurements == one.measurements);
+        const auto unsplit =
+            clifft::sample(varied, 6000, 7, true,
+                           {.threads = 1,
+                            .batch_size = one.execution.batch_size,
+                            .sharing = true,
+                            .max_worker_state_bytes =
+                                kLanes * SharingExecutor::group_storage_bytes(varying, kLoose)});
+        REQUIRE(unsplit.measurements == one.measurements);
 
         // Here one rare fault widens ten qubits at once, a second one splits
         // groups without widening them, and a fair-coin measurement makes the
         // rows depend on how lanes are batched. A worker keeps its storage
-        // between batches; whether a batch is split must not depend on it.
+        // between batches, which must not change a row.
         std::string rare = "H 12\nCX 12 13\nX_ERROR(0.5) 12\nT 12\nT_DAG 13\n";
         std::string wide;
         for (uint32_t q = 0; q < 10; ++q) {
@@ -657,35 +708,19 @@ TEST_CASE("Native automatic selection shares runtime Clifford frame plans") {
             REQUIRE(split.execution.executor == SamplingExecutor::Shared);
             REQUIRE(split.execution.batch_size > 8);
             // The same batch size, when the caller chooses it, reports the
-            // budget: the automatic call ran batches in pieces.
+            // budget: the automatic call ran batches as ranges of lanes.
             SamplingOptions chosen = tight;
             chosen.batch_size = split.execution.batch_size;
             chosen.sharing = true;
             REQUIRE_THROWS_AS(clifft::sample_survivors(program, kShots, 7, true, chosen),
                               std::runtime_error);
-            // The pieces are sampled like smaller batches, so they follow the
-            // statistics of a call with room for whole ones.
-            const auto whole = clifft::sample_survivors(program, kShots, 7, true, {.threads = 1});
-            REQUIRE(whole.execution.batch_size > split.execution.batch_size);
-            REQUIRE(split.measurements.size() == size_t{kPairs} * split.passed_shots);
-            const double sigma = std::sqrt(0.5 / kShots);
-            REQUIRE(std::abs(double(split.passed_shots) - double(whole.passed_shots)) <=
-                    6.0 * sigma * kShots);
-            for (uint32_t record = 0; record < kPairs; ++record) {
-                CAPTURE(record);
-                const auto ones = [&](const auto& result) {
-                    uint32_t count = 0;
-                    for (uint32_t shot = 0; shot < result.passed_shots; ++shot) {
-                        count += result.measurements[size_t{kPairs} * shot + record];
-                    }
-                    return double(count) / result.passed_shots;
-                };
-                REQUIRE(std::abs(ones(split) - ones(whole)) <= 6.0 * sigma);
-                if (postselect && record == kPairs - 1) {
-                    // The postselected detector reads the last record.
-                    REQUIRE(ones(split) == 0.0);
-                }
-            }
+            // With room for whole batches of that size, the call returns
+            // the same survivors and rows.
+            chosen.max_worker_state_bytes = uint64_t{split.execution.batch_size} * at_bound;
+            const auto whole = clifft::sample_survivors(program, kShots, 7, true, chosen);
+            REQUIRE(whole.passed_shots == split.passed_shots);
+            REQUIRE(whole.measurements == split.measurements);
+            REQUIRE((split.passed_shots < kShots) == postselect);
         }
     }
 }

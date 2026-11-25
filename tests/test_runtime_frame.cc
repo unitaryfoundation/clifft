@@ -1675,12 +1675,11 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
             for (uint32_t done = 0; done < kLanes;) {
                 const uint32_t lanes = std::min(piece, kLanes - done);
                 try {
-                    executor.run_batch(root, batch * kLanes + done, lanes);
+                    executor.run_batch(root, batch * kLanes, kLanes, done, lanes);
                 } catch (const sampling::SharedStateBudgetError&) {
-                    // One lane always fits.
+                    // The budget holds one state of the widest shot.
                     REQUIRE(lanes > 1);
                     piece = lanes / 2;
-                    executor.reset_state_pool();
                     ++outgrown;
                     continue;
                 }
@@ -1897,12 +1896,11 @@ TEST_CASE("Shared frame execution retires and restarts a frame", "[runtime_frame
     }
 }
 
-TEST_CASE("A shared batch fits the budget or not whatever ran before it",
+TEST_CASE("Lane ranges of a shared batch return the rows of the whole batch",
           "[runtime_frame][sampling]") {
     // One fault decides whether ten qubits each add an active coordinate, so a
     // few shots need wide states. Four more faults split groups without
-    // widening them. The budget holds a group for every lane while the states
-    // are empty and few groups once one of them is wide.
+    // widening them. The measured control records the fault that widens.
     constexpr uint32_t kWide = 10;
     std::string source;
     for (uint32_t pair = 0; pair < 4; ++pair) {
@@ -1916,9 +1914,9 @@ TEST_CASE("A shared batch fits the budget or not whatever ran before it",
         targets += " " + std::to_string(q);
         source += "CX 10 " + std::to_string(q) + "\n";
     }
-    source = "H" + targets + "\nT" + targets + "\nX_ERROR(0.02) 10\n" + source + "T" + targets +
+    source = "H" + targets + "\nT" + targets + "\nX_ERROR(0.05) 10\n" + source + "T" + targets +
              "\nH_YZ" + targets + "\nT" + targets +
-             "\nH 11\nM 11\nMPP X12*X13\nMPP X14*X15\n"
+             "\nM 10\nMPP X12*X13\nMPP X14*X15\n"
              "MPP X16*X17\nMPP X18*X19\nM" +
              targets + "\n";
     const SamplingPlan plan =
@@ -1930,64 +1928,107 @@ TEST_CASE("A shared batch fits the budget or not whatever ran before it",
     const sampling::EarlyPostselection checks(executable);
     constexpr uint32_t kLanes = 32;
     const uint64_t at_start = sampling::SharingExecutor::group_storage_bytes(executable, 0);
-    const auto make = [&](uint32_t lanes, uint64_t budget) {
-        return sampling::SharingExecutor(executable, noise, checks, lanes, 1, true, nullptr, budget,
-                                         sampling::BatchOutputMode::Rows);
+    const uint64_t at_bound = sampling::SharingExecutor::group_storage_bytes(executable, kWide);
+    const auto make = [&](uint64_t budget) {
+        return sampling::SharingExecutor(executable, noise, checks, kLanes, 1, true, nullptr,
+                                         budget, sampling::BatchOutputMode::Rows);
     };
     const SeedRoot root = seed_root_from_seed(91);
 
-    // An executor that keeps its storage from batch to batch decides each
-    // batch as a new executor does, and gives the same rows. Before each
-    // batch it runs one more shot alone, which always fits and now and then
-    // leaves its one state wide: the batch then needs more states than a pool
-    // of that width can hold, and a pool of one state can.
-    sampling::SharingExecutor carried = make(kLanes, kLanes * at_start);
-    const uint64_t new_pool_bytes = carried.state_pool_bytes();
-    uint32_t outgrown = 0;
-    uint32_t fit_after_outgrown = 0;
-    uint32_t fit_on_wide_pool = 0;
+    // The whole batch on ample storage gives the rows. An executor whose
+    // budget holds a group for every lane while the states are empty, and
+    // three once they are wide, runs the same batches as ranges of lanes,
+    // halving a range that outgrows the budget. It keeps its storage from
+    // batch to batch, so a batch also meets the pool an earlier one widened.
+    sampling::SharingExecutor ample = make(kLanes * at_bound);
+    sampling::SharingExecutor tight = make(std::max(kLanes * at_start, 3 * at_bound));
+    uint32_t split_batches = 0;
+    uint32_t widened = 0;
     for (uint32_t batch = 0; batch < 120; ++batch) {
         CAPTURE(batch);
-        carried.run_batch(root, 1'000'000 + batch, 1);
-        const bool wide_pool =
-            carried.state_pool_bytes() > new_pool_bytes && carried.storage_boundaries() != 0;
-        sampling::SharingExecutor fresh = make(kLanes, kLanes * at_start);
-        const auto run = [&](sampling::SharingExecutor& executor) {
+        ample.run_batch(root, batch * kLanes, kLanes);
+        const auto expected = shared_record_patterns(ample, plan.num_visible_records);
+        REQUIRE(expected.size() == kLanes);
+        // Record 0 is the control, which is one where the fault fired.
+        widened += std::ranges::any_of(expected, [](uint64_t bits) { return (bits & 1) != 0; });
+        std::vector<uint64_t> rows;
+        bool split = false;
+        uint32_t piece = kLanes;
+        for (uint32_t done = 0; done < kLanes;) {
+            const uint32_t lanes = std::min(piece, kLanes - done);
             try {
-                executor.run_batch(root, batch * kLanes, kLanes);
+                tight.run_batch(root, batch * kLanes, kLanes, done, lanes);
             } catch (const sampling::SharedStateBudgetError&) {
-                return false;
+                REQUIRE(lanes > 1);
+                piece = lanes / 2;
+                split = true;
+                continue;
             }
-            return true;
-        };
-        const bool fits = run(fresh);
-        REQUIRE(run(carried) == fits);
-        if (fits) {
-            REQUIRE(shared_record_patterns(carried, plan.num_visible_records) ==
-                    shared_record_patterns(fresh, plan.num_visible_records));
-            fit_after_outgrown += outgrown != 0;
-            fit_on_wide_pool += wide_pool;
-        } else {
-            ++outgrown;
+            REQUIRE(tight.surviving_shots() == lanes);
+            const auto part = shared_record_patterns(tight, plan.num_visible_records);
+            rows.insert(rows.end(), part.begin(), part.end());
+            done += lanes;
+        }
+        REQUIRE(rows == expected);
+        split_batches += split;
+    }
+    REQUIRE(widened > 20);
+    REQUIRE(split_batches > 0);
+
+    // With room for one wide state, a wide lane run alone leaves the pool at
+    // that width, where it holds one state. Lanes that stay narrow but form
+    // several groups then need a pool of the starting width again.
+    sampling::SharingExecutor single = make(at_bound);
+    constexpr uint32_t kNarrowLanes = 4;
+    REQUIRE(kNarrowLanes * at_start <= at_bound);
+    uint32_t after_wide = 0;
+    for (uint32_t batch = 0; batch + 1 < 120; ++batch) {
+        CAPTURE(batch);
+        ample.run_batch(root, batch * kLanes, kLanes);
+        const auto expected = shared_record_patterns(ample, plan.num_visible_records);
+        const auto wide = std::ranges::find_if(expected, [](uint64_t bits) { return bits & 1; });
+        if (wide == expected.end()) {
+            continue;
+        }
+        const auto lane = static_cast<uint32_t>(wide - expected.begin());
+        single.run_batch(root, batch * kLanes, kLanes, lane, 1);
+        REQUIRE(shared_record_patterns(single, plan.num_visible_records) ==
+                std::vector<uint64_t>{*wide});
+        ample.run_batch(root, (batch + 1) * kLanes, kLanes);
+        const auto next = shared_record_patterns(ample, plan.num_visible_records);
+        if (std::ranges::any_of(next.begin(), next.begin() + kNarrowLanes,
+                                [](uint64_t bits) { return (bits & 1) != 0; })) {
+            continue;
+        }
+        single.run_batch(root, (batch + 1) * kLanes, kLanes, 0, kNarrowLanes);
+        REQUIRE(shared_record_patterns(single, plan.num_visible_records) ==
+                std::vector<uint64_t>(next.begin(), next.begin() + kNarrowLanes));
+        after_wide += single.peak_groups() > 1;
+    }
+    REQUIRE(after_wide > 0);
+
+    // A budget below one wide state is a limit, not an allowance: the lane
+    // that needs the state reports it, and the lanes beside it still run.
+    sampling::SharingExecutor narrow = make(at_bound - 1);
+    uint32_t refused = 0;
+    for (uint32_t batch = 0; batch < 40; ++batch) {
+        ample.run_batch(root, batch * kLanes, kLanes);
+        const auto expected = shared_record_patterns(ample, plan.num_visible_records);
+        for (uint32_t lane = 0; lane < kLanes; ++lane) {
+            CAPTURE(batch, lane);
+            const bool wide = (expected[lane] & 1) != 0;
+            if (wide) {
+                REQUIRE_THROWS_AS(narrow.run_batch(root, batch * kLanes, kLanes, lane, 1),
+                                  sampling::SharedStateBudgetError);
+                ++refused;
+            } else {
+                narrow.run_batch(root, batch * kLanes, kLanes, lane, 1);
+                REQUIRE(shared_record_patterns(narrow, plan.num_visible_records) ==
+                        std::vector<uint64_t>{expected[lane]});
+            }
         }
     }
-    REQUIRE(outgrown > 0);
-    REQUIRE(fit_after_outgrown > 0);
-    REQUIRE(fit_on_wide_pool > 0);
-
-    // One lane always fits, whatever its state needs, and the executor does
-    // not keep a state the budget cannot hold.
-    const uint64_t tight = 2 * at_start;
-    REQUIRE(tight < sampling::SharingExecutor::group_storage_bytes(executable, kWide));
-    sampling::SharingExecutor single = make(2, tight);
-    const uint64_t small_pool_bytes = single.state_pool_bytes();
-    bool widened = false;
-    for (uint32_t shot = 0; shot < 400; ++shot) {
-        single.run_batch(root, shot, 1);
-        widened |= single.storage_boundaries() != 0;
-        REQUIRE(single.state_pool_bytes() == small_pool_bytes);
-    }
-    REQUIRE(widened);
+    REQUIRE(refused > 0);
 }
 
 TEST_CASE("Output compaction keeps its work estimate across retired frames",

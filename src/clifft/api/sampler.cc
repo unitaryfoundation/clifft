@@ -32,9 +32,9 @@ SharedWorkerKey shared_worker_key(const ExecutablePlan& plan, const SamplingExec
 }
 
 // With split_on_budget, a batch whose groups outgrow max_worker_state_bytes
-// runs again in halves, as it would with that smaller batch size. A call that
-// sized its own batches asks for that; a batch size the caller chose reports
-// the budget instead.
+// runs again as halves of its lanes, which return the rows the whole batch
+// would have. A call that sized its own batches asks for that; a batch size
+// the caller chose reports the budget instead.
 template <typename Result>
 Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
                   std::optional<uint64_t> seed, SamplingOutputs outputs,
@@ -82,13 +82,20 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
         [&](auto& worker, ShotRange range) {
             std::visit(
                 [&](auto& executor) {
-                    // Fewer lanes make fewer groups. Each batch starts whole
-                    // again, so how one is split does not depend on the
-                    // worker that runs it or on the batches before it.
+                    // Fewer lanes make fewer groups. A range of lanes keeps
+                    // the draws of the whole batch, so splitting one changes
+                    // no row: a batch that redrew its noise would return the
+                    // faults that widen its states less often than they occur.
                     uint32_t piece = capacity;
-                    const auto run_piece = [&](uint32_t first, uint32_t lanes) {
+                    const auto run_piece = [&](uint32_t first, uint32_t count, uint32_t done,
+                                               uint32_t lanes) {
                         try {
-                            executor.run_batch(root, first, lanes);
+                            if constexpr (std::is_same_v<std::decay_t<decltype(executor)>,
+                                                         SharingExecutor>) {
+                                executor.run_batch(root, first, count, done, lanes);
+                            } else {
+                                executor.run_batch(root, first, count);
+                            }
                         } catch (const SharedStateBudgetError&) {
                             if (!split_on_budget || lanes == 1) {
                                 throw;
@@ -104,7 +111,7 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
                         piece = capacity;
                         for (uint32_t done = 0; done < count;) {
                             const uint32_t lanes = std::min(piece, count - done);
-                            if (!run_piece(first + done, lanes)) {
+                            if (!run_piece(first, count, done, lanes)) {
                                 continue;
                             }
                             if constexpr (survivors) {
@@ -472,11 +479,14 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
     constexpr uint32_t kMinSharedStates = 2;
     // A frame plan's width is an upper bound that its shots may not reach, so
     // groups are sized for the width its states start with. A batch whose
-    // groups outgrow the budget runs again in smaller pieces.
+    // groups outgrow the budget runs again in smaller ranges of its lanes,
+    // down to one, which fits when a state of the widest shot does. A plan
+    // whose bound is wider than that is left to the scalar executor.
     const uint64_t state_capacity =
         max_worker_state_bytes /
         SharingExecutor::group_storage_bytes(compiled, compiled.initial_capacity_width());
-    if (state_capacity < kMinSharedStates) {
+    if (state_capacity < kMinSharedStates ||
+        max_worker_state_bytes < SharingExecutor::group_storage_bytes(compiled, width)) {
         return false;
     }
     // Shots of a frame plan share tableau work, and with every shot on its own
