@@ -2009,8 +2009,9 @@ NB_MODULE(_clifft_core, m) {
                 const auto& preparation = owner.sampling_preparation(
                     outputs,
                     {.early_postselection = false, .fixed_faults = true, .survivor_counts = true});
+                // A frame plan runs on the scalar executor, which samples its own noise.
                 const auto* noise =
-                    batch_size == 1 || shots == 0
+                    batch_size == 1 || shots == 0 || preparation.plan().uses_runtime_frame()
                         ? nullptr
                         : &preparation.noise(clifft::sampling::BatchNoiseMode::Dense);
                 result = clifft::sampling::sample_k_survivors(preparation.plan(), shots, k, seed,

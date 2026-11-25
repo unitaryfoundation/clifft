@@ -126,6 +126,29 @@ SamplingPlan build_frame_plan(const FrameProgram& program) {
     return plan;
 }
 
+// The same plan after `width` promotions and `width` measurements with fixed
+// outcomes. They draw nothing from the RNG and leave |0...0>, but raise the
+// storage allocated at construction to the width the frame later needs.
+SamplingPlan with_storage_from_the_start(const SamplingPlan& lazy, uint32_t width) {
+    SamplingPlan eager = lazy;
+    eager.num_hidden_records = width;
+    eager.peak_active_width = width;
+    std::vector<PlannedAction> prefix;
+    for (uint32_t active = 0; active < width; ++active) {
+        prefix.push_back({active, active + 1, sampling::PromoteDormantRotation{0.0, AffineBool{}}});
+    }
+    for (uint32_t active = width; active > 0; --active) {
+        const SymbolId branch{static_cast<uint32_t>(eager.symbols.size())};
+        eager.symbols.push_back(SymbolKind::Branch);
+        prefix.push_back({active, active - 1,
+                          sampling::MeasureActivePauli{
+                              sampling::ActivePauli{0, 1}, 0, branch, AffineBool::symbol(branch),
+                              RecordSlot{lazy.num_visible_records + active - 1}}});
+    }
+    eager.actions.insert(eager.actions.begin(), prefix.begin(), prefix.end());
+    return eager;
+}
+
 // Evaluates the same program with a 2^n statevector, branching on each
 // measurement and summing over the noise bits.
 ExactPlanDistribution dense_frame_distribution(const FrameProgram& program) {
@@ -976,29 +999,8 @@ TEST_CASE("Growing coefficient storage does not change a seeded frame shot",
         measure(0b011, 0b100),       rotate(0b100, 0, 0.21), measure(0b100, 0b100),
         rotate(0b001, 0b010, 0.137), measure(0, 0b001),      measure(0b010, 0)};
     const SamplingPlan lazy = build_frame_plan(program);
-
-    // The same plan after three promotions and three measurements with fixed
-    // outcomes. They draw nothing from the RNG and leave |000>, but raise the
-    // storage allocated at construction to the width the frame later needs.
-    SamplingPlan eager = lazy;
-    eager.num_hidden_records = 3;
-    eager.peak_active_width = 3;
-    std::vector<PlannedAction> prefix;
-    for (uint32_t width = 0; width < 3; ++width) {
-        prefix.push_back({width, width + 1, sampling::PromoteDormantRotation{0.0, AffineBool{}}});
-    }
-    for (uint32_t width = 3; width > 0; --width) {
-        const SymbolId branch{static_cast<uint32_t>(eager.symbols.size())};
-        eager.symbols.push_back(SymbolKind::Branch);
-        prefix.push_back({width, width - 1,
-                          sampling::MeasureActivePauli{
-                              sampling::ActivePauli{0, 1}, 0, branch, AffineBool::symbol(branch),
-                              RecordSlot{lazy.num_visible_records + width - 1}}});
-    }
-    eager.actions.insert(eager.actions.begin(), prefix.begin(), prefix.end());
-
     const sampling::ExecutablePlan lazy_executable(lazy);
-    const sampling::ExecutablePlan eager_executable(eager);
+    const sampling::ExecutablePlan eager_executable(with_storage_from_the_start(lazy, 3));
     REQUIRE(lazy_executable.initial_capacity_width() == 0);
     REQUIRE(eager_executable.initial_capacity_width() == 3);
     sampling::Executor lazy_executor(lazy_executable, 99);
@@ -1144,6 +1146,52 @@ TEST_CASE("Fixed-fault sampling on a frame plan follows the static plan",
             require_close(expected.passed_shots, actual.passed_shots);
             require_close(expected.observable_ones.at(0), actual.observable_ones.at(0));
         }
+    }
+}
+
+TEST_CASE("Growing coefficient storage does not change a seeded fixed-fault frame shot",
+          "[runtime_frame][sampling]") {
+    // Every rotation sign reads a noise bit, so the faults a shot selects
+    // decide which promotions it needs. Equal probabilities select sites from
+    // a shuffled pool and unequal ones from a table.
+    for (const std::vector<double>& probabilities :
+         {std::vector<double>(4, 0.2), std::vector<double>{0.2, 0.3, 0.1, 0.25}}) {
+        FrameProgram program;
+        program.num_qubits = 3;
+        program.noise_probabilities = probabilities;
+        program.steps = {rotate(0b001, 0, 0.137, {}, {0}),
+                         rotate(0b010, 0, 0.3, {}, {1}),
+                         rotate(0b110, 0b001, 0.25, {}, {2}),
+                         measure(0b011, 0b100),
+                         rotate(0b100, 0, 0.21, {}, {3}),
+                         measure(0b100, 0b100),
+                         rotate(0b001, 0b010, 0.137, {}, {0, 1}),
+                         measure(0, 0b001),
+                         measure(0b010, 0)};
+        const SamplingPlan lazy = build_frame_plan(program);
+        const sampling::ExecutablePlan lazy_executable(lazy);
+        const sampling::ExecutablePlan eager_executable(with_storage_from_the_start(lazy, 3));
+        REQUIRE(lazy_executable.initial_capacity_width() == 0);
+        REQUIRE(eager_executable.initial_capacity_width() == 3);
+
+        // Each call starts new executors, so each one repeats the shots that
+        // first reach a wider state.
+        constexpr uint32_t kShots = 8;
+        const size_t stride = lazy.num_visible_records;
+        bool saw_one = false;
+        for (uint32_t k = 0; k <= 3; ++k) {
+            for (uint64_t seed = 0; seed < 40; ++seed) {
+                CAPTURE(probabilities, k, seed);
+                const sampling::SamplingResult grown =
+                    sampling::sample_k(lazy_executable, kShots, k, seed);
+                const sampling::SamplingResult eager =
+                    sampling::sample_k(eager_executable, kShots, k, seed);
+                REQUIRE(grown.measurements.size() == kShots * stride);
+                REQUIRE(std::ranges::equal(grown.measurements, eager.measurements));
+                saw_one |= std::ranges::count(grown.measurements, uint8_t{1}) != 0;
+            }
+        }
+        REQUIRE(saw_one);
     }
 }
 

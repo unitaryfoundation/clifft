@@ -126,6 +126,47 @@ def test_fixed_runtime_frame_matches_dense_physical_model(text):
     np.testing.assert_array_equal(threaded.measurements, result.measurements)
 
 
+def test_fixed_runtime_frame_joint_outputs_match_trajectories():
+    # The loss of qubit 2 depolarizes its partner, which decides the T signs.
+    text = (
+        "H 0\nCX 0 1\nLOSS(0.3) 2\nCX 2 0\nT 0\nT_DAG 1\nH 0 1\nM 0 1 2\n"
+        "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+    )
+    model = noncomp.Model(
+        classifier=noncomp.Classifier(CLASSIFIER),
+        gate_partner_effects={"leaked": DEPOLARIZE, "lost": DEPOLARIZE},
+    )
+    program = prepare(text, model, runtime_frame=True, final_status=True)
+    ordinary = prepare(text, model, final_status=True)
+    assert program.metrics["peak_active_width"] < ordinary.metrics["peak_active_width"]
+    expected = noncomp.sample(
+        text,
+        model,
+        shots=16000,
+        seed=71,
+        threads=1,
+        final_status=True,
+        execution="trajectory",
+    )
+
+    def joint(result):
+        return dense.empirical_record_probs(
+            np.concatenate(
+                [
+                    result.measurements,
+                    result.heralds,
+                    result.detectors,
+                    result.observables,
+                    result.final_status,
+                ],
+                axis=1,
+            )
+        )
+
+    # The joint law ties each record to the status that decided its T signs.
+    assert dense.tvd(joint(sample(program)), joint(expected)) < 0.04
+
+
 def test_fixed_runtime_frame_without_status_inputs_matches_the_ordinary_plan():
     # No qubit can leave the computational space, so the driver supplies no
     # inputs and the executor samples the noise itself.
