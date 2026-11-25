@@ -819,6 +819,11 @@ TEST_CASE("Shared tuning bounds retained output allocations") {
     }
     REQUIRE(shared_tuning_candidates(8192, 65536, 2, row_bytes).empty());
     REQUIRE(shared_tuning_candidates(8192, 256, 1, budget + 1).empty());
+    // A baseline below the automatic capacity is probed first, and its rows
+    // fit the limit where those of the automatic capacity do not.
+    const auto capped = shared_tuning_candidates(8192, 65536, 2, row_bytes, 256);
+    REQUIRE_FALSE(capped.empty());
+    REQUIRE(capped.front().policy.lane_capacity == 256);
 }
 
 TEST_CASE("SharingExecutor packs narrow states into contiguous slabs within budget") {

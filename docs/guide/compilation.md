@@ -210,6 +210,85 @@ for the transformation, eligibility, and cost guard, and
 [program architecture](../theory/architecture.md#python-bindings) for plan ownership
 and execution paths.
 
+## Runtime Clifford frame for noisy T regions
+
+Noise and random measurement outcomes can flip the signs of T-like rotations.
+The original plan then keeps one active qubit for every rotation whose sign
+varies between shots, even when the noiseless circuit cancels most of them.
+Wide magic-state factories built from transversal `T` or `CCZ` layers reach
+active widths in the tens this way, while their noiseless T regions need only
+a few. A runtime Clifford frame keeps such a region at its noiseless width:
+the plan applies the rotations with fixed signs and tracks every sign flip as
+a Clifford update to a frame that each shot maintains as it runs.
+
+The frame is off by default. Request it with `runtime_frame`:
+
+```python
+import clifft
+
+circuit = """
+H 0
+CX 0 1
+X_ERROR(0.1) 0
+T 0
+T_DAG 1
+MPP X0*X1
+DETECTOR rec[-1]
+"""
+ordinary = clifft.compile(circuit)
+frame = clifft.compile(circuit, runtime_frame=True)
+assert ordinary.original_plan.peak_active_width == 1
+assert frame.original_plan.uses_runtime_frame
+assert frame.original_plan.peak_active_width == 0
+result = clifft.sample(frame, shots=1000, seed=42, keep_records="syndromes")
+```
+
+On the Bell pair, `T` and `T_DAG` cancel unless the `X` error flips one sign.
+The ordinary plan needs an active qubit for that case; the frame plan applies
+the leftover Clifford to its frame instead.
+
+- `runtime_frame=True` plans the circuit on a frame wherever a T region is
+  narrower that way. A circuit without such a region keeps its ordinary plan,
+  and `program.runtime_frame_fallback_reason` says why. Where the corrections
+  of every region cancel, the narrower plan needs no frame and runs on every
+  executor; the reason says so.
+- `runtime_frame=False` never uses a frame.
+
+The frame plan replaces the original plan, so sampling, exact queries, replay,
+and fixed-fault sampling all use it, and reconstruction is selected against
+its width. Check `program.original_plan.uses_runtime_frame` to see the choice.
+
+Things to know when choosing it:
+
+- A frame plan's `peak_active_width` is an upper bound. Each shot decides how
+  wide its state becomes.
+- Reconstruction still applies. A reconstructed plan replaces the frame plan
+  for sampling when it is no wider than the width every shot of the frame
+  plan reaches. `program.sampling_plan(keep_records=...)` shows which plan
+  runs.
+- A frame ends once measurements or resets have fixed the state of every
+  qubit it covers, and the next T region starts a new one. A factory repeated
+  on the same qubits is therefore reduced in every round. When they fix only
+  part of it, such as a factory's ancillas while its output stays unmeasured,
+  the frame gives that part back where the next T region starts, and the
+  region is reduced on it. T gates on what the frame still covers are applied
+  one at a time without the reduction.
+- The frame plan is built from the circuit before the HIR passes run, because
+  moving measurements earlier splits the regions it reduces. A pass that
+  changes the sampling distribution, such as `RemoveNoisePass`, applies to the
+  frame plan as well.
+- Frame plans run on the scalar and shared CPU executors; see
+  [shared trajectory execution](cpu-execution.md#shared-trajectory-execution).
+  Circuits with instruments or `EXP_VAL` probes keep their ordinary plan.
+- Seeded results differ between a frame plan and an ordinary plan of the same
+  circuit. With `normalize_syndromes=True` this includes the reference shot
+  of a circuit too wide to sample directly, which is then taken on a frame: a
+  detector or observable that is random without noise can get a different
+  reference value than `runtime_frame=False` gives it.
+
+See [rotations whose signs vary between shots](../theory/stabilizer-optimization.md#rotations-whose-signs-vary-between-shots)
+for the identity behind the frame.
+
 ## Inspect or customize the pipeline
 
 The following APIs are intended for power users working on compiler behavior,

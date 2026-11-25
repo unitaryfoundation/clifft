@@ -193,6 +193,76 @@ Clifft uses its own static constraint analysis and
 [Merlin acknowledgment](../acknowledgments.md#merlin) for the design influence
 and reused validation circuits.
 
+### Rotations Whose Signs Vary Between Shots
+
+The rewrites above need fixed signs. When a Pauli fault, a readout flip on
+feedback, or a random stabilizer outcome can flip a T rotation's sign, the
+constraint that would cancel it no longer holds in every shot, and the planner
+promotes an active coordinate for it. A T rotation with either sign differs
+from the fixed-sign one by a Clifford:
+
+$$
+\exp\!\left(-i\tfrac{\pi}{8}(-1)^{t} P\right)
+= \exp\!\left(+i\tfrac{\pi}{4}\, t\, P\right)\exp\!\left(-i\tfrac{\pi}{8} P\right)
+$$
+
+With `runtime_frame`, the planner uses this split on a region of commuting T
+rotations. It reduces the fixed-sign rotations against the stabilizers of the
+noiseless reference, exactly as the phase-polynomial pass does, and keeps the
+factors $\exp(+i\tfrac{\pi}{4} t P)$ as Clifford rotations conditioned on the
+sign bit $t$. Those Cliffords differ from shot to shot, so the coordinate map
+fixed at compile time cannot absorb them. Each shot instead keeps a Clifford
+frame over the $r$ coordinates the region touches, stored as a tableau of $2r$
+Pauli rows, and applies a conditional Clifford by updating rows. No coordinate
+becomes active for it. The dense state holds only the $k$ coordinates of the
+reduced core, with $k \le r$.
+
+The conditional Cliffords of one region commute, so those about the same Pauli
+compose before they are applied. Two with the same sign bit make the Pauli
+itself, or cancel, and the symbolic Pauli frame carries that Pauli like any
+other correction. Two with different sign bits stay in the plan, and a shot
+that fires both applies their sum.
+
+Operations after the region act through the frame. A measurement maps its
+Pauli through the tableau; when the image lies outside the active coordinates
+its outcome is a known sign or a fair coin and the coefficients are untouched.
+A later T rotation on frame coordinates is applied one at a time and can make
+a coordinate active in the shots where its image requires one, so the plan
+states an upper bound on the active width from the first frame action on.
+
+A frame does not have to last to the end of the circuit. Each frame
+measurement leaves a stabilizer whose sign is that measurement's outcome
+symbol, and it holds until an operation that anticommutes with it. When such
+stabilizers determine every frame coordinate, as after measuring or resetting
+all the qubits of a factory, the planner treats them as measurements with
+known outcomes: each becomes Z on a dormant coordinate and its sign moves into
+the symbolic Pauli frame. The frame is then retired, and the next region
+starts a new one from the reference state. Before a region reads its signs,
+the planner also drops every Z the Pauli frame carries on a dormant
+coordinate. Such a Z acts on a stabilizer state and does nothing, but it would
+otherwise turn an earlier round's faults and outcomes into conditional
+Cliffords of this one.
+
+When the known stabilizers determine only some of the frame's coordinates, the
+planner releases those where the next region starts. It changes coordinates so
+that a known stabilizer $G$ is Z on the last frame coordinate, moves its sign
+into the symbolic Pauli frame, and ends the frame one coordinate earlier. In
+every shot the frame maps $G$ to a product of Z on dormant coordinates, since
+$G$ came from a measurement that left its coordinate dormant and nothing since
+has anticommuted with it. A shot's tableau follows the planner's change of
+coordinates, moves that product onto one dormant coordinate $u$ with CX gates,
+and drops the Z on $u$ from every other row, which acts as the identity on
+$|0\rangle$. The released coordinate and $u$ are then decoupled from the rest
+of the frame, and the region can be reduced on that coordinate as on any other
+that holds $|0\rangle$. The rotations of a region commute, so the ones on
+coordinates the frame still covers keep their signs and run after the reduced
+ones.
+
+In shared-trajectory execution, shots share a tableau as well as a coefficient
+state. A tableau update does not depend on row signs, so each shot keeps one
+sign bit per row, and shots take a separate tableau only where a conditional
+quarter turn applies to some of them and not others.
+
 ### Conservative Analysis and Bounded Search
 
 Constraints tracked by `SymbolicStabilizers` must hold for every trajectory and

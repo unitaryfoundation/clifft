@@ -148,7 +148,8 @@ ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
             openmp_process_binding_active()) {
             throw std::invalid_argument("hybrid thread_layout requires OMP_PROC_BIND=false");
         }
-        if (!should_parallelize_intra_shot(plan.peak_active_width(), override->intra_shot_workers,
+        if (!should_parallelize_intra_shot(plan.initial_capacity_width(),
+                                           override->intra_shot_workers,
                                            override->intra_shot_min_active_width)) {
             override->intra_shot_workers = 1;
         }
@@ -157,7 +158,7 @@ ThreadLayout resolve_thread_layout(const ExecutablePlan& plan, uint32_t shots,
 
     const uint32_t budget = resolve_thread_budget(requested_threads);
     if (shots != 0 && shots < budget &&
-        should_parallelize_intra_shot(plan.peak_active_width(), budget,
+        should_parallelize_intra_shot(plan.initial_capacity_width(), budget,
                                       kDefaultIntraShotMinActiveWidth)) {
         if (budget > static_cast<uint32_t>(std::numeric_limits<int>::max())) {
             throw std::invalid_argument("intra-shot thread budget is too large");

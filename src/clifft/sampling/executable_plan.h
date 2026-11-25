@@ -79,7 +79,10 @@ class ExecutablePlan {
     // Static bounds on how the shots of one batch separate into distinct
     // coefficient trajectories. Shots follow one trajectory until a rotation
     // sign differs between them or an active measurement gives them different
-    // outcomes, so each field counts one source of such differences.
+    // outcomes, so each field counts one source of such differences. On a
+    // runtime Clifford frame, the condition of a conditional Clifford and the
+    // sign of a frame rotation count as signs: shots that differ in one stop
+    // sharing a tableau or a coefficient state.
     struct TrajectoryDivergence {
         // Expected presampled noise faults and readout flips per shot that can
         // flip the sign of a later rotation or promotion.
@@ -87,10 +90,11 @@ class ExecutablePlan {
         // Dormant measurements whose uniformly random outcome can flip such a
         // sign. Each one doubles the number of trajectories.
         uint32_t sign_dormant_measurements = 0;
-        // Active measurements followed by a rotation or promotion. Each one
-        // doubles the number of trajectories when its outcome is random, which
-        // the plan does not determine. Later active measurements split no
-        // coefficient work.
+        // Active measurements followed by a rotation or promotion, and frame
+        // measurements whose outcome can flip a sign. Each one doubles the
+        // number of trajectories when its outcome is random, which the plan
+        // does not determine. Later active measurements split no coefficient
+        // work.
         uint32_t mid_circuit_active_measurements = 0;
     };
 
@@ -98,7 +102,7 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t peak_active_width() const { return peak_active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }
     // True when the plan carries a runtime Clifford frame. Such plans run on
-    // the scalar Executor or, on request, the SharingExecutor.
+    // the scalar Executor or the SharingExecutor.
     [[nodiscard]] bool uses_runtime_frame() const { return frame_width_ != 0; }
     // Coefficient capacity an executor allocates up front. For a frame plan
     // this is the peak width outside its live frames; peak_active_width is
@@ -106,6 +110,10 @@ class ExecutablePlan {
     [[nodiscard]] uint32_t initial_capacity_width() const {
         return uses_runtime_frame() ? frame_entry_peak_width_ : peak_active_width_;
     }
+    // True when most shots of a frame plan are expected to end on a tableau
+    // of their own, so that a large shared batch holds about as many tableaus
+    // as lanes.
+    [[nodiscard]] bool frame_trajectories_diverge() const noexcept;
     [[nodiscard]] uint32_t num_visible_records() const { return num_visible_records_; }
     [[nodiscard]] uint32_t num_hidden_records() const { return num_hidden_records_; }
     [[nodiscard]] uint32_t num_detectors() const { return num_detectors_; }
@@ -188,8 +196,9 @@ class ExecutablePlan {
     [[nodiscard]] std::vector<AffineBool> affine_registers() const;
     // Flags the expression registers that determine a later rotation or
     // promotion sign, including the registers of symbol definitions those
-    // signs depend on.
-    [[nodiscard]] std::vector<uint8_t> rotation_sign_registers() const;
+    // signs depend on. With frame_signs, the conditions of conditional
+    // Cliffords and the signs of frame rotations count as well.
+    [[nodiscard]] std::vector<uint8_t> rotation_sign_registers(bool frame_signs = false) const;
     [[nodiscard]] TrajectoryDivergence measure_trajectory_divergence() const;
 
     [[nodiscard]] uint32_t frame_words() const noexcept { return (frame_width_ + 63) / 64; }

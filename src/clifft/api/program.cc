@@ -1,6 +1,7 @@
 #include "clifft/api/program.h"
 
 #include "clifft/api/sampling_preparation.h"
+#include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/planner.h"
@@ -11,6 +12,8 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace clifft {
@@ -41,7 +44,11 @@ struct Program::Data {
           num_observables(plan.num_observables()),
           num_exp_vals(plan.num_exp_vals()),
           has_postselection(plan.has_postselection()),
-          original(std::move(plan)) {}
+          original(std::move(plan)) {
+        if (original->uses_runtime_frame()) {
+            runtime_frame_fallback_reason.clear();
+        }
+    }
 
     Data(const HirModule& hir, std::string overflow_reason)
         : num_qubits(hir.num_qubits),
@@ -66,6 +73,7 @@ struct Program::Data {
 
     std::optional<sampling::ExecutablePlan> original;
     std::string original_overflow_reason;
+    std::string runtime_frame_fallback_reason = "runtime_frame is disabled";
     // Prepared once during compilation, then immutable for concurrent sampling.
     std::array<SamplingVariant, 2> variants;
     std::array<OutputPreparations, 4> preparations;
@@ -78,20 +86,72 @@ Program::Program(std::shared_ptr<const Data> data) : data_(std::move(data)) {}
 
 Program Program::compile(const Circuit& source, const HirModule& original_hir,
                          std::optional<bool> reconstruction, bool passes_preserve_sampling,
-                         const ReconstructionLimits& limits) {
-    if (reconstruction == false) {
-        return Program(sampling::ExecutablePlan(sampling::plan_sampling(original_hir)));
-    }
+                         const ReconstructionLimits& limits, bool runtime_frame) {
     std::shared_ptr<Data> data;
     try {
         data =
             std::make_shared<Data>(sampling::ExecutablePlan(sampling::plan_sampling(original_hir)));
     } catch (const std::overflow_error& overflow) {
+        if (reconstruction == false && !runtime_frame) {
+            throw;
+        }
         data = std::make_shared<Data>(original_hir, overflow.what());
     }
+    if (runtime_frame) {
+        std::string& reason = data->runtime_frame_fallback_reason;
+        reason.clear();
+        if (const std::string_view unsupported =
+                sampling::runtime_frame_unsupported_reason(original_hir);
+            !unsupported.empty()) {
+            reason = unsupported;
+        } else {
+            try {
+                std::optional<HirModule> traced;
+                if (passes_preserve_sampling) {
+                    traced.emplace(trace(source));
+                    traced->postselection = original_hir.postselection;
+                }
+                sampling::ExecutablePlan frame(sampling::plan_sampling(
+                    traced ? *traced : original_hir, {.runtime_frame = true}));
+                // Signed regions can reduce without leaving a frame action:
+                // their corrections cancel or compose to Paulis. That plan
+                // runs on every executor, so any width it saves is kept.
+                const bool needs_frame = frame.uses_runtime_frame();
+                const bool narrower = !data->original || frame.peak_active_width() <
+                                                             data->original->peak_active_width();
+                if (!needs_frame && !narrower) {
+                    reason = "no signed T region is narrower on a runtime Clifford frame";
+                } else {
+                    if (!needs_frame) {
+                        reason = "signed T regions reduce without a runtime Clifford frame";
+                    }
+                    data->num_hidden_records = frame.num_hidden_records();
+                    data->original.emplace(std::move(frame));
+                    data->original_overflow_reason.clear();
+                }
+            } catch (const std::overflow_error& overflow) {
+                reason = overflow.what();
+            }
+        }
+    }
+    if (reconstruction == false) {
+        if (!data->original) {
+            throw std::overflow_error(
+                data->original_overflow_reason +
+                " (runtime frame fallback: " + data->runtime_frame_fallback_reason + ")");
+        }
+        return Program(std::move(data));
+    }
 
-    const uint32_t width_limit =
-        data->original ? data->original->peak_active_width() : kDenseActiveWidthLimit;
+    // A frame plan states an upper bound on its active width, and every shot
+    // reaches the width its static actions need. A reconstruction replaces it
+    // up to that width, where it does no more coefficient work and no tableau
+    // work. Between the two widths the frame plan's shots may run narrower
+    // than the reconstruction, so the frame plan stays.
+    const bool frame_original = data->original && data->original->uses_runtime_frame();
+    const uint32_t width_limit = frame_original   ? data->original->initial_capacity_width()
+                                 : data->original ? data->original->peak_active_width()
+                                                  : kDenseActiveWidthLimit;
     // Spend the full scheduling budget when a dense original state already costs
     // over a MiB in coefficients, or reconstruction is the only sampling path.
     auto budget = limits;
@@ -116,7 +176,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
             variant.fallback_reason = "EXP_VAL requires the original state evolution";
             continue;
         }
-        if (data->original && data->original->peak_active_width() == 0) {
+        if (data->original && !frame_original && width_limit == 0) {
             variant.fallback_reason = "original active width is already zero";
             continue;
         }
@@ -140,7 +200,10 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         // schedules when an original plan exists. On overflow, the only viable
         // plan can emerge after lowering even if its schedule is too wide.
         if (data->original && result.reconstruction->peak_active_width > width_limit) {
-            variant.fallback_reason = "reconstruction schedule does not reduce peak active width";
+            variant.fallback_reason =
+                frame_original ? "reconstruction schedule is wider than the runtime Clifford "
+                                 "frame plan allows"
+                               : "reconstruction schedule does not reduce peak active width";
             continue;
         }
         auto lowered =
@@ -157,10 +220,12 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         // Check peak width before plan_sampling(), which enforces the active-width
         // cap and would otherwise throw on a wide candidate.
         const uint32_t width = summarize_active_width(*lowered.hir).peak_width;
-        if (width > width_limit || (width == width_limit && !compare_cost)) {
-            variant.fallback_reason = data->original
-                                          ? "reconstruction does not reduce peak active width"
-                                          : "reconstruction reaches the dense active-width limit";
+        if (width > width_limit || (width == width_limit && !compare_cost && !frame_original)) {
+            variant.fallback_reason =
+                frame_original   ? "reconstruction is wider than the runtime Clifford frame plan "
+                                   "allows"
+                : data->original ? "reconstruction does not reduce peak active width"
+                                 : "reconstruction reaches the dense active-width limit";
             continue;
         }
         sampling::ExecutablePlan executable(sampling::plan_sampling(*lowered.hir));
@@ -184,7 +249,7 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
                 "postselected reconstruction saves at most two qubits while increasing actions";
             continue;
         }
-        if (compare_cost && width == width_limit) {
+        if (compare_cost && !frame_original && width == width_limit) {
             const auto work = [](const sampling::ExecutablePlan& p) {
                 return saturating_add_u64(
                     p.estimated_batch_lane_work(sampling::BatchOutputMode::AggregateSurvivors),
@@ -206,8 +271,11 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         const std::string detail = (det_reason == rec_reason || !has_syndrome_outputs)
                                        ? rec_reason
                                        : "syndromes: " + det_reason + "; records: " + rec_reason;
-        throw std::overflow_error(data->original_overflow_reason +
-                                  " (reconstruction fallback: " + detail + ")");
+        const std::string frame_detail =
+            runtime_frame ? "runtime frame fallback: " + data->runtime_frame_fallback_reason + "; "
+                          : std::string();
+        throw std::overflow_error(data->original_overflow_reason + " (" + frame_detail +
+                                  "reconstruction fallback: " + detail + ")");
     }
     return Program(std::move(data));
 }
@@ -252,6 +320,10 @@ bool Program::uses_reconstruction(bool keep_records) const noexcept {
 
 const std::string& Program::reconstruction_fallback_reason(bool keep_records) const {
     return data_->variants[keep_records].fallback_reason;
+}
+
+const std::string& Program::runtime_frame_fallback_reason() const noexcept {
+    return data_->runtime_frame_fallback_reason;
 }
 
 uint32_t Program::num_qubits() const noexcept {

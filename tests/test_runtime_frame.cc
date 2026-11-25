@@ -2012,6 +2012,28 @@ TEST_CASE("Shared frame groups give every shot the result of its own frame",
     REQUIRE(saw_one);
 }
 
+TEST_CASE("Frame conditions and signs count toward trajectory divergence",
+          "[runtime_frame][sampling]") {
+    // Two noise bits decide a conditional Clifford and the sign of a rotation;
+    // the third is unused. The record of the first measurement decides a later
+    // conditional Clifford.
+    FrameProgram program;
+    program.num_qubits = 2;
+    program.noise_probabilities = {0.125, 0.25, 0.5};
+    program.steps = {rotate(0b01, 0, 0.5, {}, {0}),
+                     rotate(0, 0b10, 0.25, {}, {1}),
+                     measure(0b01, 0),
+                     rotate(0, 0b01, 1.5, {0}),
+                     rotate(0b10, 0, 0.25),
+                     measure(0, 0b10),
+                     measure(0, 0b01)};
+    const sampling::ExecutablePlan plan(build_frame_plan(program));
+    const auto& divergence = plan.trajectory_divergence();
+    REQUIRE(std::abs(divergence.expected_sign_faults - 0.375) < 1e-12);
+    REQUIRE(divergence.mid_circuit_active_measurements == 1);
+    REQUIRE(divergence.sign_dormant_measurements == 0);
+}
+
 TEST_CASE("Shared frame execution retires and restarts a frame", "[runtime_frame][sampling]") {
     // Three rounds on the same qubits. Each has a signed pair for the frame
     // and one T gate that needs coefficients, and ends by measuring and
