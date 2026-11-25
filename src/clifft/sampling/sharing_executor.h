@@ -76,8 +76,11 @@ class SharingKey;
 // Capacities calibration compares for one call: the automatic baseline first,
 // then a fixed ladder up to the safe capacity. Each candidate uses as many of
 // the requested workers as it has batches for.
+// The first candidate is the baseline a tuned call falls back to: the capacity
+// given, or the automatic one for safe_capacity.
 [[nodiscard]] std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
-    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes = 0);
+    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes = 0,
+    std::optional<uint32_t> baseline_capacity = std::nullopt);
 
 // Thrown at a storage boundary when the groups of a batch need more
 // coefficient storage than max_worker_state_bytes holds. Fewer lanes make

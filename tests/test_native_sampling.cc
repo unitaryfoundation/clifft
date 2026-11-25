@@ -538,6 +538,13 @@ TEST_CASE("Native automatic selection shares runtime Clifford frame plans") {
         const auto small = clifft::sample(beyond, 4096, 7, true, {.threads = 1});
         REQUIRE(small.execution.executor == SamplingExecutor::Shared);
         REQUIRE(small.execution.batch_size == 256);
+        // A tuned call measures that batch size first.
+        const auto tuned =
+            clifft::sample(beyond, 4096, 7, true, {.threads = 1, .tuning_budget_seconds = 0.05});
+        REQUIRE(tuned.batch_tuning.has_value());
+        REQUIRE(tuned.batch_tuning->baseline_batch_size == 256);
+        REQUIRE_FALSE(tuned.batch_tuning->trials.empty());
+        REQUIRE(tuned.batch_tuning->trials.front().batch_size == 256);
         // Postselection discards shots as they diverge and keeps full batches.
         const Program checked{pairs_plan(13, "X_ERROR(0.25)", true)};
         REQUIRE(

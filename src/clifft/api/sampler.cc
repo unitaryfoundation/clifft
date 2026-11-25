@@ -378,7 +378,8 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                      ? uint64_t{outputs.stride(preparation.plan().num_detectors())} +
                            outputs.stride(preparation.plan().num_observables())
                      : 0);
-            auto candidates = shared_tuning_candidates(safe, shots, workers, row_bytes);
+            auto candidates =
+                shared_tuning_candidates(safe, shots, workers, row_bytes, policy.lane_capacity);
             if (compare_executors) {
                 const auto& ordinary = program.sampling_preparation(
                     outputs, {.early_postselection = false, .survivor_counts = survivors});
