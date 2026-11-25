@@ -1624,6 +1624,19 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
         REQUIRE(peak_groups > 1);
         REQUIRE(peak_groups <= 4);
     }
+    SECTION("record-conditioned correction") {
+        check(t_teleportation(0.3, true));
+        check(t_teleportation(0.3, false));
+    }
+    SECTION("random programs") {
+        Xoshiro256PlusPlus rng(705);
+        for (uint32_t trial = 0; trial < 24; ++trial) {
+            CAPTURE(trial);
+            check(random_frame_program(rng));
+        }
+        REQUIRE(splits > 0);
+        REQUIRE(shared_batches > 0);
+    }
 }
 
 TEST_CASE("Shared frame groups give every shot the result of its own frame",
