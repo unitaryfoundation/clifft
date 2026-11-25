@@ -530,13 +530,13 @@ def compile(
             ``False`` (default) never uses it. The frame plan replaces the
             original plan, so ``program.original_plan.uses_runtime_frame``
             reports the choice and ``program.runtime_frame_fallback_reason``
-            explains a plan without one. With the default passes the frame is
-            planned before they run; explicit ``hir_passes`` apply to it too.
+            explains a plan without one. The frame is planned from the circuit
+            before ``hir_passes`` run, unless a pass changes the sampling
+            distribution; such passes apply to the frame plan as well.
             A frame plan's ``peak_active_width`` is an upper bound. It runs on
             the scalar and shared CPU executors and does not support
             instruments, ``EXP_VAL`` probes, or the GPU backends.
     """
-    frame_before_passes = isinstance(hir_passes, _DefaultPasses)
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
     return _compile_core(
@@ -549,7 +549,6 @@ def compile(
         reconstruction=reconstruction,
         input_format=input_format,
         runtime_frame=runtime_frame,
-        frame_before_passes=frame_before_passes,
     )
 
 

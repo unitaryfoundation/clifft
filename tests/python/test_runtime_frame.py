@@ -385,22 +385,27 @@ def test_runtime_frame_plans_a_circuit_too_wide_for_the_ordinary_plan() -> None:
     assert result.detectors.shape == (256, 70)
 
 
-def test_runtime_frame_is_planned_before_the_default_passes() -> None:
+def test_runtime_frame_is_planned_before_the_passes() -> None:
     text = _signed_pairs(pairs=4, plain=2)
     frame = clifft.compile(text, reconstruction=False, runtime_frame=True)
     unoptimized = clifft.compile(text, hir_passes=None, reconstruction=False, runtime_frame=True)
     assert frame.original_plan.inspect() == unoptimized.original_plan.inspect()
-    # The passes reorder this circuit, so a frame planned after them differs.
-    optimized = clifft.compile(
+    # The passes reorder this circuit: the ordinary plans differ, the frame
+    # plans do not.
+    explicit = clifft.compile(
         text,
         hir_passes=clifft.default_hir_pass_manager(),
         reconstruction=False,
         runtime_frame=True,
     )
-    assert optimized.original_plan.inspect() != frame.original_plan.inspect()
+    assert explicit.original_plan.inspect() == frame.original_plan.inspect()
+    assert (
+        clifft.compile(text, reconstruction=False).original_plan.inspect()
+        != clifft.compile(text, hir_passes=None, reconstruction=False).original_plan.inspect()
+    )
 
 
-def test_explicit_passes_apply_to_the_runtime_frame_plan() -> None:
+def test_passes_that_change_the_distribution_apply_to_the_runtime_frame_plan() -> None:
     text = _signed_pairs(pairs=4, plain=0)
     assert clifft.compile(text, runtime_frame=True).original_plan.uses_runtime_frame
     # Without its noise the circuit has no sign that varies between shots.

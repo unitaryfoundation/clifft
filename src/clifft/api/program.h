@@ -34,16 +34,18 @@ class Program {
     explicit Program(sampling::ExecutablePlan original);
 
     // An unset reconstruction or runtime_frame selects automatically. With
-    // runtime_frame true or unset, frame_hir (original_hir when null) is also
-    // planned on a runtime Clifford frame. When that plan carries a frame it
-    // becomes the original plan: always for true, and for the automatic
-    // choice when the ordinary plan is unavailable or enough wider.
+    // runtime_frame true or unset, the circuit is also planned on a runtime
+    // Clifford frame. HIR passes split the regions a frame reduces, so that
+    // plan starts from a fresh trace of source when the passes preserve the
+    // sampling distribution, and from original_hir otherwise. When the plan
+    // carries a frame it becomes the original plan: always for true, and for
+    // the automatic choice when the ordinary plan is unavailable or enough
+    // wider.
     [[nodiscard]] static Program compile(const Circuit& source, const HirModule& original_hir,
                                          std::optional<bool> reconstruction = std::nullopt,
                                          bool passes_preserve_sampling = true,
                                          const ReconstructionLimits& limits = {},
-                                         std::optional<bool> runtime_frame = false,
-                                         const HirModule* frame_hir = nullptr);
+                                         std::optional<bool> runtime_frame = false);
 
     [[nodiscard]] bool has_original() const noexcept;
     [[nodiscard]] bool has_sampling_plan(bool keep_records) const noexcept;
