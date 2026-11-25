@@ -247,10 +247,17 @@ def test_automatic_selection_keeps_frame_plans_on_the_scalar_executor(active_qub
         {"keep_records": True},
         {"group_by_noise": True},
         {"batch_size": 96},
-        {"noise_preparation": clifft.NoisePreparation.DENSE},
+        *({"noise_preparation": mode} for mode in clifft.NoisePreparation),
         {"batch_size": "tune", "tuning_budget_seconds": 0.05},
     ],
-    ids=["default", "rows", "noise-groups", "capacity", "dense-noise", "tuned"],
+    ids=[
+        "default",
+        "rows",
+        "noise-groups",
+        "capacity",
+        *(f"noise-{mode.name.lower()}" for mode in clifft.NoisePreparation),
+        "tuned",
+    ],
 )
 def test_shared_survivor_sampling_follows_the_ordinary_plan(
     active_qubits: int, controls: dict
