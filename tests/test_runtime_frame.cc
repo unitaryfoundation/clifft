@@ -1891,6 +1891,37 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
             }
         }
     }
+    SECTION("a release ends the quarter turns the frame fixes") {
+        // Coordinate 1 takes a quarter turn about X where the fault fires.
+        // Coordinate 0 is untouched, so Z on it is a stabilizer; releasing it
+        // moves coordinate 1 into its place. The opposite turn about X on that
+        // place undoes the first, and Z there reads zero. The second turn
+        // must map through the frame: the release changed what X0 means.
+        SamplingPlan plan;
+        plan.num_qubits = 2;
+        plan.frame_width = 2;
+        plan.num_visible_records = 1;
+        const SymbolId fault{0};
+        const SymbolId branch{1};
+        plan.symbols = {SymbolKind::Presampled, SymbolKind::Branch};
+        plan.presampled_noise_sites.push_back({0.5, {{fault, 0.5}}});
+        plan.actions = {
+            {0, 0,
+             sampling::ApplyConditionalClifford{FramePauli{{0b10}, {0}}, CliffordRotation::SQRT,
+                                                AffineBool::symbol(fault)}},
+            {0, 0, sampling::ReleaseFrameCoordinate{FramePauli{{0}, {0b01}}, 0, 2}},
+            {0, 0,
+             sampling::ApplyConditionalClifford{FramePauli{{0b01}, {0}}, CliffordRotation::SQRT_DAG,
+                                                AffineBool::symbol(fault)}},
+            {0, 0,
+             sampling::MeasureFramePauli{FramePauli{{0}, {0b01}}, branch,
+                                         AffineBool::symbol(branch), RecordSlot{0}}},
+        };
+        const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+        REQUIRE(exact.kept_outcomes.size() == 1);
+        REQUIRE(exact.kept_outcomes.front().outcome.visible_records == 0);
+        check_plan(plan);
+    }
     SECTION("record-conditioned correction") {
         check(t_teleportation(0.3, true));
         check(t_teleportation(0.3, false));
