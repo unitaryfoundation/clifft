@@ -482,3 +482,47 @@ def test_fixed_fault_survivor_sampling_follows_the_ordinary_plan(k: int) -> None
     expected = clifft.sample_k_survivors(fixed, shots, k, seed=41)
     actual = clifft.sample_k_survivors(frame, shots, k, seed=42)
     _assert_same_survivor_counts(expected, actual, shots)
+
+
+def test_normalized_reference_uses_the_frame_when_the_ordinary_plan_overflows() -> None:
+    """Random parities sign 65 T pairs: no dense state holds the ordinary plan."""
+    pairs = 65
+    qubits = " ".join(map(str, range(2 * pairs)))
+    evens = " ".join(str(2 * p) for p in range(pairs))
+    odds = " ".join(str(2 * p + 1) for p in range(pairs))
+    parities = "".join(f"MPP Z{2 * p}*Z{2 * p + 1}\n" for p in range(pairs))
+    text = (
+        f"H {qubits}\n{parities}T {evens}\nT_DAG {odds}\nH {qubits}\nM {qubits}\n"
+        "MPAD 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"
+    )
+    with pytest.raises(OverflowError):
+        clifft.compile(text, normalize_syndromes=True, hir_passes=None, reconstruction=False)
+    raw = clifft.compile(text, runtime_frame=True, hir_passes=None, reconstruction=False)
+    normalized = clifft.compile(
+        text, runtime_frame=True, normalize_syndromes=True, hir_passes=None, reconstruction=False
+    )
+    for program, expected in ((raw, 1), (normalized, 0)):
+        result = clifft.sample(program, 64, seed=3)
+        assert (result.detectors == expected).all()
+        assert (result.observables == expected).all()
+
+
+def test_reduced_plan_without_a_frame_keeps_the_statevector() -> None:
+    """T T reduces to S with no frame action left, and the reduced plan is kept."""
+    text = "H 0 1\nCX 0 1\nT 0\nT 0\nT_DAG 1\nH 1\n"
+    ordinary, reduced = _programs(text)
+    assert not reduced.original_plan.uses_runtime_frame
+    assert reduced.peak_active_width < ordinary.peak_active_width
+    expected = clifft.get_statevector(ordinary)
+    actual = clifft.get_statevector(reduced)
+    assert abs(np.vdot(expected, actual)) == pytest.approx(1.0, abs=1e-12)
+
+
+def test_bit_packed_detectors_match_unpacked_rows_on_a_frame_plan() -> None:
+    _, frame = _programs(SIGNED_PAIR)
+    assert frame.original_plan.uses_runtime_frame
+    rows = clifft.sample_detectors(frame, 4096, seed=8)
+    packed = clifft.sample_detectors(frame, 4096, seed=8, bit_packed=True)
+    unpacked = np.unpackbits(packed, axis=1, bitorder="little")[:, : rows.shape[1]]
+    np.testing.assert_array_equal(unpacked.astype(bool), rows)
+    assert rows.any()
