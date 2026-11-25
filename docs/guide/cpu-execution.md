@@ -265,10 +265,10 @@ Use `sample_k()` or `sample_k_survivors()` for fixed-fault conditioning, and
 `clifft.noncomp` for leakage and loss instruments. Shared execution is
 incompatible with retained `EXP_VAL` probes (`keep_records=True` on a circuit
 containing `EXP_VAL`), `batch_size=1`, and intra-shot thread layouts. Circuits
-whose selected plan has zero active width have no quantum state to share; with
-`sharing=True`, they run on the packed classical executor under the shared
-batching and noise policy (`result.execution.executor == "packed"` and
-`result.execution.sharing is True`).
+whose selected plan has zero active width and no runtime Clifford frame have no
+quantum state to share; with `sharing=True`, they run on the packed classical
+executor under the shared batching and noise policy
+(`result.execution.executor == "packed"` and `result.execution.sharing is True`).
 
 ### Batch size and state memory
 
