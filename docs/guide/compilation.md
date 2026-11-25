@@ -252,6 +252,11 @@ the leftover Clifford to its frame instead.
   and `program.runtime_frame_fallback_reason` says why. Where the corrections
   of every region cancel, the narrower plan needs no frame and runs on every
   executor; the reason says so.
+- `runtime_frame="auto"` plans both ways and keeps the frame plan when the
+  ordinary original plan is too wide for a dense state, or is at least 16 wide
+  and the frame lowers the active-width bound by 4 or more. Below those
+  limits the ordinary plan samples faster: updating the frame costs more per
+  shot than the coefficients it saves.
 - `runtime_frame=False` never uses a frame.
 
 The frame plan replaces the original plan, so sampling, exact queries, replay,
@@ -261,11 +266,13 @@ its width. Check `program.original_plan.uses_runtime_frame` to see the choice.
 Things to know when choosing it:
 
 - A frame plan's `peak_active_width` is an upper bound. Each shot decides how
-  wide its state becomes.
+  wide its state becomes, and `"auto"` compares that bound, so it can decline
+  a circuit whose shots would stay narrow. Pass `True` for such a circuit.
 - Reconstruction still applies. A reconstructed plan replaces the frame plan
   for sampling when it is no wider than the width every shot of the frame
-  plan reaches. `program.sampling_plan(keep_records=...)` shows which plan
-  runs.
+  plan reaches. With `"auto"` it also does when it is narrower than 16, the
+  width below which `"auto"` prefers an ordinary plan to a frame.
+  `program.sampling_plan(keep_records=...)` shows which plan runs.
 - A frame ends once measurements or resets have fixed the state of every
   qubit it covers, and the next T region starts a new one. A factory repeated
   on the same qubits is therefore reduced in every round. When they fix only

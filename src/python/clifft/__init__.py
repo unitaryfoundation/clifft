@@ -479,7 +479,7 @@ def compile(
     input_format: Literal["stim", "qasm2"] = "stim",
     *,
     reconstruction: bool | Literal["auto"] = "auto",
-    runtime_frame: bool = False,
+    runtime_frame: bool | Literal["auto"] = False,
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -524,6 +524,9 @@ def compile(
             shot updates as it runs, which keeps such a region at the active
             width of its noiseless circuit. This helps wide noisy magic-state
             factories and costs time on circuits that are already narrow.
+            ``"auto"`` plans both ways and keeps the frame when the ordinary
+            original plan is too wide for a dense state, or is at least 16
+            wide and the frame lowers the active-width bound by 4 or more.
             ``False`` (default) never uses it. The frame plan replaces the
             original plan, so ``program.original_plan.uses_runtime_frame``
             reports the choice and ``program.runtime_frame_fallback_reason``
