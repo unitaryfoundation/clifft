@@ -122,6 +122,7 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                     clifford->rotation == CliffordRotation::SQRT_DAG);
         };
         uint32_t longest = 0;
+        bool any_repeat = false;
         for (size_t begin = 0; begin < order.size();) {
             size_t end = begin;
             while (end < order.size() && in_run(end)) {
@@ -129,8 +130,20 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
             }
             if (end - begin >= 2) {
                 clifford_runs_.resize(order.size());
+                run_first_.resize(order.size());
+                run_repeats_.resize(order.size());
                 clifford_runs_[begin] = static_cast<uint32_t>(end - begin);
                 longest = std::max(longest, clifford_runs_[begin]);
+                std::map<uint32_t, uint32_t> first;
+                for (size_t position = begin; position < end; ++position) {
+                    const uint32_t pauli = std::get<ExecutablePlan::ExecuteFrameClifford>(
+                                               plan.actions_[order[position]])
+                                               .pauli;
+                    const auto offset = static_cast<uint32_t>(position - begin);
+                    run_first_[position] = first.try_emplace(pauli, offset).first->second;
+                    run_repeats_[begin] |= run_first_[position] != offset;
+                }
+                any_repeat |= run_repeats_[begin] != 0;
             }
             begin = std::max(end, begin + 1);
         }
@@ -140,6 +153,9 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                 throw std::length_error("frame run bits exceed addressable storage");
             }
             run_bits_.resize(size_t{lane_capacity} * stride);
+            if (any_repeat) {
+                run_paulis_.resize(run_bits_.size());
+            }
             run_table_.resize(std::bit_ceil(size_t{lane_capacity} * 2));
             for (auto* table :
                  {&run_class_, &class_source_, &class_frame_, &class_seen_by_, &class_owner_,
@@ -236,16 +252,20 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
             bytes, saturating_multiply_u64(packed_word_count(lane_capacity), sizeof(uint64_t)));
         bytes =
             saturating_add_u64(bytes, saturating_multiply_u64(lane_capacity, 3 * sizeof(uint32_t)));
-        // Regrouping a run of conditional quarter turns: one bit per turn for
-        // every lane, bounded here by all of the plan's conditional Cliffords,
-        // the class table, and ten entries per lane.
+        // Regrouping a run of conditional quarter turns: two entries per
+        // action, one bit per turn for every lane, bounded here by all of the
+        // plan's conditional Cliffords, the class table, and ten entries per
+        // lane.
+        bytes = saturating_add_u64(
+            bytes, saturating_multiply_u64(plan.num_actions(), 2 * sizeof(uint32_t)));
         uint64_t cliffords = 0;
         for (const auto& action : plan.actions_) {
             cliffords += std::holds_alternative<ExecutablePlan::ExecuteFrameClifford>(action);
         }
+        // The bits are stored twice when a run turns twice about one Pauli.
         bytes = saturating_add_u64(
             bytes,
-            saturating_multiply_u64(lane_capacity, (cliffords + 63) / 64 * sizeof(uint64_t)));
+            saturating_multiply_u64(lane_capacity, 2 * ((cliffords + 63) / 64) * sizeof(uint64_t)));
         bytes = saturating_add_u64(
             bytes, saturating_multiply_u64(
                        std::bit_ceil(uint64_t{lane_capacity} * 2) + 10 * uint64_t{lane_capacity},
@@ -1086,15 +1106,42 @@ uint32_t SharingExecutor::prepare_clifford_run(uint32_t length) noexcept {
     const auto order = checks_->action_order();
     const size_t stride = (size_t{length} + 63) / 64;
     std::fill_n(run_bits_.begin(), size_t{active_lanes()} * stride, uint64_t{0});
+    if (run_repeats_[action_index_] != 0) {
+        std::fill_n(run_paulis_.begin(), size_t{active_lanes()} * stride, uint64_t{0});
+    }
     // Collect only the set bits: most shots fire few of the run's turns.
-    for (uint32_t k = 0; k < length; ++k) {
-        const auto& action = std::get<ExecutablePlan::ExecuteFrameClifford>(
+    const auto turn = [&](uint32_t k) -> const ExecutablePlan::ExecuteFrameClifford& {
+        return std::get<ExecutablePlan::ExecuteFrameClifford>(
             plan_->actions_[order[action_index_ + k]]);
+    };
+    for (uint32_t k = 0; k < length; ++k) {
+        const auto& action = turn(k);
         const auto fires = evaluate(action.condition);
+        const uint32_t first = run_first_[action_index_ + k];
+        const size_t bit_word = first / 64;
+        const uint64_t bit = uint64_t{1} << (first & 63);
+        if (first == k) {
+            for (size_t word = 0; word < live_words_.size(); ++word) {
+                for (uint64_t bits = fires[word] & live_words_[word]; bits != 0; bits &= bits - 1) {
+                    const size_t shot = word * 64 + static_cast<size_t>(std::countr_zero(bits));
+                    run_bits_[shot * stride + bit_word] |= bit;
+                }
+            }
+            continue;
+        }
+        // A later turn about the same Pauli composes with what the shot holds
+        // on the first turn's bit. Quarter turns add: with none held the shot
+        // now holds one, and with one held it holds none. Wherever the sum
+        // differs from that by a half turn, the Pauli itself is left over.
+        const bool same_way = action.rotation == turn(first).rotation;
         for (size_t word = 0; word < live_words_.size(); ++word) {
             for (uint64_t bits = fires[word] & live_words_[word]; bits != 0; bits &= bits - 1) {
                 const size_t shot = word * 64 + static_cast<size_t>(std::countr_zero(bits));
-                run_bits_[shot * stride + k / 64] |= uint64_t{1} << (k & 63);
+                uint64_t& held = run_bits_[shot * stride + bit_word];
+                if (((held & bit) != 0) == same_way) {
+                    run_paulis_[shot * stride + bit_word] ^= bit;
+                }
+                held ^= bit;
             }
         }
     }
@@ -1161,6 +1208,32 @@ uint32_t SharingExecutor::prepare_clifford_run(uint32_t length) noexcept {
 void SharingExecutor::execute_clifford_run(uint32_t length) noexcept {
     const auto order = checks_->action_order();
     const size_t stride = (size_t{length} + 63) / 64;
+    if (run_repeats_[action_index_] != 0) {
+        // A Pauli negates the rows a turn about it would change: the X rows
+        // where it has Z and the Z rows where it has X. Every turn of the run
+        // commutes with it, so it leaves their signs alone.
+        const size_t half = sign_stride_ / 2;
+        for (size_t lane_word = 0; lane_word < live_words_.size(); ++lane_word) {
+            for (uint64_t lanes = live_words_[lane_word]; lanes != 0; lanes &= lanes - 1) {
+                const size_t shot = lane_word * 64 + static_cast<size_t>(std::countr_zero(lanes));
+                const uint64_t* left = run_paulis_.data() + shot * stride;
+                uint64_t* signs = shot_signs_.data() + shot * sign_stride_;
+                for (size_t word = 0; word < stride; ++word) {
+                    for (uint64_t bits = left[word]; bits != 0; bits &= bits - 1) {
+                        const size_t k = word * 64 + static_cast<size_t>(std::countr_zero(bits));
+                        const auto rows =
+                            frame_pauli_rows(std::get<ExecutablePlan::ExecuteFrameClifford>(
+                                                 plan_->actions_[order[action_index_ + k]])
+                                                 .pauli);
+                        for (size_t w = 0; w < half; ++w) {
+                            signs[w] ^= rows[half + w];
+                            signs[half + w] ^= rows[w];
+                        }
+                    }
+                }
+            }
+        }
+    }
     // Applies every turn of the class's set; the turns commute, so their
     // order does not matter.
     const auto rotate = [&](uint32_t frame, uint32_t klass) noexcept {

@@ -12,6 +12,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <optional>
 #include <span>
 #include <stdexcept>
@@ -1294,29 +1295,80 @@ class FrameRegions {
                 ++frame_width_;
             }
         }
+        // The sign flips commute, so those about one frame Pauli under one
+        // condition compose first: quarter turns add modulo four.
+        struct Turn {
+            FramePauli pauli;
+            AffineBool condition;
+            Pauli body;
+            std::vector<size_t> rotations;
+            uint8_t quarter_turns = 0;
+        };
+        std::vector<Turn> turns;
+        std::map<std::pair<std::vector<uint64_t>, std::vector<uint64_t>>, std::vector<size_t>>
+            turns_about;
         for (size_t i = 0; i < rewrite->end; ++i) {
             const PendingRotation& rotation = pending_[i];
             if (conditions[i].terms().empty()) {
                 continue;
             }
-            const Pauli body = current_axis(rotation);
+            Pauli body = current_axis(rotation);
             FramePauli pauli = frame_projection(body);
             if (pauli.is_identity()) {
                 // A stabilizer of the reference state only contributes a phase.
                 continue;
             }
-            disturb(body);
             // With reference sign c and angle direction d, the sign flip
-            // leaves exp(+i pi/4 d (-1)^c P) about the physical Pauli P.
+            // leaves exp(+i pi/4 d (-1)^c P) about the physical Pauli P: a
+            // SQRT or a SQRT_DAG, one or three quarter turns.
             const bool negative = (rotation.half_turns < 0) != reference_sign(rotation);
+            const uint8_t quarter_turns = negative != body.sign() ? 1 : 3;
+            std::vector<size_t>& same_pauli = turns_about[{pauli.x, pauli.z}];
+            const auto found = std::ranges::find_if(
+                same_pauli, [&](size_t turn) { return turns[turn].condition == conditions[i]; });
+            if (found != same_pauli.end()) {
+                Turn& turn = turns[*found];
+                turn.quarter_turns = (turn.quarter_turns + quarter_turns) & 3;
+                turn.rotations.push_back(i);
+                continue;
+            }
+            same_pauli.push_back(turns.size());
+            turns.push_back(
+                {std::move(pauli), std::move(conditions[i]), std::move(body), {i}, quarter_turns});
+        }
+        for (Turn& turn : turns) {
+            if (turn.quarter_turns == 0) {
+                continue;
+            }
+            if (turn.quarter_turns == 2) {
+                // The Pauli itself, on the shots where the condition holds.
+                // It commutes with the rest of the region, so the symbolic
+                // frame takes it here, with entry signs written out in the
+                // symbols the frame tracks.
+                AffineBool condition = full_sign(pending_[turn.rotations.front()]);
+                condition ^= condition.constant();
+                symbolic_frame_.apply(coordinates_.to_initial(turn.body), condition);
+                continue;
+            }
+            disturb(turn.body);
+            std::vector<uint32_t> lines;
+            if (plan_.source_map.has_value()) {
+                for (size_t i : turn.rotations) {
+                    const auto added = source_lines(pending_[i].operation);
+                    lines.insert(lines.end(), added.begin(), added.end());
+                }
+                std::ranges::sort(lines);
+                const auto duplicates = std::ranges::unique(lines);
+                lines.erase(duplicates.begin(), duplicates.end());
+            }
             append_action(plan_,
                           PlannedAction{active_width_, active_width_,
-                                        ApplyConditionalClifford{std::move(pauli),
-                                                                 negative != body.sign()
+                                        ApplyConditionalClifford{std::move(turn.pauli),
+                                                                 turn.quarter_turns == 1
                                                                      ? CliffordRotation::SQRT
                                                                      : CliffordRotation::SQRT_DAG,
-                                                                 std::move(conditions[i])}},
-                          source_lines(rotation.operation));
+                                                                 std::move(turn.condition)}},
+                          lines);
             live_ = true;
         }
         if (!live_) {

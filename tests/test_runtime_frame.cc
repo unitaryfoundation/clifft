@@ -601,6 +601,63 @@ TEST_CASE("Frame planning replaces signed promotions with conditional Cliffords"
     }
 }
 
+TEST_CASE("Sign flips about one Pauli under one condition compose", "[runtime_frame][sampling]") {
+    // On a Bell pair Z0 and Z1 are the same frame Pauli. A cancelling pair of
+    // T gates opens the region, and a fault on qubit 0 then flips the sign of
+    // every later T gate on that qubit. Each flipped sign leaves a quarter
+    // turn, and quarter turns under one condition add: two make a Pauli for
+    // the symbolic frame and four make nothing.
+    struct Expected {
+        const char* rotations;
+        size_t conditional_cliffords;
+    };
+    const Expected cases[] = {
+        {"T 0\nT_DAG 1\n", 1},
+        {"T 0\nT 0\n", 0},
+        {"T 0\nT 0\nT 0\nT_DAG 1\n", 1},
+        {"T 0\nT 0\nT 0\nT 0\n", 0},
+        {"T 0\nT_DAG 0\n", 0},
+        {"T_DAG 0\nT_DAG 0\nT 1\nT 1\n", 0},
+        // A second fault between the gates gives them different conditions.
+        {"T 0\nX_ERROR(0.2) 0\nT 0\n", 2},
+        {"T 0\nT 0\nX_ERROR(0.2) 1\nT 0\nT 1\n", 2},
+    };
+    for (const Expected& test : cases) {
+        CAPTURE(test.rotations);
+        const Circuit circuit =
+            clifft::parse(std::string("H 0\nCX 0 1\nT 0\nT_DAG 1\nX_ERROR(0.3) 0\n") +
+                          test.rotations + "MPP Y0*X1\nMPP X0*X1\nM 0 1\n");
+        const SamplingPlan frame =
+            sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
+        REQUIRE(static_cast<size_t>(std::ranges::count_if(frame.actions, [](const auto& planned) {
+                    return std::holds_alternative<sampling::ApplyConditionalClifford>(
+                        planned.action);
+                })) == test.conditional_cliffords);
+        require_distributions_equal(compute_dense_circuit_distribution(circuit),
+                                    compute_exact_plan_distribution(frame));
+    }
+
+    // Twenty-two faults before the region give its signs a long entry sign,
+    // which conditional Cliffords name with a derived symbol. They act on one
+    // qubit of the pair, so the two T gates there compose into a Pauli that
+    // the symbolic frame takes under the written-out sign.
+    std::string source = "H 0\nCX 0 1\n";
+    for (uint32_t i = 0; i < 22; ++i) {
+        source += "X_ERROR(0.05) 0\n";
+    }
+    source += "T 0\nT 0\nT 1\nT 1\nMPP Y0*X1\nMPP X0*X1\nM 0 1\n";
+    const HirModule hir = clifft::trace(clifft::parse(source));
+    const SamplingPlan fixed = sampling::plan_sampling(hir);
+    const SamplingPlan frame = sampling::plan_sampling(hir, {.runtime_frame = true});
+    REQUIRE(fixed.peak_active_width == 1);
+    REQUIRE(frame.peak_active_width == 0);
+    REQUIRE(std::ranges::none_of(frame.actions, [](const PlannedAction& planned) {
+        return std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+    }));
+    Xoshiro256PlusPlus rng(0x2B);
+    check_exact_equivalent(fixed, frame, rng, 96);
+}
+
 TEST_CASE("Quarter-turn phase rotations join a signed region", "[runtime_frame][sampling]") {
     // trace() leaves a parameterized quarter turn as a phase rotation. Each
     // spelling plans like the T gates it equals up to global phase.
@@ -997,8 +1054,10 @@ std::string random_measured_rounds_source(Xoshiro256PlusPlus& rng, uint32_t num_
         cliffords(num_qubits);
         const uint32_t rotations = 2 + below(num_qubits + 1);
         for (uint32_t i = 0; i < rotations; ++i) {
-            // Two faults a round leave some for every round.
-            if (faults < 2 * (round + 1) && below(2) == 0) {
+            // Faults follow a round's first rotation, where fewer of them
+            // act on a stabilizer of the state and change nothing. Two a
+            // round leave some for every round.
+            if (i > 0 && faults < 2 * (round + 1)) {
                 ++faults;
                 source +=
                     std::string(below(2) == 0 ? "X_ERROR" : "Z_ERROR") + "(0.2) " + qubit() + "\n";
@@ -1098,7 +1157,7 @@ TEST_CASE("Random signed regions match the dense oracle on a runtime frame",
     Xoshiro256PlusPlus rng(0x704F);
     uint32_t frame_plans = 0;
     uint32_t narrower_plans = 0;
-    for (uint32_t trial = 0; trial < 250; ++trial) {
+    for (uint32_t trial = 0; trial < 400; ++trial) {
         std::string source;
         const Circuit circuit = parse_random_signed_region(
             rng, 2 + trial % 4, true, [] { return std::string(); }, source);
@@ -1410,6 +1469,7 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
     constexpr uint32_t kShots = kCapacity * kBatches;
     uint64_t splits = 0;
     uint32_t shared_batches = 0;
+    uint32_t peak_groups = 0;
     uint64_t seed = 2000;
     const auto check_plan = [&](const SamplingPlan& plan) {
         const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
@@ -1431,6 +1491,7 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
             REQUIRE(executor.surviving_shots() == kCapacity);
             splits += executor.num_splits();
             shared_batches += executor.peak_groups() < kCapacity;
+            peak_groups = std::max(peak_groups, executor.peak_groups());
             for (uint64_t bits : shared_record_patterns(executor, plan.num_visible_records)) {
                 ++counts[bits];
             }
@@ -1467,6 +1528,30 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
             {0, 0, sampling::DefineSymbol{derived, AffineBool::symbol(SymbolId{0})}});
         check_plan(plan);
         REQUIRE(splits > 0);
+    }
+    SECTION("turns about one Pauli in a run") {
+        // The run turns about X0 four times under different noise bits, both
+        // ways, and about X1 twice. A shot is left with one turn about each
+        // Pauli or none, and with the Pauli itself wherever two turns added
+        // to a half turn, so two tableaus differ only by which single turns
+        // they took: four at most, where the sets of fired turns number 64.
+        // Measuring Y first tells the two quarter turns apart, and measuring
+        // Z first tells no turn from the Pauli.
+        for (bool y_first : {true, false}) {
+            FrameProgram program;
+            program.num_qubits = 2;
+            program.noise_probabilities = {0.3, 0.4, 0.5, 0.35, 0.45, 0.25};
+            program.steps = {rotate(0b01, 0, 0.5, {}, {0}), rotate(0b10, 0, 0.5, {}, {4}),
+                             rotate(0b01, 0, 0.5, {}, {1}), rotate(0b01, 0, 1.5, {}, {2}),
+                             rotate(0b10, 0, 1.5, {}, {5}), rotate(0b01, 0, 0.5, {}, {3})};
+            for (uint64_t qubit : {uint64_t{0b01}, uint64_t{0b10}}) {
+                program.steps.push_back(measure(y_first ? qubit : 0, qubit));
+                program.steps.push_back(measure(y_first ? 0 : qubit, qubit));
+            }
+            check(program);
+        }
+        REQUIRE(peak_groups > 1);
+        REQUIRE(peak_groups <= 4);
     }
     SECTION("record-conditioned correction") {
         check(t_teleportation(0.3, true));

@@ -918,9 +918,17 @@ uint32_t ExecutablePlanBuilder::store_frame_pauli(const FramePauli& pauli) {
     if (stored >= std::numeric_limits<uint32_t>::max()) {
         throw std::length_error("sampling executable frame Pauli count exceeds uint32 range");
     }
-    output_.frame_paulis_.insert(output_.frame_paulis_.end(), pauli.x.begin(), pauli.x.end());
-    output_.frame_paulis_.insert(output_.frame_paulis_.end(), pauli.z.begin(), pauli.z.end());
-    return static_cast<uint32_t>(stored);
+    // Equal Paulis share one index, which lets an executor recognize two
+    // conditional Cliffords about the same Pauli.
+    std::vector<uint64_t> words(pauli.x);
+    words.insert(words.end(), pauli.z.begin(), pauli.z.end());
+    const auto [found, added] =
+        frame_pauli_indices_.try_emplace(std::move(words), static_cast<uint32_t>(stored));
+    if (added) {
+        output_.frame_paulis_.insert(output_.frame_paulis_.end(), found->first.begin(),
+                                     found->first.end());
+    }
+    return found->second;
 }
 
 CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::record_batch_lane_work(

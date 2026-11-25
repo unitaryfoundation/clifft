@@ -217,6 +217,12 @@ Pauli rows, and applies a conditional Clifford by updating rows. No coordinate
 becomes active for it. The dense state holds only the $k$ coordinates of the
 reduced core, with $k \le r$.
 
+The conditional Cliffords of one region commute, so those about the same Pauli
+compose before they are applied. Two with the same sign bit make the Pauli
+itself, or cancel, and the symbolic Pauli frame carries that Pauli like any
+other correction. Two with different sign bits stay in the plan, and a shot
+that fires both applies their sum.
+
 Operations after the region act through the frame. A measurement maps its
 Pauli through the tableau; when the image lies outside the active coordinates
 its outcome is a known sign or a fair coin and the coefficients are untouched.

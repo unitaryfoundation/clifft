@@ -295,8 +295,18 @@ class SharingExecutor : public BatchClassicalState {
     // Length of the run of conditional quarter turns fixed by the frame that
     // starts at each dispatch position, or zero. Empty when the plan has none.
     std::vector<uint32_t> clifford_runs_;
-    // One bit per turn of the longest run for every lane: the turns it fires.
+    // For each dispatch position in a run, the offset in that run of the first
+    // turn about the same Pauli. Turns about one Pauli compose, so a shot
+    // records them on the first turn's bit: what is left is that turn or
+    // nothing, and possibly the Pauli itself.
+    std::vector<uint32_t> run_first_;
+    // True at the first position of a run that turns twice about some Pauli.
+    std::vector<uint8_t> run_repeats_;
+    // One bit per turn of the longest run for every lane: set when the shot
+    // applies that turn, after turns about the same Pauli have composed.
     std::vector<uint64_t> run_bits_;
+    // The same layout for the Paulis left over. Empty when no run repeats one.
+    std::vector<uint64_t> run_paulis_;
     // A class is named by its first shot, which indexes the class tables.
     std::vector<uint32_t> run_table_;
     // Per shot: its class, or kNoShot when it fires nothing.
