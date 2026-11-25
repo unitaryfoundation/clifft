@@ -23,14 +23,28 @@ namespace {
     return static_cast<size_t>(entries);
 }
 
+// Packed lanes share one active layout, which a frame that differs between
+// shots cannot follow. The plan is rejected before its storage is sized, so a
+// frame plan with a wide bound reports this and not a failed allocation.
+batch_detail::BatchWorkerStorageLayout packed_storage_layout(const ExecutablePlan& plan,
+                                                             uint32_t lane_capacity,
+                                                             BatchOutputMode output_mode,
+                                                             BatchSamplingMode sampling_mode,
+                                                             const PreparedBatchNoise* noise) {
+    if (plan.uses_runtime_frame()) {
+        throw std::invalid_argument("packed sampling does not support runtime Clifford frames");
+    }
+    return batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode,
+                                                     sampling_mode, noise);
+}
+
 }  // namespace
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
                              BatchOutputMode output_mode, BatchSamplingMode sampling_mode,
                              const PreparedBatchNoise* noise)
     : BatchExecutor(plan, output_mode, sampling_mode,
-                    batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode,
-                                                              sampling_mode, noise),
+                    packed_storage_layout(plan, lane_capacity, output_mode, sampling_mode, noise),
                     noise) {}
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,
@@ -46,11 +60,7 @@ BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_
       signed_sines_(storage.signed_sine_entries, 0.0),
       probability_zero_(storage.probability_zero_entries, 0.0),
       probability_one_(storage.probability_one_entries, 0.0),
-      lane_values_(storage.lane_value_entries, 0.0) {
-    if (plan.uses_runtime_frame()) {
-        throw std::invalid_argument("packed sampling does not support runtime Clifford frames");
-    }
-}
+      lane_values_(storage.lane_value_entries, 0.0) {}
 
 void BatchExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) noexcept {
     assert(sampling_mode_ == BatchSamplingMode::Ordinary &&

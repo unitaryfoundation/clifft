@@ -12,6 +12,8 @@
 #include <optional>
 #include <span>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
 
 namespace clifft {
@@ -42,7 +44,11 @@ struct Program::Data {
           num_observables(plan.num_observables()),
           num_exp_vals(plan.num_exp_vals()),
           has_postselection(plan.has_postselection()),
-          original(std::move(plan)) {}
+          original(std::move(plan)) {
+        if (original->uses_runtime_frame()) {
+            runtime_frame_fallback_reason.clear();
+        }
+    }
 
     Data(const HirModule& hir, std::string overflow_reason)
         : num_qubits(hir.num_qubits),
@@ -91,12 +97,12 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         }
         data = std::make_shared<Data>(original_hir, overflow.what());
     }
+    // The automatic choice compares a frame plan's upper bound on the active
+    // width with an ordinary plan's width. Below this ordinary width,
+    // coefficient work costs less than maintaining the frame; at it, one state
+    // holds a MiB of coefficients.
+    constexpr uint32_t kMinOrdinaryWidthForRuntimeFrame = 16;
     if (runtime_frame != false) {
-        // The automatic choice compares a frame plan's upper bound on the
-        // active width with the ordinary plan's width. Below this ordinary
-        // width, coefficient work costs less than maintaining the frame; at
-        // it, one state holds a MiB of coefficients.
-        constexpr uint32_t kMinOrdinaryWidthForRuntimeFrame = 16;
         // With this much less width, a frame plan on the scalar executor
         // still samples faster than the ordinary plan shared or packed.
         constexpr uint32_t kMinRuntimeFrameWidthReduction = 4;
@@ -108,6 +114,10 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
             // Decided without tracing or planning the circuit a second time.
             reason = "ordinary plan is narrower than " +
                      std::to_string(kMinOrdinaryWidthForRuntimeFrame);
+        } else if (const std::string_view unsupported =
+                       sampling::runtime_frame_unsupported_reason(original_hir);
+                   !unsupported.empty()) {
+            reason = unsupported;
         } else {
             try {
                 std::optional<HirModule> traced;
@@ -117,14 +127,23 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
                 }
                 sampling::ExecutablePlan frame(sampling::plan_sampling(
                     traced ? *traced : original_hir, {.runtime_frame = true}));
-                if (!frame.uses_runtime_frame()) {
+                // Signed regions can reduce without leaving a frame action:
+                // their corrections cancel or compose to Paulis. That plan
+                // runs on every executor, so any width it saves is kept.
+                const bool needs_frame = frame.uses_runtime_frame();
+                const bool narrower = !data->original || frame.peak_active_width() <
+                                                             data->original->peak_active_width();
+                if (!needs_frame && !narrower) {
                     reason = "no signed T region is narrower on a runtime Clifford frame";
-                } else if (compare_widths &&
+                } else if (needs_frame && compare_widths &&
                            frame.peak_active_width() + kMinRuntimeFrameWidthReduction >
                                data->original->peak_active_width()) {
                     reason = "runtime Clifford frame reduces peak active width by fewer than " +
                              std::to_string(kMinRuntimeFrameWidthReduction);
                 } else {
+                    if (!needs_frame) {
+                        reason = "signed T regions reduce without a runtime Clifford frame";
+                    }
                     data->num_hidden_records = frame.num_hidden_records();
                     data->original.emplace(std::move(frame));
                     data->original_overflow_reason.clear();
@@ -147,9 +166,16 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
     // reaches the width its static actions need. A reconstruction replaces it
     // up to that width, where it does no more coefficient work and no tableau
     // work. Between the two widths the frame plan's shots may run narrower
-    // than the reconstruction, so the frame plan stays.
+    // than the reconstruction, so the frame plan stays. The automatic choice
+    // also takes a reconstruction below the width at which it prefers a frame
+    // to an ordinary plan.
     const bool frame_original = data->original && data->original->uses_runtime_frame();
-    const uint32_t width_limit = frame_original   ? data->original->initial_capacity_width()
+    const uint32_t frame_limit =
+        !frame_original
+            ? 0
+            : std::max(data->original->initial_capacity_width(),
+                       runtime_frame.has_value() ? 0 : kMinOrdinaryWidthForRuntimeFrame - 1);
+    const uint32_t width_limit = frame_original   ? frame_limit
                                  : data->original ? data->original->peak_active_width()
                                                   : kDenseActiveWidthLimit;
     // Spend the full scheduling budget when a dense original state already costs
@@ -201,8 +227,8 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         // plan can emerge after lowering even if its schedule is too wide.
         if (data->original && result.reconstruction->peak_active_width > width_limit) {
             variant.fallback_reason =
-                frame_original ? "reconstruction schedule is wider than the static part of the "
-                                 "runtime Clifford frame plan"
+                frame_original ? "reconstruction schedule is wider than the runtime Clifford "
+                                 "frame plan allows"
                                : "reconstruction schedule does not reduce peak active width";
             continue;
         }
@@ -222,8 +248,8 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         const uint32_t width = summarize_active_width(*lowered.hir).peak_width;
         if (width > width_limit || (width == width_limit && !compare_cost && !frame_original)) {
             variant.fallback_reason =
-                frame_original   ? "reconstruction is wider than the static part of the runtime "
-                                   "Clifford frame plan"
+                frame_original   ? "reconstruction is wider than the runtime Clifford frame plan "
+                                   "allows"
                 : data->original ? "reconstruction does not reduce peak active width"
                                  : "reconstruction reaches the dense active-width limit";
             continue;
@@ -271,8 +297,12 @@ Program Program::compile(const Circuit& source, const HirModule& original_hir,
         const std::string detail = (det_reason == rec_reason || !has_syndrome_outputs)
                                        ? rec_reason
                                        : "syndromes: " + det_reason + "; records: " + rec_reason;
-        throw std::overflow_error(data->original_overflow_reason +
-                                  " (reconstruction fallback: " + detail + ")");
+        const std::string frame_detail =
+            runtime_frame == false
+                ? std::string()
+                : "runtime frame fallback: " + data->runtime_frame_fallback_reason + "; ";
+        throw std::overflow_error(data->original_overflow_reason + " (" + frame_detail +
+                                  "reconstruction fallback: " + detail + ")");
     }
     return Program(std::move(data));
 }
