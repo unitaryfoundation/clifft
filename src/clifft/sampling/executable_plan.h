@@ -345,6 +345,16 @@ class ExecutablePlan {
     // for the frame's state, which has no active coordinates left.
     struct ExecuteFrameRetirement {};
 
+    // Drops one coordinate of the shot's frame. The frame first follows the
+    // plan's change of frame coordinates, which made the stabilizer `pauli`
+    // of the frame's state Z on coordinate width - 1 and moved the coordinate
+    // that was there to `pivot`.
+    struct ExecuteFrameRelease {
+        uint32_t pauli = 0;
+        uint32_t pivot = 0;
+        uint32_t width = 0;
+    };
+
     struct ExecuteSymbolDefinition {
         PreparedExpression value;
         uint32_t symbol = 0;
@@ -483,7 +493,7 @@ class ExecutablePlan {
                      ExecuteClassicalRecord, ExecuteSymbolDefinition, ExecuteReadoutNoise,
                      ExecuteDetector, ExecuteObservable, ExecuteExpectation, ExecuteInstrument,
                      ExecuteBoundary, ExecuteFrameClifford, ExecuteFrameRotation,
-                     ExecuteFrameMeasurement, ExecuteFrameRetirement>;
+                     ExecuteFrameMeasurement, ExecuteFrameRetirement, ExecuteFrameRelease>;
 
     // Immutable plan metadata and externally visible dimensions.
     uint32_t num_qubits_ = 0;

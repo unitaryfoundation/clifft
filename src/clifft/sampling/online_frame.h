@@ -369,6 +369,105 @@ class OnlineFrame {
                 rotate_row(n + 64 * w + static_cast<uint32_t>(std::countr_zero(bits)), p, rotation);
         }
     }
+    // Follows the plan's release of one frame coordinate. The plan changed
+    // the frame's input coordinates so that the stabilizer i^popcount(x & z)
+    // X^x Z^z of the frame's state became Z on coordinate width - 1, with the
+    // coordinate that was there in the pivot's place. That stabilizer's image
+    // has only Z factors, on dormant output coordinates. They are moved onto
+    // one of them, which the released coordinate then owns as in a new frame:
+    // its rows are X and Z there, and no other row keeps a factor there.
+    void release(MaskView x, MaskView z, uint32_t pivot, uint32_t width,
+                 [[maybe_unused]] uint32_t active_width) noexcept {
+        assert(width != 0 && width <= n && pivot < width && x.num_words() == words_);
+        const uint32_t last = width - 1;
+        // The stabilizer's image and the pivot's conjugate, from the rows as
+        // they are before the change.
+        const uint32_t image = 2 * n + kBodyRow;
+        const uint32_t conjugate = 2 * n + kScratchRow;
+        std::fill_n(x_words(image), size_t{2} * words_, uint64_t{0});
+        phases_[image] = 0;
+        unsigned y_count = 0;
+        bool diagonal = true;
+        for (uint32_t w = 0; w < words_; ++w) {
+            y_count += static_cast<unsigned>(std::popcount(x.words[w] & z.words[w]));
+            diagonal = diagonal && x.words[w] == 0;
+            for (uint64_t bits = x.words[w] | z.words[w]; bits != 0; bits &= bits - 1) {
+                const uint32_t q = 64 * w + static_cast<uint32_t>(std::countr_zero(bits));
+                if ((x.words[w] >> (q % 64)) & 1)
+                    multiply(image, q);
+                if ((z.words[w] >> (q % 64)) & 1)
+                    multiply(image, n + q);
+            }
+        }
+        add_phase(image, y_count & 3U);
+        copy_row(conjugate, diagonal ? pivot : n + pivot);
+        // The generators the plan multiplied by the pivot's conjugate.
+        for (uint32_t w = 0; w < words_; ++w) {
+            for (uint64_t bits = diagonal ? 0 : x.words[w]; bits != 0; bits &= bits - 1) {
+                const uint32_t q = 64 * w + static_cast<uint32_t>(std::countr_zero(bits));
+                if (q != pivot)
+                    multiply(n + q, conjugate);
+            }
+            for (uint64_t bits = z.words[w]; bits != 0; bits &= bits - 1) {
+                const uint32_t q = 64 * w + static_cast<uint32_t>(std::countr_zero(bits));
+                if (q != pivot)
+                    multiply(q, conjugate);
+            }
+        }
+        if (pivot != last) {
+            copy_row(pivot, last);
+            copy_row(n + pivot, n + last);
+        }
+        // Output side: the image is a product of Z on dormant coordinates.
+        const uint64_t* image_z = z_words(image);
+        std::optional<uint32_t> kept;
+        for (uint32_t w = 0; w < words_; ++w) {
+            assert(x_words(image)[w] == 0 && "a known stabilizer has no X in any shot");
+            for (uint64_t bits = image_z[w]; bits != 0; bits &= bits - 1) {
+                const uint32_t v = 64 * w + static_cast<uint32_t>(std::countr_zero(bits));
+                assert(v >= active_width && "a known stabilizer acts on dormant coordinates");
+                if (!kept.has_value()) {
+                    kept = v;
+                } else {
+                    coordinate_cx(v, *kept);
+                }
+            }
+        }
+        assert(kept.has_value() && "a known stabilizer is not the identity");
+        const uint32_t u = *kept;
+        const size_t word = u / 64;
+        const uint64_t bit = uint64_t{1} << (u % 64);
+        for (uint32_t i = 0; i < 2 * n; ++i) {
+            assert((i == last || i == n + last || (x_words(i)[word] & bit) == 0) &&
+                   "the other generators commute with the stabilizer");
+            z_words(i)[word] &= ~bit;
+        }
+        std::fill_n(x_words(last), size_t{2} * words_, uint64_t{0});
+        std::fill_n(x_words(n + last), size_t{2} * words_, uint64_t{0});
+        x_words(last)[word] = bit;
+        z_words(n + last)[word] = bit;
+        phases_[last] = phases_[n + last] = 0;
+    }
+    // A hash of the tableau, and whether two frames hold the same one.
+    [[nodiscard]] uint64_t tableau_hash() const noexcept {
+        uint64_t hash = 0x9E3779B97F4A7C15ULL ^ n;
+        const auto mix = [&](uint64_t value) noexcept {
+            hash ^= value;
+            hash *= 0xFF51AFD7ED558CCDULL;
+            hash ^= hash >> 33;
+        };
+        for (size_t i = 0, end = size_t{2} * n * 2 * words_; i < end; ++i)
+            mix(storage_[i]);
+        for (size_t i = 0, end = size_t{2} * n; i < end; ++i)
+            mix(phases_[i]);
+        return hash;
+    }
+    [[nodiscard]] bool same_tableau(const OnlineFrame& other) const noexcept {
+        return n == other.n &&
+               std::equal(storage_.begin(), storage_.begin() + size_t{2} * n * 2 * words_,
+                          other.storage_.begin()) &&
+               std::equal(phases_.begin(), phases_.begin() + size_t{2} * n, other.phases_.begin());
+    }
     // rotate_fixed_clifford for a Pauli X^x when no earlier rotation had a Z
     // factor either. The image of Z_q is then Z_q times X factors, and it
     // anticommutes with the Pauli exactly when x has q. Multiplying it by the

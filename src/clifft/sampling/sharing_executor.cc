@@ -107,6 +107,11 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
         }
         shot_signs_.resize(size_t{lane_capacity} * sign_stride_);
         frame_random_.resize(word_capacity_);
+        if (std::ranges::any_of(plan.actions_, [](const ExecutablePlan::Action& action) {
+                return std::holds_alternative<ExecutablePlan::ExecuteFrameRelease>(action);
+            })) {
+            equal_frames_.resize(std::bit_ceil(size_t{lane_capacity} * 2));
+        }
         frame_of_.resize(lane_capacity);
         free_frames_.resize(lane_capacity);
         fired_groups_.resize(lane_capacity);
@@ -253,6 +258,10 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
             bytes, saturating_multiply_u64(packed_word_count(lane_capacity), sizeof(uint64_t)));
         bytes =
             saturating_add_u64(bytes, saturating_multiply_u64(lane_capacity, 3 * sizeof(uint32_t)));
+        // The table that finds equal tableaus after releases.
+        bytes = saturating_add_u64(
+            bytes,
+            saturating_multiply_u64(std::bit_ceil(uint64_t{lane_capacity} * 2), sizeof(uint32_t)));
         // Regrouping a run of conditional quarter turns: two entries per
         // action, one bit per turn for every lane, bounded here by all of the
         // plan's conditional Cliffords, the class table, and ten entries per
@@ -1653,6 +1662,124 @@ void SharingExecutor::execute_action(
     if (records_.num_columns() != 0) {
         records_.assign_xor(action.record, scratch_words_, evaluate(action.correction),
                             live_words_);
+    }
+    if (merged) {
+        collect_merged_groups();
+    }
+}
+
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRelease& action) noexcept {
+    const MaskView x = plan_->frame_pauli_x(action.pauli);
+    const MaskView z = plan_->frame_pauli_z(action.pauli);
+    // Every tableau follows the plan's change of frame coordinates and drops
+    // the coordinate.
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        SharedFrame& slot = frames_[frame_of_[group]];
+        if (slot.stamp != frame_stamp_) {
+            slot.stamp = frame_stamp_;
+            slot.frame.release(x, z, action.pivot, action.width, states_[group].active_width());
+            slot.changed = true;
+        }
+    }
+    // A shot's row signs follow the same change. The plan multiplied the
+    // generators below by the pivot's conjugate, X of the pivot for a
+    // stabilizer of Z factors and Z of the pivot otherwise; then the pivot's
+    // rows take those of the last coordinate, whose new rows are unsigned.
+    const size_t half = sign_stride_ / 2;
+    const size_t pivot_word = action.pivot / 64;
+    const uint64_t pivot_bit = uint64_t{1} << (action.pivot % 64);
+    const uint32_t last = action.width - 1;
+    const size_t last_word = last / 64;
+    const uint64_t last_bit = uint64_t{1} << (last % 64);
+    bool diagonal = true;
+    for (size_t word = 0; word < half; ++word) {
+        diagonal = diagonal && x.words[word] == 0;
+    }
+    for (size_t word = 0; word < half; ++word) {
+        changed_rows_[word] = z.words[word];
+        changed_rows_[half + word] = diagonal ? 0 : x.words[word];
+    }
+    changed_rows_[pivot_word] &= ~pivot_bit;
+    changed_rows_[half + pivot_word] &= ~pivot_bit;
+    const size_t conjugate_word = (diagonal ? 0 : half) + pivot_word;
+    for (size_t lane_word = 0; lane_word < live_words_.size(); ++lane_word) {
+        for (uint64_t lanes = live_words_[lane_word]; lanes != 0; lanes &= lanes - 1) {
+            const size_t shot = lane_word * 64 + static_cast<size_t>(std::countr_zero(lanes));
+            uint64_t* signs = shot_signs_.data() + shot * sign_stride_;
+            if ((signs[conjugate_word] & pivot_bit) != 0) {
+                for (size_t word = 0; word < sign_stride_; ++word) {
+                    signs[word] ^= changed_rows_[word];
+                }
+            }
+            for (size_t block : {size_t{0}, half}) {
+                const bool moved = (signs[block + last_word] & last_bit) != 0;
+                signs[block + last_word] &= ~last_bit;
+                if (action.pivot != last) {
+                    signs[block + pivot_word] =
+                        (signs[block + pivot_word] & ~pivot_bit) | (moved ? pivot_bit : 0);
+                }
+            }
+        }
+    }
+    // Shots that differed only on released coordinates share a tableau again.
+    // One pass after the last release of a run finds them.
+    const auto order = checks_->action_order();
+    if (action_index_ + 1 >= order.size() ||
+        !std::holds_alternative<ExecutablePlan::ExecuteFrameRelease>(
+            plan_->actions_[order[action_index_ + 1]])) {
+        merge_equal_frames();
+    }
+}
+
+void SharingExecutor::merge_equal_frames() noexcept {
+    // Groups a sharing key separates keep the uniform rotation signs that
+    // later static actions rely on, so they stay apart.
+    if (!share_ || (key_ != nullptr && key_->separates_groups()) || group_count_ < 2) {
+        return;
+    }
+    ++frame_stamp_;
+    std::ranges::fill(equal_frames_, kNoShot);
+    bool merged = false;
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        // Groups with coefficients would need those compared as well.
+        if (states_[group].active_width() != 0) {
+            continue;
+        }
+        const uint32_t frame = frame_of_[group];
+        SharedFrame& slot = frames_[frame];
+        if (slot.stamp != frame_stamp_) {
+            // First group on this tableau: find a tableau with equal content
+            // and take its group, or become the one others find.
+            slot.stamp = frame_stamp_;
+            slot.link = kNoShot;
+            size_t bucket = slot.frame.tableau_hash() & (equal_frames_.size() - 1);
+            while (equal_frames_[bucket] != kNoShot &&
+                   !frames_[equal_frames_[bucket]].frame.same_tableau(slot.frame)) {
+                bucket = (bucket + 1) & (equal_frames_.size() - 1);
+            }
+            if (equal_frames_[bucket] == kNoShot) {
+                equal_frames_[bucket] = frame;
+            } else {
+                slot.link = frames_[equal_frames_[bucket]].link;
+            }
+        }
+        if (slot.link == kNoShot) {
+            slot.link = group;
+            // The scalar's phase and rounding do not matter without
+            // coefficients, and dropping them lets the groups agree.
+            states_[group].real()[0] = 1.0;
+            states_[group].imag()[0] = 0.0;
+            continue;
+        }
+        for (uint32_t shot : lanes(group)) {
+            group_of_[shot] = slot.link;
+        }
+        end_[group] = begin_[group];
+        release_frame(frame);
+        ++num_merges_;
+        merged = true;
     }
     if (merged) {
         collect_merged_groups();

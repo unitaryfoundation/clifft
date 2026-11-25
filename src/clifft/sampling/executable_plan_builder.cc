@@ -445,7 +445,8 @@ ExecutablePlan ExecutablePlanBuilder::compact_outputs(const ExecutablePlan& inpu
                         // Selective and count-only sampling omit expectation probes.
                     } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFusedRotation> ||
                                          std::is_same_v<T,
-                                                        ExecutablePlan::ExecuteFrameRetirement>) {
+                                                        ExecutablePlan::ExecuteFrameRetirement> ||
+                                         std::is_same_v<T, ExecutablePlan::ExecuteFrameRelease>) {
                         append(typed);
                     } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteInstrument> ||
                                          std::is_same_v<T, ExecutablePlan::ExecuteBoundary>) {
@@ -606,8 +607,10 @@ ExecutablePlanBuilder::estimate_program_storage() const {
                 } else if constexpr (std::is_same_v<T, ApplyInstrument>) {
                     num_terms += typed.sign.terms().size();
                 } else if constexpr (std::is_same_v<T, InstrumentBoundary> ||
-                                     std::is_same_v<T, RetireFrame>) {
-                    // Boundaries and frame retirement have no affine payload.
+                                     std::is_same_v<T, RetireFrame> ||
+                                     std::is_same_v<T, ReleaseFrameCoordinate>) {
+                    // Boundaries, frame retirement and release have no affine
+                    // payload.
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
                 }
@@ -869,6 +872,10 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::lower_action(const Plann
                 // Pauli again.
                 frame_prefix_ = {};
                 output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameRetirement{});
+            } else if constexpr (std::is_same_v<T, ReleaseFrameCoordinate>) {
+                frame_prefix_.open = false;
+                output_.actions_.emplace_back(ExecutablePlan::ExecuteFrameRelease{
+                    store_frame_pauli(typed.pauli), typed.pivot, typed.width});
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
             }
@@ -1188,6 +1195,8 @@ CLIFFT_BUILDER_FORCE_INLINE void ExecutablePlanBuilder::validate_executable_plan
                     validate_frame_pauli(typed.pauli);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement>) {
                     validate_expression(typed.correction);
+                    validate_frame_pauli(typed.pauli);
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameRelease>) {
                     validate_frame_pauli(typed.pauli);
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameRetirement>) {
                     // Frame retirement has no payload.

@@ -243,6 +243,21 @@ coordinate. Such a Z acts on a stabilizer state and does nothing, but it would
 otherwise turn an earlier round's faults and outcomes into conditional
 Cliffords of this one.
 
+When the known stabilizers determine only some of the frame's coordinates, the
+planner releases those where the next region starts. It changes coordinates so
+that a known stabilizer $G$ is Z on the last frame coordinate, moves its sign
+into the symbolic Pauli frame, and ends the frame one coordinate earlier. In
+every shot the frame maps $G$ to a product of Z on dormant coordinates, since
+$G$ came from a measurement that left its coordinate dormant and nothing since
+has anticommuted with it. A shot's tableau follows the planner's change of
+coordinates, moves that product onto one dormant coordinate $u$ with CX gates,
+and drops the Z on $u$ from every other row, which acts as the identity on
+$|0\rangle$. The released coordinate and $u$ are then decoupled from the rest
+of the frame, and the region can be reduced on that coordinate as on any other
+that holds $|0\rangle$. The rotations of a region commute, so the ones on
+coordinates the frame still covers keep their signs and run after the reduced
+ones.
+
 In shared-trajectory execution, shots share a tableau as well as a coefficient
 state. A tableau update does not depend on row signs, so each shot keeps one
 sign bit per row, and shots take a separate tableau only where a conditional

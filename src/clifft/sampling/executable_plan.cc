@@ -76,7 +76,8 @@ bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
                 } else if constexpr (std::is_same_v<T, ExecuteFrameClifford> ||
                                      std::is_same_v<T, ExecuteFrameRotation> ||
                                      std::is_same_v<T, ExecuteFrameMeasurement> ||
-                                     std::is_same_v<T, ExecuteFrameRetirement>) {
+                                     std::is_same_v<T, ExecuteFrameRetirement> ||
+                                     std::is_same_v<T, ExecuteFrameRelease>) {
                     // A frame action is not part of a unitary prefix.
                     return true;
                 } else {

@@ -825,6 +825,15 @@ void Executor::execute_action(const ExecutablePlan::ExecuteFrameClifford& action
     }
 }
 
+void Executor::execute_action(const ExecutablePlan::ExecuteFrameRelease& action,
+                              std::span<const uint8_t>, ReplayResult&) noexcept {
+    assert(frame_.has_value() && frame_->running &&
+           "frame actions run through run_frame_shot or replay_frame_shot");
+    frame_->changed = true;
+    frame_->frame.release(plan_->frame_pauli_x(action.pauli), plan_->frame_pauli_z(action.pauli),
+                          action.pivot, action.width, state_.active_width());
+}
+
 void Executor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&,
                               std::span<const uint8_t>, ReplayResult&) noexcept {
     assert(frame_.has_value() && frame_->running &&

@@ -718,6 +718,7 @@ class FrameRegions {
         }
         if (pending_.empty()) {
             retire_known_frame(source_lines(operation));
+            release_known_coordinates(source_lines(operation));
             drop_inert_frame_terms();
             updates_.emplace(hir_.num_qubits, num_hir_symbols_);
         }
@@ -1146,6 +1147,70 @@ class FrameRegions {
         frame_width_ = 0;
         active_width_ = 0;
         live_ = false;
+    }
+
+    // Hands the frame coordinates that known stabilizers fix back to the
+    // static coordinates when they do not fix the whole frame: a factory's
+    // ancillas after their reset, say, while its output stays unmeasured. Each
+    // stabilizer in turn becomes Z on the last frame coordinate, as when a
+    // frame retires, and the frame then ends one coordinate earlier. A region
+    // that starts here finds those coordinates in |0> and can be reduced on
+    // them. Called only at the start of a region.
+    void release_known_coordinates(std::span<const uint32_t> lines) {
+        assert(pending_.empty());
+        if (!live_ || known_.empty()) {
+            return;
+        }
+        const auto stabilizers = known_stabilizers();
+        const uint32_t original_width = frame_width_;
+        // Eigenvalue bit of Z on each coordinate released so far.
+        std::vector<AffineBool> released(original_width);
+        std::vector<std::pair<Pauli, AffineBool>> kept;
+        for (const auto& [axis, eigenvalue] : stabilizers) {
+            Pauli body = coordinates_.to_current(axis);
+            AffineBool bit = eigenvalue ^ body.sign();
+            body.set_sign(false);
+            if (first_x_at_or_above(body, frame_width_).has_value()) {
+                kept.emplace_back(std::move(body), std::move(bit));
+                continue;
+            }
+            for (uint32_t q = frame_width_; q < original_width; ++q) {
+                if (body.z().bit_get(q)) {
+                    bit ^= released[q];
+                }
+            }
+            restrict_below(body, frame_width_);
+            std::optional<uint32_t> pivot = last_x_below(body, frame_width_);
+            if (!pivot.has_value()) {
+                pivot = first_z_below(body, frame_width_);
+            }
+            if (!pivot.has_value()) {
+                // A product of the stabilizers already released.
+                continue;
+            }
+            const uint32_t width = frame_width_;
+            FramePauli pauli = frame_projection(body);
+            coordinates_.release_active(body, width, *pivot);
+            coordinates_changed_ = true;
+            max_frame_width_ = std::max(max_frame_width_, width);
+            frame_width_ = width - 1;
+            // The released coordinate is dormant in every shot.
+            const uint32_t active_after = std::min(active_width_, frame_width_);
+            append_action(plan_,
+                          PlannedAction{active_width_, active_after,
+                                        ReleaseFrameCoordinate{std::move(pauli), *pivot, width}},
+                          lines);
+            active_width_ = active_after;
+            const PauliStringView flip = coordinates_.current_to_initial().x_output(frame_width_);
+            symbolic_frame_.apply(flip.x(), flip.z(), bit);
+            released[frame_width_] = std::move(bit);
+        }
+        // A retirement would have taken a frame whose every coordinate is known.
+        assert(frame_width_ != 0);
+        known_.clear();
+        for (auto& [body, bit] : kept) {
+            learn(body, std::move(bit));
+        }
     }
 
     // Coordinates that rotating about these physical Paulis in order would

@@ -267,6 +267,10 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&
     assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRelease&) noexcept {
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
+}
+
 bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detector) const noexcept {
     const uint64_t bit_columns = expression_registers_.num_columns() + records_.num_columns() +
                                  detectors_.num_columns() + observables_.num_columns() +

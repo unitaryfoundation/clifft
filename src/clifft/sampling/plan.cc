@@ -149,7 +149,8 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                                  std::is_same_v<T, InstrumentBoundary> ||
                                  std::is_same_v<T, ApplyConditionalClifford> ||
                                  std::is_same_v<T, RotateFramePauli> ||
-                                 std::is_same_v<T, RetireFrame>) {
+                                 std::is_same_v<T, RetireFrame> ||
+                                 std::is_same_v<T, ReleaseFrameCoordinate>) {
                 return std::nullopt;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -424,7 +425,8 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                                  std::is_same_v<T, WriteObservable> ||
                                  std::is_same_v<T, InstrumentBoundary> ||
                                  std::is_same_v<T, ApplyConditionalClifford> ||
-                                 std::is_same_v<T, RetireFrame>) {
+                                 std::is_same_v<T, RetireFrame> ||
+                                 std::is_same_v<T, ReleaseFrameCoordinate>) {
                 return 0;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -871,6 +873,30 @@ void SamplingPlan::validate() const {
                     }
                     frame_live = false;
                     frame_extent = 0;
+                } else if constexpr (std::is_same_v<T, ReleaseFrameCoordinate>) {
+                    if (!frame_live) {
+                        invalid_plan("action " + std::to_string(action_index) +
+                                     " releases a coordinate of a runtime Clifford frame that "
+                                     "is not live");
+                    }
+                    validate_frame_pauli(typed.pauli, frame_width, action_index);
+                    const auto has = [&](const std::vector<uint64_t>& mask, uint32_t q) {
+                        return ((mask[q / 64] >> (q % 64)) & 1U) != 0;
+                    };
+                    bool inside =
+                        typed.width != 0 && typed.width <= frame_width && typed.pivot < typed.width;
+                    for (uint32_t q = typed.width; inside && q < frame_width; ++q) {
+                        inside = !has(typed.pauli.x, q) && !has(typed.pauli.z, q);
+                    }
+                    if (!inside ||
+                        (!has(typed.pauli.x, typed.pivot) && !has(typed.pauli.z, typed.pivot))) {
+                        invalid_plan("frame release has an invalid stabilizer, pivot, or width");
+                    }
+                    // The released coordinate is dormant in every shot.
+                    if (planned.active_after != std::min(planned.active_before, typed.width - 1)) {
+                        invalid_plan("frame release has an invalid width bound");
+                    }
+                    frame_extent = typed.width - 1;
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
                 }

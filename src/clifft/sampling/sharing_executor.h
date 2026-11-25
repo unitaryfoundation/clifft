@@ -229,6 +229,9 @@ class SharingExecutor : public BatchClassicalState {
     void execute_action(const ExecutablePlan::ExecuteFrameRotation& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameMeasurement& action) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameRetirement& action) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameRelease& action) noexcept;
+    // Merges the groups without coefficients whose tableaus are equal.
+    void merge_equal_frames() noexcept;
 
     // Rows of the frame that a stored frame Pauli selects: bit q for the image
     // of X_q and bit 64 * frame_words + q for the image of Z_q. A shot's sign
@@ -309,6 +312,9 @@ class SharingExecutor : public BatchClassicalState {
     // Length of the run of conditional quarter turns fixed by the frame that
     // starts at each dispatch position, or zero. Empty when the plan has none.
     std::vector<uint32_t> clifford_runs_;
+    // Open-addressed table of tableaus by content, for merging after releases.
+    // Empty when the plan releases no frame coordinate.
+    std::vector<uint32_t> equal_frames_;
     // For each dispatch position in a run, the offset in that run of the first
     // turn about the same Pauli. Turns about one Pauli compose, so a shot
     // records them on the first turn's bit: what is left is that turn or

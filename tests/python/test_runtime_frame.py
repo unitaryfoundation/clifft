@@ -331,6 +331,34 @@ def test_postselected_rounds_share_through_retirement() -> None:
     )
 
 
+def _rounds_beside_data(count: int) -> str:
+    """Rounds of a signed pair that reset it, beside a pair checked only at the end."""
+    data = "H 4\nCX 4 5\nX_ERROR(0.3) 4\nT 4\nT_DAG 5\n"
+    one_round = "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nCX 0 1\nH 0\nMR 0 1\n"
+    return data + one_round * count + "MPP X4*X5\nM 4 5\n"
+
+
+@pytest.mark.parametrize(
+    "controls",
+    [{}, {"sharing": False}, {"sharing": True}, {"sharing": True, "group_by_noise": True}],
+    ids=["automatic", "scalar", "shared", "noise-groups"],
+)
+def test_rounds_beside_unmeasured_data_release_frame_coordinates(controls: dict) -> None:
+    ordinary, frame = _programs(_rounds_beside_data(3))
+    # The unmeasured pair keeps the frame live. Each round's reset fixes that
+    # round's coordinate, which the plan hands back before the next round, so
+    # every round is reduced like the first.
+    listing = frame.original_plan.inspect()
+    assert listing.count("FRAME_RELEASE") == 2
+    assert "FRAME_ROTATION" not in listing
+    assert frame.original_plan.peak_active_width == 0
+    assert ordinary.original_plan.peak_active_width == 2
+    shots = 60_000
+    expected = clifft.sample(ordinary, shots, seed=41).measurements
+    actual = clifft.sample(frame, shots, seed=42, **controls).measurements
+    _assert_same_distribution(expected, actual)
+
+
 def test_runtime_frame_is_off_unless_requested() -> None:
     text = _signed_pairs(pairs=4, plain=0)
     default = clifft.compile(text)

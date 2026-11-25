@@ -227,6 +227,8 @@ class Executor {
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameRetirement& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameRelease& action,
+                        std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;
     template <ShotMode Mode>
     void execute_action(const ExecutablePlan::ExecuteFrameMeasurement& action,
                         std::span<const uint8_t> forced_records, ReplayResult& result) noexcept;

@@ -271,9 +271,11 @@ Things to know when choosing it:
   plan reaches; `program.sampling_plan(keep_records=...)` shows which plan runs.
 - A frame ends once measurements or resets have fixed the state of every
   qubit it covers, and the next T region starts a new one. A factory repeated
-  on the same qubits is therefore reduced in every round. While some of those
-  qubits stay unmeasured the frame continues, and later T gates on them are
-  applied one at a time without the reduction.
+  on the same qubits is therefore reduced in every round. When they fix only
+  part of it, such as a factory's ancillas while its output stays unmeasured,
+  the frame gives that part back where the next T region starts, and the
+  region is reduced on it. T gates on what the frame still covers are applied
+  one at a time without the reduction.
 - The frame plan is built from the circuit before the HIR passes run, because
   moving measurements earlier splits the regions it reduces. A pass that
   changes the sampling distribution, such as `RemoveNoisePass`, applies to the

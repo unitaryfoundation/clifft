@@ -291,6 +291,16 @@ void CoordinateFrame::measure_dormant(const PlannerPauli& measured, uint32_t dor
 
 void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t active_width,
                                      uint32_t pivot) {
+    localize_active(measured, active_width, pivot, true);
+}
+
+void CoordinateFrame::release_active(const PlannerPauli& measured, uint32_t active_width,
+                                     uint32_t pivot) {
+    localize_active(measured, active_width, pivot, false);
+}
+
+void CoordinateFrame::localize_active(const PlannerPauli& measured, uint32_t active_width,
+                                      uint32_t pivot, bool keep_order) {
     assert(measured.num_qubits() == current_to_initial_.num_qubits() && active_width > 0 &&
            active_width <= current_to_initial_.num_qubits() && pivot < active_width);
 
@@ -312,9 +322,14 @@ void CoordinateFrame::measure_active(const PlannerPauli& measured, uint32_t acti
         }
     });
 
-    for (uint32_t q = pivot; q + 1 < active_width; ++q) {
-        set_x_generator(q, current_to_initial_.x_output(q + 1));
-        set_z_generator(q, current_to_initial_.z_output(q + 1));
+    if (keep_order) {
+        for (uint32_t q = pivot; q + 1 < active_width; ++q) {
+            set_x_generator(q, current_to_initial_.x_output(q + 1));
+            set_z_generator(q, current_to_initial_.z_output(q + 1));
+        }
+    } else if (pivot + 1 != active_width) {
+        set_x_generator(pivot, current_to_initial_.x_output(active_width - 1));
+        set_z_generator(pivot, current_to_initial_.z_output(active_width - 1));
     }
     set_x_generator(active_width - 1, pivot_conjugate.view());
     set_z_generator(active_width - 1, mapped_measured.view());

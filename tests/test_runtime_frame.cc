@@ -294,6 +294,14 @@ std::vector<SignedRegionCase> signed_region_cases() {
          "H 0 1 4\nCX 0 2\nCX 1 3\nCX 4 5\nX_ERROR(0.3) 0\nX_ERROR(0.2) 1\nX_ERROR(0.25) 4\n"
          "T 0 1 4\nT_DAG 2 3 5\nMPP Z0*Z1\nMPP Y0*X2*Y1*X3\nMX 4\nMPP X4*X5\n"
          "MPP X0*X2*X1*X3\nM 0 1 2 3 4 5\n"},
+        // The two checks fix both of those coordinates with a negative product
+        // while a third pair keeps the frame live. The T gate starts a region,
+        // where the plan releases the two coordinates; the X check then reads
+        // them as static coordinates.
+        {"released coordinates carry a negative stabilizer",
+         "H 0 1 4\nCX 0 2\nCX 1 3\nCX 4 5\nX_ERROR(0.3) 0\nX_ERROR(0.2) 1\nX_ERROR(0.25) 4\n"
+         "T 0 1 4\nT_DAG 2 3 5\nMPP Z0*Z1\nMPP Y0*X2*Y1*X3\nT 4\n"
+         "MPP X0*X2*X1*X3\nM 0 1 2 3 4 5\n"},
         // The check of the first pair is known until the T gate rotates about
         // an axis that anticommutes with it. The second check must not then
         // count as fixing the whole frame.
@@ -706,17 +714,37 @@ TEST_CASE("Frame planning reduces a later region on fresh coordinates",
     REQUIRE(count(fresh, is_frame_rotation) == 0);
 
     // A second pair that no measurement resolves keeps the frame live. The
-    // later pair, entangled with qubit 1, then touches the frame and keeps its
-    // signed rotations.
+    // check of the first pair fixes its frame coordinate, which the plan
+    // releases where the next region starts.
     const std::string two_pairs =
         "H 0 2 4\nCX 0 1\nCX 4 5\nX_ERROR(0.3) 0 4\n"
         "T 0 4\nT_DAG 1 5\nMPP X0*X1\n";
-    const SamplingPlan overlapping = sampling::plan_sampling(
-        clifft::trace(clifft::parse(two_pairs + "CX 1 2\nCX 2 3\nX_ERROR(0.2) 2\nT 2\nT_DAG 3\n"
-                                                "M 0 1 2 3 4 5\n")),
-        {.runtime_frame = true});
-    REQUIRE(count(overlapping, is_conditional) == 2);
-    REQUIRE(count(overlapping, is_frame_rotation) == 2);
+    const auto is_release = [](const PlannedAction& planned) {
+        return std::holds_alternative<sampling::ReleaseFrameCoordinate>(planned.action);
+    };
+    struct Later {
+        const char* entangle;
+        size_t conditionals;
+        size_t frame_rotations;
+        uint32_t peak;
+    };
+    // Entangled with qubit 1 of the checked pair, the later pair is on
+    // released coordinates and cancels as a fresh one does. Entangled with
+    // qubit 5 of the other pair, it touches the live coordinate and keeps its
+    // signed rotations.
+    for (const Later& later : {Later{"CX 1 2\n", 3, 0, 0}, Later{"CX 5 2\n", 2, 2, 2}}) {
+        CAPTURE(later.entangle);
+        const Circuit circuit = clifft::parse(
+            two_pairs + later.entangle + "CX 2 3\nX_ERROR(0.2) 2\nT 2\nT_DAG 3\nM 0 1 2 3 4 5\n");
+        const SamplingPlan plan =
+            sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
+        REQUIRE(count(plan, is_release) == 1);
+        REQUIRE(count(plan, is_conditional) == later.conditionals);
+        REQUIRE(count(plan, is_frame_rotation) == later.frame_rotations);
+        REQUIRE(plan.peak_active_width == later.peak);
+        require_distributions_equal(compute_dense_circuit_distribution(circuit),
+                                    compute_exact_plan_distribution(plan));
+    }
 }
 
 TEST_CASE("Frame planning retires a frame once measurements fix its state",
@@ -1146,6 +1174,7 @@ TEST_CASE("Random measured rounds match the dense oracle on a runtime frame",
     uint32_t retired = 0;
     uint32_t restarted = 0;
     uint32_t continued = 0;
+    uint32_t released = 0;
     for (uint32_t trial = 0; trial < 300; ++trial) {
         const std::string source = random_measured_rounds_source(rng, 2 + trial % 3);
         CAPTURE(trial, source);
@@ -1157,7 +1186,9 @@ TEST_CASE("Random measured rounds match the dense oracle on a runtime frame",
         bool seen_retirement = false;
         bool restarts = false;
         bool continues = false;
+        bool releases = false;
         for (const PlannedAction& planned : frame.actions) {
+            releases |= std::holds_alternative<sampling::ReleaseFrameCoordinate>(planned.action);
             seen_retirement |= std::holds_alternative<sampling::RetireFrame>(planned.action);
             restarts |= seen_retirement &&
                         std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
@@ -1166,14 +1197,131 @@ TEST_CASE("Random measured rounds match the dense oracle on a runtime frame",
         retired += seen_retirement;
         restarted += restarts;
         continued += continues;
+        released += releases;
         require_distributions_equal(compute_dense_circuit_distribution(circuit),
                                     compute_exact_plan_distribution(frame));
     }
     // The generator must reach each outcome often enough to test it.
-    CAPTURE(retired, restarted, continued);
+    CAPTURE(retired, restarted, continued, released);
     REQUIRE(retired >= 30);
     REQUIRE(restarted >= 10);
     REQUIRE(continued >= 10);
+}
+
+// Rounds of signed T gates on a data qubit, which is measured only at the end,
+// and on factory qubits, some of which every round measures and resets. A
+// frame then keeps part of its state while the rest is fixed. Most rounds
+// leave the data qubit unentangled with the factory, so that their T gates
+// meet released coordinates.
+std::string random_partial_rounds_source(Xoshiro256PlusPlus& rng, uint32_t num_qubits) {
+    const auto below = [&](uint32_t bound) { return static_cast<uint32_t>(rng() % bound); };
+    const uint32_t factory_qubits = num_qubits - 1;
+    const auto factory = [&] { return std::to_string(1 + below(factory_qubits)); };
+    // The dense oracle branches on every record.
+    constexpr uint32_t kMaxRecords = 9;
+    std::string source = "H 0\n";
+    uint32_t faults = 0;
+    uint32_t records = 0;
+    const uint32_t rounds = 2 + below(2);
+    for (uint32_t round = 0; round < rounds; ++round) {
+        for (uint32_t q = 1; q < num_qubits; ++q) {
+            if (below(3) != 0) {
+                source += "H " + std::to_string(q) + "\n";
+            }
+        }
+        for (uint32_t i = 0; i + 1 < factory_qubits; ++i) {
+            const uint32_t a = 1 + below(factory_qubits);
+            const uint32_t b = 1 + (a + below(factory_qubits - 1)) % factory_qubits;
+            source += "CX " + std::to_string(a) + " " + std::to_string(b) + "\n";
+        }
+        if (below(3) == 0) {
+            source += "CX 0 " + factory() + "\n";
+        }
+        const uint32_t rotations = 2 + below(num_qubits);
+        for (uint32_t i = 0; i < rotations; ++i) {
+            const std::string target = below(4) == 0 ? "0" : factory();
+            const auto fault = [&] {
+                if (faults < 2 * (round + 1)) {
+                    ++faults;
+                    source += std::string(below(2) == 0 ? "X_ERROR" : "Z_ERROR") + "(0.2) " +
+                              target + "\n";
+                }
+            };
+            if (below(3) != 0) {
+                // Two T gates with a fault between them: the pair is a
+                // Clifford unless the fault flips one sign, which a frame
+                // applies as a conditional Clifford.
+                source += "T " + target + "\n";
+                fault();
+                source += "T " + target + "\n";
+            } else {
+                fault();
+                source += std::string(below(2) == 0 ? "T " : "T_DAG ") + target + "\n";
+            }
+        }
+        if (round + 1 == rounds) {
+            for (uint32_t q = 0; q < num_qubits && records < kMaxRecords; ++q, ++records) {
+                source += std::string(below(2) == 0 ? "M " : "MX ") + std::to_string(q) + "\n";
+            }
+            break;
+        }
+        // A check of two factory qubits leaves a stabilizer on more than one
+        // frame coordinate.
+        if (below(2) == 0 && records < kMaxRecords) {
+            const uint32_t a = 1 + below(factory_qubits);
+            const uint32_t b = 1 + (a + below(factory_qubits - 1)) % factory_qubits;
+            source += std::string("MPP ") + (below(2) == 0 ? "X" : "Z") + std::to_string(a) + "*" +
+                      (below(2) == 0 ? "X" : "Z") + std::to_string(b) + "\n";
+            ++records;
+        }
+        const uint32_t forced = 1 + below(factory_qubits);
+        for (uint32_t q = 1; q < num_qubits && records < kMaxRecords; ++q) {
+            if (q == forced || below(3) != 0) {
+                source += std::string(below(3) == 0 ? "MRX " : "MR ") + std::to_string(q) + "\n";
+                ++records;
+            }
+        }
+    }
+    return source;
+}
+
+TEST_CASE("Random rounds that fix part of a frame match the dense oracle",
+          "[runtime_frame][sampling]") {
+    Xoshiro256PlusPlus rng(0x706B);
+    uint32_t released = 0;
+    uint32_t reduced_after = 0;
+    uint32_t continued = 0;
+    for (uint32_t trial = 0; trial < 200; ++trial) {
+        const std::string source = random_partial_rounds_source(rng, 3 + trial % 3);
+        CAPTURE(trial, source);
+        const Circuit circuit = clifft::parse(source);
+        const SamplingPlan frame =
+            sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
+        // A plan reduces a region on released coordinates when a conditional
+        // Clifford follows a release, and the frame continues through one when
+        // a frame rotation does.
+        bool seen_release = false;
+        bool reduces = false;
+        bool continues = false;
+        for (const PlannedAction& planned : frame.actions) {
+            seen_release |=
+                std::holds_alternative<sampling::ReleaseFrameCoordinate>(planned.action);
+            reduces |= seen_release &&
+                       std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+            continues |=
+                seen_release && std::holds_alternative<sampling::RotateFramePauli>(planned.action);
+        }
+        released += seen_release;
+        reduced_after += reduces;
+        continued += continues;
+        require_distributions_equal(compute_dense_circuit_distribution(circuit),
+                                    compute_exact_plan_distribution(frame));
+    }
+    // The generator must reach each outcome often enough to test it.
+    CAPTURE(released, reduced_after, continued);
+    REQUIRE(released >= 30);
+    REQUIRE(reduced_after >= 8);
+    REQUIRE(continued >= 30);
 }
 
 TEST_CASE("Random signed regions match the dense oracle on a runtime frame",
@@ -1613,6 +1761,30 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
         REQUIRE(peak_groups > 1);
         REQUIRE(peak_groups <= 4);
     }
+    SECTION("releasing a stabilizer on two coordinates") {
+        // The outcome of X0*X1 on |00> is a fair coin, which leaves a sign on
+        // a row of X0 or of X1, whichever the frame localized. Z0*Z1 is then
+        // a stabilizer. Releasing it with either pivot multiplies the X row of
+        // the coordinate that stays by the pivot's, so that coordinate's X is
+        // the old X0*X1, and measuring it repeats the first record.
+        for (uint32_t pivot : {0U, 1U}) {
+            CAPTURE(pivot);
+            FrameProgram program;
+            program.num_qubits = 2;
+            program.steps = {measure(0b11, 0), measure(0, 0b11), measure(0b01, 0)};
+            SamplingPlan plan = build_frame_plan(program);
+            plan.actions.insert(
+                plan.actions.begin() + 2,
+                {0, 0, sampling::ReleaseFrameCoordinate{FramePauli{{0}, {0b11}}, pivot, 2}});
+            const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+            REQUIRE(exact.kept_outcomes.size() == 2);
+            for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+                const uint64_t records = entry.outcome.visible_records;
+                REQUIRE((records == 0b000 || records == 0b101));
+            }
+            check_plan(plan);
+        }
+    }
     SECTION("batches split when their groups outgrow the budget") {
         // Six noise bits put the shots on up to 64 tableaus. A rotation about
         // Z then widens the states of the shots that turned about X on its
@@ -1886,6 +2058,168 @@ TEST_CASE("Shared frame execution retires and restarts a frame", "[runtime_frame
     }
 }
 
+TEST_CASE("Shared frame execution releases part of a frame", "[runtime_frame][sampling]") {
+    // A signed pair on qubits 4 and 5 is checked only at the end, so its frame
+    // coordinate stays live. Three rounds then run a signed pair on qubits 0
+    // and 1 and measure and reset both, which fixes that pair's coordinate.
+    // The plan releases it where the next round starts, and that round is
+    // reduced on it again.
+    std::string source = "H 4\nCX 4 5\nX_ERROR(0.3) 4\nT 4\nT_DAG 5\n";
+    for (int round = 0; round < 3; ++round) {
+        source += "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nCX 0 1\nH 0\nMR 0 1\n";
+    }
+    source += "MPP X4*X5\nM 4 5\n";
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+    const auto count = [&]<typename Action>() {
+        return std::ranges::count_if(plan.actions, [](const PlannedAction& planned) {
+            return std::holds_alternative<Action>(planned.action);
+        });
+    };
+    REQUIRE(count.operator()<sampling::ReleaseFrameCoordinate>() == 2);
+    REQUIRE(count.operator()<sampling::ApplyConditionalClifford>() == 4);
+    REQUIRE(count.operator()<sampling::RotateFramePauli>() == 0);
+    REQUIRE(plan.peak_active_width == 0);
+    // The frame never covers more than the two pairs.
+    REQUIRE(plan.frame_width == 2);
+
+    const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+    std::map<uint64_t, double> expected;
+    for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+        expected[entry.outcome.visible_records] = entry.probability;
+    }
+    const sampling::ExecutablePlan executable(plan);
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    const sampling::EarlyPostselection checks(executable);
+    constexpr uint32_t kCapacity = 500;
+    constexpr uint32_t kBatches = 16;
+    const auto make = [&](bool share) {
+        return sampling::SharingExecutor(executable, noise, checks, kCapacity, 1, share, nullptr,
+                                         sampling::kDefaultSharedWorkerStateBudget,
+                                         sampling::BatchOutputMode::Rows);
+    };
+    sampling::SharingExecutor shared = make(true);
+    sampling::SharingExecutor independent = make(false);
+    const SeedRoot root = seed_root_from_seed(78);
+    std::map<uint64_t, uint32_t> counts;
+    uint64_t merges = 0;
+    uint32_t peak_groups = 0;
+    for (uint32_t batch = 0; batch < kBatches; ++batch) {
+        shared.run_batch(root, batch * kCapacity, kCapacity);
+        independent.run_batch(root, batch * kCapacity, kCapacity);
+        merges += shared.num_merges();
+        peak_groups = std::max(peak_groups, shared.peak_groups());
+        REQUIRE(independent.num_merges() == 0);
+        const auto patterns = shared_record_patterns(shared, plan.num_visible_records);
+        REQUIRE(patterns == shared_record_patterns(independent, plan.num_visible_records));
+        for (uint64_t bits : patterns) {
+            ++counts[bits];
+        }
+    }
+    // The shots a round's fault separated share a tableau again once its
+    // coordinate is released: two frames for the live pair, times two for the
+    // round in progress.
+    REQUIRE(merges > 0);
+    REQUIRE(peak_groups <= 4);
+    for (const auto& [bits, count_of] : counts) {
+        CAPTURE(bits);
+        REQUIRE(expected.contains(bits));
+    }
+    constexpr double kShots = kCapacity * kBatches;
+    for (const auto& [bits, probability] : expected) {
+        CAPTURE(bits, probability);
+        const double observed = counts.contains(bits) ? counts[bits] / kShots : 0.0;
+        const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
+        REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
+    }
+}
+
+TEST_CASE("Shared frame execution follows random rounds that release coordinates",
+          "[runtime_frame][sampling]") {
+    // Random rounds beside a data qubit that stays unmeasured. Their plans
+    // release coordinates while some groups hold coefficients, share tableaus,
+    // or carry row signs from random measurements. Shared execution is
+    // compared with independent shots bit for bit, in batches of a few lanes,
+    // where the table of equal tableaus is small, and of many; and the samples
+    // are compared with the exact plan distribution.
+    Xoshiro256PlusPlus rng(0x706C);
+    constexpr uint32_t kPlans = 16;
+    uint32_t plans = 0;
+    uint64_t merges = 0;
+    for (uint32_t trial = 0; plans < kPlans; ++trial) {
+        REQUIRE(trial < 400);
+        const std::string source = random_partial_rounds_source(rng, 3 + trial % 3);
+        const SamplingPlan plan =
+            sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+        if (std::ranges::none_of(plan.actions, [](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::ReleaseFrameCoordinate>(planned.action);
+            })) {
+            continue;
+        }
+        ++plans;
+        CAPTURE(trial, source);
+        std::map<uint64_t, double> expected;
+        for (const ExactOutcomeEntry& entry : compute_exact_plan_distribution(plan).kept_outcomes) {
+            expected[entry.outcome.visible_records] = entry.probability;
+        }
+        const sampling::ExecutablePlan executable(plan);
+        const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection checks(executable);
+        const SeedRoot root = seed_root_from_seed(3000 + trial);
+        struct Run {
+            uint32_t capacity;
+            uint32_t batches;
+        };
+        std::map<uint64_t, uint32_t> counts;
+        constexpr Run kMany{500, 12};
+        for (const Run& run : {Run{4, 150}, kMany}) {
+            const auto make = [&](bool share) {
+                return sampling::SharingExecutor(executable, noise, checks, run.capacity, 1, share,
+                                                 nullptr, sampling::kDefaultSharedWorkerStateBudget,
+                                                 sampling::BatchOutputMode::Rows);
+            };
+            sampling::SharingExecutor shared = make(true);
+            sampling::SharingExecutor independent = make(false);
+            for (uint32_t batch = 0; batch < run.batches; ++batch) {
+                shared.run_batch(root, batch * run.capacity, run.capacity);
+                independent.run_batch(root, batch * run.capacity, run.capacity);
+                merges += shared.num_merges();
+                const auto patterns = shared_record_patterns(shared, plan.num_visible_records);
+                REQUIRE(patterns == shared_record_patterns(independent, plan.num_visible_records));
+                if (run.capacity == kMany.capacity) {
+                    for (uint64_t bits : patterns) {
+                        ++counts[bits];
+                    }
+                }
+            }
+        }
+        // Outcomes too rare to compare one by one are compared together.
+        constexpr double kShots = kMany.capacity * kMany.batches;
+        double rare_probability = 0.0;
+        uint32_t rare_count = 0;
+        for (const auto& [bits, count_of] : counts) {
+            CAPTURE(bits);
+            REQUIRE(expected.contains(bits));
+        }
+        const auto require_close = [&](double probability, uint32_t count_of) {
+            const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
+            REQUIRE(std::abs(count_of / kShots - probability) <= 6.0 * sigma + 1e-9);
+        };
+        for (const auto& [bits, probability] : expected) {
+            CAPTURE(bits, probability);
+            const uint32_t count_of = counts.contains(bits) ? counts[bits] : 0;
+            if (probability * kShots < 10.0) {
+                rare_probability += probability;
+                rare_count += count_of;
+            } else {
+                require_close(probability, count_of);
+            }
+        }
+        require_close(rare_probability, rare_count);
+    }
+    REQUIRE(merges > 0);
+}
+
 TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame][sampling]") {
     // A sharing key groups shots by the noise that decides static rotation
     // signs, here the fault between the two T gates on qubit 2. Those
@@ -1908,7 +2242,13 @@ TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame]
              "H 2\nT 2\nH 2\nT 2\nH 2\nM 2\n",
              false, true},
         Case{"H 0 4 5\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4 5\nT_DAG 1\nCX 0 1\nH 0 4 5\nM 4 5 0\n", false,
-             false});
+             false},
+        // The check of the first pair lets the plan release its coordinate
+        // before the third pair, a third place where groups can merge.
+        Case{"H 0 4\nCX 0 1\nCX 4 5\nX_ERROR(0.3) 0 4\nT 0 4\nT_DAG 1 5\nMPP X0*X1\n"
+             "CX 1 6\nCX 6 7\nX_ERROR(0.2) 6\nT 6\nT_DAG 7\nM 0 1 4 5 6 7\n"
+             "H 2\nT 2\nH 2\nX_ERROR(0.3) 2\nT 2\nH 2\nM 2\n",
+             true, true});
     CAPTURE(c.source);
     const bool signed_rotation = c.signed_rotation;
     const SamplingPlan plan =
