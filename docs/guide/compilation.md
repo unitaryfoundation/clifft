@@ -286,7 +286,10 @@ Things to know when choosing it:
   [shared trajectory execution](cpu-execution.md#shared-trajectory-execution).
   Circuits with instruments or `EXP_VAL` probes keep their ordinary plan.
 - Seeded results differ between a frame plan and an ordinary plan of the same
-  circuit.
+  circuit. With `normalize_syndromes=True` this includes the reference shot
+  of a circuit too wide to sample directly, which is then taken on a frame: a
+  detector or observable that is random without noise can get a different
+  reference value than `runtime_frame=False` gives it.
 
 See [rotations whose signs vary between shots](../theory/stabilizer-optimization.md#rotations-whose-signs-vary-between-shots)
 for the identity behind the frame.
