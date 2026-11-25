@@ -35,6 +35,7 @@ using clifft::sampling::PromoteDormantRotation;
 using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
+using clifft::sampling::ReleaseFrameCoordinate;
 using clifft::sampling::RetireFrame;
 using clifft::sampling::RotateActivePauli;
 using clifft::sampling::RotateFramePauli;
@@ -568,6 +569,44 @@ TEST_CASE("Sampling plan validates runtime frame actions") {
         SamplingPlan restarted = plan;
         restarted.actions.push_back(plan.actions[0]);
         REQUIRE_NOTHROW(restarted.validate());
+    }
+
+    SECTION("frame coordinate release") {
+        // The measurement left X1 known. It is released with the frame's
+        // last coordinate, which leaves one frame coordinate.
+        const auto released = [](FramePauli pauli, uint32_t pivot, uint32_t width) {
+            SamplingPlan plan = valid_frame_plan();
+            plan.actions.push_back(
+                PlannedAction{1, 1, ReleaseFrameCoordinate{std::move(pauli), pivot, width}});
+            return plan;
+        };
+        const SamplingPlan plan = released(FramePauli{{0b10}, {0}}, 1, 2);
+        REQUIRE_NOTHROW(plan.validate());
+        REQUIRE_NOTHROW(released(FramePauli{{0b11}, {0b01}}, 0, 2).validate());
+        REQUIRE_NOTHROW(released(FramePauli{{0}, {0b11}}, 1, 2).validate());
+
+        // The frame pairs a stabilizer that has X factors with Z on the
+        // pivot, which commutes with it where the stabilizer has only Z.
+        REQUIRE_THROWS_AS(released(FramePauli{{0b01}, {0b10}}, 1, 2).validate(),
+                          std::invalid_argument);
+        REQUIRE_THROWS_AS(released(FramePauli{{0}, {0b01}}, 1, 2).validate(),
+                          std::invalid_argument);
+        // Coordinate 1 is in use, so the frame cannot end before it.
+        SamplingPlan skipping = released(FramePauli{{0b01}, {0}}, 0, 1);
+        skipping.actions.back().active_after = 0;
+        REQUIRE_THROWS_AS(skipping.validate(), std::invalid_argument);
+        REQUIRE_THROWS_AS(released(FramePauli{{0b10}, {0}}, 1, 3).validate(),
+                          std::invalid_argument);
+
+        SamplingPlan widened = plan;
+        widened.actions.back().active_after = 0;
+        REQUIRE_THROWS_AS(widened.validate(), std::invalid_argument);
+
+        SamplingPlan retired = plan;
+        retired.actions.insert(retired.actions.end() - 1, PlannedAction{1, 0, RetireFrame{}});
+        retired.actions.back().active_before = 0;
+        retired.actions.back().active_after = 0;
+        REQUIRE_THROWS_AS(retired.validate(), std::invalid_argument);
     }
 
     SECTION("frame is combined with an instrument") {

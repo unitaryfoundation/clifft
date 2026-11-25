@@ -883,13 +883,19 @@ void SamplingPlan::validate() const {
                     const auto has = [&](const std::vector<uint64_t>& mask, uint32_t q) {
                         return ((mask[q / 64] >> (q % 64)) & 1U) != 0;
                     };
-                    bool inside =
-                        typed.width != 0 && typed.width <= frame_width && typed.pivot < typed.width;
+                    // The release drops the last coordinate, so none the
+                    // frame has used may lie past it.
+                    bool inside = typed.width != 0 && typed.width <= frame_width &&
+                                  typed.width >= frame_extent && typed.pivot < typed.width;
                     for (uint32_t q = typed.width; inside && q < frame_width; ++q) {
                         inside = !has(typed.pauli.x, q) && !has(typed.pauli.z, q);
                     }
-                    if (!inside ||
-                        (!has(typed.pauli.x, typed.pivot) && !has(typed.pauli.z, typed.pivot))) {
+                    // The frame pairs the stabilizer with Z on the pivot, or
+                    // with X there when the stabilizer is diagonal, and the
+                    // two must anticommute.
+                    const bool diagonal =
+                        std::ranges::all_of(typed.pauli.x, [](uint64_t word) { return word == 0; });
+                    if (!inside || !has(diagonal ? typed.pauli.z : typed.pauli.x, typed.pivot)) {
                         invalid_plan("frame release has an invalid stabilizer, pivot, or width");
                     }
                     // The released coordinate is dormant in every shot.
