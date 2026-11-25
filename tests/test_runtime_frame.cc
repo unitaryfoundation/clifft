@@ -9,6 +9,7 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/early_postselection.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/executor.h"
@@ -1085,7 +1086,7 @@ TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame
 // Programs that start with conditional Cliffords the frame fixes, which
 // shared execution handles apart from the general case.
 std::vector<FrameProgram> leading_clifford_programs() {
-    std::vector<FrameProgram> programs(3);
+    std::vector<FrameProgram> programs(4);
     // X0, Z1 and Y2 commute, so the frame fixes all three and each one negates
     // the rows that anticommute with it. Z0 and Z2 then read their noise bits.
     // Z1 only adds a phase to |0>, so the X1 measurements after the quarter
@@ -1130,6 +1131,18 @@ std::vector<FrameProgram> leading_clifford_programs() {
                          measure(0b0100, 0b0100),
                          measure(0, 0b1000),
                          measure(0b0011, 0b1100)};
+    // A run of 70 commuting quarter turns, so the set a shot fires takes two
+    // words. Eight noise bits fire them in groups, and the turns past the
+    // first word act about X products the earlier ones do not use.
+    programs[3].num_qubits = 7;
+    programs[3].noise_probabilities.assign(8, 0.3);
+    for (uint32_t turn = 0; turn < 70; ++turn) {
+        programs[3].steps.push_back(rotate(turn + 1, 0, turn % 2 == 0 ? 0.5 : 1.5, {}, {turn % 8}));
+    }
+    programs[3].steps.push_back(rotate(0, 0b0000001, 0.25));
+    for (uint32_t q = 0; q < programs[3].num_qubits; ++q) {
+        programs[3].steps.push_back(measure(0, uint64_t{1} << q));
+    }
     return programs;
 }
 
@@ -1449,6 +1462,21 @@ TEST_CASE("Growing coefficient storage does not change a seeded fixed-fault fram
         }
         REQUIRE(saw_one);
     }
+}
+
+TEST_CASE("Packed execution rejects a frame plan before sizing its storage",
+          "[runtime_frame][sampling]") {
+    // One rotation per coordinate raises the width bound to 40, far past what
+    // 256 packed lanes could allocate.
+    FrameProgram program;
+    program.num_qubits = 40;
+    for (uint32_t q = 0; q < program.num_qubits; ++q) {
+        program.steps.push_back(rotate(uint64_t{1} << q, 0, 0.137));
+    }
+    const sampling::ExecutablePlan plan(build_frame_plan(program));
+    REQUIRE(plan.initial_capacity_width() == 0);
+    REQUIRE(plan.peak_active_width() == 40);
+    REQUIRE_THROWS_AS(sampling::BatchExecutor(plan, 256), std::invalid_argument);
 }
 
 }  // namespace clifft::test
