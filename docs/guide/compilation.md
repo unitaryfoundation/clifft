@@ -266,13 +266,17 @@ Things to know when choosing it:
 - A frame plan's `peak_active_width` is an upper bound. Each shot decides how
   wide its state becomes, and `"auto"` compares that bound, so it can decline
   a circuit whose shots would stay narrow. Pass `True` for such a circuit.
+- Reconstruction still applies. A reconstructed plan replaces the frame plan
+  for sampling only when it is no wider than the width every shot of the frame
+  plan reaches; `program.sampling_plan(keep_records=...)` shows which plan runs.
 - A frame lasts from its first T region to the end of the circuit. Later T
   gates on qubits it covers are applied one at a time, so a circuit that
   repeats a factory on the same qubits loses the reduction after the first
   round.
-- With the default passes the frame plan is built from the circuit before
-  they run, because moving measurements earlier splits the regions it reduces.
-  Explicit `hir_passes` apply to the frame plan as well.
+- The frame plan is built from the circuit before the HIR passes run, because
+  moving measurements earlier splits the regions it reduces. A pass that
+  changes the sampling distribution, such as `RemoveNoisePass`, applies to the
+  frame plan as well.
 - Frame plans run on the scalar and shared CPU executors; see
   [shared trajectory execution](cpu-execution.md#shared-trajectory-execution).
   Circuits with instruments or `EXP_VAL` probes keep their ordinary plan.

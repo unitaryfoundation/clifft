@@ -7,6 +7,7 @@
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/batch/tuning.h"
+#include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
 #include <algorithm>
@@ -136,11 +137,18 @@ TEST_CASE("Program keeps a runtime Clifford frame plan on request") {
     REQUIRE(frame.num_visible_records() == ordinary.num_visible_records());
     REQUIRE(&frame.sampling_plan(true) == &frame.original());
 
-    // The frame plan is built from frame_hir when one is given.
+    // The frame plan starts from the source circuit, whatever passes ran on
+    // the given HIR, unless they change the sampling distribution.
     HirModule optimized = hir;
     default_hir_pass_manager().run(optimized);
-    const Program before_passes = Program::compile(source, optimized, false, true, {}, true, &hir);
-    REQUIRE(before_passes.original().inspect() == frame.original().inspect());
+    const std::string after_passes =
+        sampling::ExecutablePlan(sampling::plan_sampling(optimized, {.runtime_frame = true}))
+            .inspect();
+    REQUIRE(after_passes != frame.original().inspect());
+    REQUIRE(Program::compile(source, optimized, false, true, {}, true).original().inspect() ==
+            frame.original().inspect());
+    REQUIRE(Program::compile(source, optimized, false, false, {}, true).original().inspect() ==
+            after_passes);
 
     // A circuit without a sign that varies keeps its ordinary plan.
     const Circuit fixed = parse("H 0 1\nT 0 1\nCX 0 1\nT 1\nH 0 1\nM 0 1\n");
@@ -170,6 +178,19 @@ TEST_CASE("Automatic runtime frame selection needs a wide plan and a clear reduc
         REQUIRE(automatic.original().peak_active_width() ==
                 (c.selected ? c.plain : c.pairs + c.plain));
     }
+    // Below the width floor the choice is made before a frame is planned, so
+    // the reason is the same with and without a signed region.
+    const Circuit narrow_fixed = parse("H 0 1\nT 0 1\nCX 0 1\nT 1\nH 0 1\nM 0 1\n");
+    const HirModule narrow_fixed_hir = trace(narrow_fixed);
+    const Circuit narrow_signed = signed_pairs(3, 0);
+    const std::string floor_reason =
+        Program::compile(narrow_signed, trace(narrow_signed), false, true, {}, std::nullopt)
+            .runtime_frame_fallback_reason();
+    REQUIRE(Program::compile(narrow_fixed, narrow_fixed_hir, false, true, {}, std::nullopt)
+                .runtime_frame_fallback_reason() == floor_reason);
+    REQUIRE(Program::compile(narrow_fixed, narrow_fixed_hir, false, true, {}, true)
+                .runtime_frame_fallback_reason() != floor_reason);
+
     // An ordinary plan too wide for a dense state leaves only the frame plan.
     const Circuit wide = signed_pairs(70, 0);
     const HirModule wide_hir = trace(wide);
@@ -178,6 +199,57 @@ TEST_CASE("Automatic runtime frame selection needs a wide plan and a clear reduc
     REQUIRE(rescued.has_original());
     REQUIRE(rescued.original().uses_runtime_frame());
     REQUIRE(rescued.original().peak_active_width() == 0);
+}
+
+TEST_CASE("A reconstruction replaces a runtime frame plan only up to its static width",
+          "[reconstruction]") {
+    // Each loose qubit gets two T gates with a fault between them and, after a
+    // basis change, a third. On a frame the pair needs no active qubit and the
+    // third T needs one only in shots where the fault fired, which the plan
+    // cannot tell: its width bound counts every loose qubit. A plain qubit
+    // needs one active qubit in every shot. Reconstruction measures the qubits
+    // one at a time and runs at width one.
+    const auto circuit = [](uint32_t loose, uint32_t plain) {
+        std::string prepare;
+        std::string rotate;
+        std::string turn;
+        std::string measure;
+        for (uint32_t q = 0; q < loose + plain; ++q) {
+            const std::string s = std::to_string(q);
+            prepare += "H " + s + "\n";
+            if (q < loose) {
+                rotate += "T " + s + "\nX_ERROR(0.05) " + s + "\nT " + s + "\n";
+                turn += "H_YZ " + s + "\nT " + s + "\n";
+                measure += "M " + s + "\nDETECTOR rec[-1]\n";
+            } else {
+                rotate += "T " + s + "\n";
+                measure += "H " + s + "\nM " + s + "\nDETECTOR rec[-1]\n";
+            }
+        }
+        return parse(prepare + rotate + turn + measure);
+    };
+    struct Case {
+        uint32_t plain;
+        bool reconstructed;
+    };
+    for (const Case& c : {Case{0, false}, Case{1, true}}) {
+        CAPTURE(c.plain);
+        const Circuit source = circuit(4, c.plain);
+        const HirModule hir = trace(source);
+        const Program ordinary = Program::compile(source, hir);
+        const Program frame = Program::compile(source, hir, std::nullopt, true, {}, true);
+        REQUIRE(frame.original().uses_runtime_frame());
+        REQUIRE(frame.original().peak_active_width() == 4 + c.plain);
+        REQUIRE(frame.original().initial_capacity_width() == c.plain);
+        for (bool keep_records : {false, true}) {
+            CAPTURE(keep_records);
+            REQUIRE(ordinary.sampling_plan(keep_records).peak_active_width() == 1);
+            const auto& sampled = frame.sampling_plan(keep_records);
+            REQUIRE((&sampled != &frame.original()) == c.reconstructed);
+            REQUIRE(sampled.uses_runtime_frame() != c.reconstructed);
+            REQUIRE(frame.reconstruction_fallback_reason(keep_records).empty() == c.reconstructed);
+        }
+    }
 }
 
 TEST_CASE("Program optimizes tied reconstruction schedules after lowering", "[reconstruction]") {
