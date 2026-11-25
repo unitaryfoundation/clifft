@@ -23,14 +23,28 @@ namespace {
     return static_cast<size_t>(entries);
 }
 
+// Packed lanes share one active layout, which a frame that differs between
+// shots cannot follow. The plan is rejected before its storage is sized, so a
+// frame plan with a wide bound reports this and not a failed allocation.
+batch_detail::BatchWorkerStorageLayout packed_storage_layout(const ExecutablePlan& plan,
+                                                             uint32_t lane_capacity,
+                                                             BatchOutputMode output_mode,
+                                                             BatchSamplingMode sampling_mode,
+                                                             const PreparedBatchNoise* noise) {
+    if (plan.uses_runtime_frame()) {
+        throw std::invalid_argument("packed sampling does not support runtime Clifford frames");
+    }
+    return batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode,
+                                                     sampling_mode, noise);
+}
+
 }  // namespace
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, uint32_t lane_capacity,
                              BatchOutputMode output_mode, BatchSamplingMode sampling_mode,
                              const PreparedBatchNoise* noise)
     : BatchExecutor(plan, output_mode, sampling_mode,
-                    batch_detail::batch_worker_storage_layout(plan, lane_capacity, output_mode,
-                                                              sampling_mode, noise),
+                    packed_storage_layout(plan, lane_capacity, output_mode, sampling_mode, noise),
                     noise) {}
 
 BatchExecutor::BatchExecutor(const ExecutablePlan& plan, BatchOutputMode output_mode,
@@ -248,23 +262,23 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteBoundary&) noexc
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameClifford&) noexcept {
-    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRotation&) noexcept {
-    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameMeasurement&) noexcept {
-    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&) noexcept {
-    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
 void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRelease&) noexcept {
-    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+    assert(false && "the packed executor does not run runtime Clifford frame actions");
 }
 
 bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detector) const noexcept {

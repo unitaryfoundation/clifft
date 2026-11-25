@@ -18,6 +18,8 @@ class State {
     [[nodiscard]] static size_t storage_bytes(uint32_t max_active_width);
     // Coefficients and collapse scratch for one state inside a 64-byte-aligned slab.
     [[nodiscard]] static size_t slot_bytes(uint32_t max_active_width);
+    // slot_bytes() for a width already known to be below the dense-state limit.
+    [[nodiscard]] static size_t slot_bytes_unchecked(uint32_t max_active_width) noexcept;
 
     // Immediately allocates all coefficient and temporary storage required by
     // max_active_width, even when initial_active_width is smaller.
@@ -45,6 +47,14 @@ class State {
     // initial configuration used by the next reset; ordinary dispatch never
     // calls this function.
     void ensure_capacity(uint32_t max_active_width);
+
+    // Moves a borrowed state to storage laid out for max_active_width. With
+    // keep_coefficients the live coefficients move with it, and the new
+    // storage may overlap the old when every array lands at or above its old
+    // address, as when states packed in one slab spread out for a wider
+    // layout. Without it the state returns to its initial width and holds
+    // nothing until its next reset.
+    void relocate(double* storage, uint32_t max_active_width, bool keep_coefficients) noexcept;
 
     [[nodiscard]] uint32_t active_width() const { return active_width_; }
     [[nodiscard]] uint32_t initial_active_width() const { return initial_active_width_; }

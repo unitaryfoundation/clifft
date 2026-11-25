@@ -24,17 +24,19 @@ SharedWorker::Executor make_shared_executor(const sampling::ExecutablePlan& plan
                                             const sampling::EarlyPostselection* checks,
                                             const sampling::SharingKey* key,
                                             const SharedWorkerKey& config) {
-    // Width-zero plans have no coefficient evolution to share. Their packed
-    // executor applies classical checks without per-shot group bookkeeping.
-    if (plan.peak_active_width() == 0) {
+    // Plans without coefficient evolution or a runtime Clifford frame have
+    // nothing to share. Their packed executor applies classical checks without
+    // per-shot group bookkeeping.
+    if (!sampling::shares_groups(plan)) {
         return SharedWorker::Executor(std::in_place_type<sampling::BatchExecutor>, plan,
                                       config.lane_capacity, config.output_mode,
                                       sampling::BatchSamplingMode::Ordinary, &noise);
     }
     const uint32_t initial_states = static_cast<uint32_t>(std::min<uint64_t>(
         {config.lane_capacity, kMaxInitialSharedStates,
-         std::max<uint64_t>(1, kInitialSharedStateBytes /
-                                   sampling::State::storage_bytes(plan.peak_active_width()))}));
+         std::max<uint64_t>(
+             1, kInitialSharedStateBytes / sampling::SharingExecutor::group_storage_bytes(
+                                               plan, plan.peak_active_width()))}));
     return SharedWorker::Executor(std::in_place_type<sampling::SharingExecutor>, plan, noise,
                                   *checks, config.lane_capacity, initial_states, true, key,
                                   config.max_worker_state_bytes, config.output_mode);
@@ -46,12 +48,12 @@ uint64_t shared_worker_classical_bytes(const sampling::ExecutablePlan& plan,
                                        const SharedWorkerKey& config, size_t counter_capacity) {
     const uint64_t counter_bytes = saturating_multiply_u64(counter_capacity, sizeof(uint64_t));
     const uint64_t executor_bytes =
-        plan.peak_active_width() == 0
-            ? sampling::batch_detail::batch_worker_storage_bytes(
+        sampling::shares_groups(plan)
+            ? sampling::SharingExecutor::classical_storage_bytes(
+                  plan, noise, key, config.lane_capacity, config.output_mode)
+            : sampling::batch_detail::batch_worker_storage_bytes(
                   plan, config.lane_capacity, config.output_mode,
-                  sampling::BatchSamplingMode::Ordinary, &noise)
-            : sampling::SharingExecutor::classical_storage_bytes(
-                  plan, noise, key, config.lane_capacity, config.output_mode);
+                  sampling::BatchSamplingMode::Ordinary, &noise);
     return saturating_add_u64(sizeof(SharedWorker),
                               saturating_add_u64(executor_bytes, counter_bytes));
 }

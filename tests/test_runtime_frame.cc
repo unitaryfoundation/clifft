@@ -9,10 +9,13 @@
 #include "clifft/circuit/parser.h"
 #include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/pass_factory.h"
+#include "clifft/sampling/batch/executor.h"
+#include "clifft/sampling/early_postselection.h"
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
+#include "clifft/sampling/sharing_executor.h"
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/xoshiro.h"
@@ -22,6 +25,7 @@
 #include <algorithm>
 #include <array>
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/generators/catch_generators.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
 #include <complex>
@@ -1627,6 +1631,769 @@ TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame
     }
 }
 
+// Programs that start with conditional Cliffords the frame fixes, which
+// shared execution handles apart from the general case.
+std::vector<FrameProgram> leading_clifford_programs() {
+    std::vector<FrameProgram> programs(4);
+    // X0, Z1 and Y2 commute, so the frame fixes all three and each one negates
+    // the rows that anticommute with it. Z0 and Z2 then read their noise bits.
+    // Z1 only adds a phase to |0>, so the X1 measurements after the quarter
+    // turn about Y1 must not depend on its bit.
+    programs[0].num_qubits = 3;
+    programs[0].noise_probabilities = {0.3, 0.6, 0.2};
+    programs[0].steps = {rotate(0b001, 0, 1.0, {}, {0}),
+                         rotate(0, 0b010, 1.0, {}, {1}),
+                         rotate(0b100, 0b100, 1.0, {}, {2}),
+                         measure(0, 0b001),
+                         measure(0, 0b100),
+                         rotate(0b010, 0b010, 0.5),
+                         measure(0b010, 0),
+                         measure(0b010, 0)};
+    // Two commuting quarter turns, then a Pauli and turns the frame no longer fixes.
+    programs[1].num_qubits = 3;
+    programs[1].noise_probabilities = {0.3, 0.4};
+    programs[1].steps = {rotate(0b011, 0, 0.5, {}, {0}),
+                         rotate(0, 0b011, 1.5, {}, {1}),
+                         rotate(0b100, 0b100, 1.0, {}, {0, 1}),
+                         rotate(0, 0b001, 0.5, {}, {0}),
+                         rotate(0b011, 0, 1.5, {}, {1}),
+                         measure(0b001, 0b010),
+                         rotate(0b100, 0, 0.5, {}, {0}),
+                         measure(0b010, 0b001),
+                         measure(0b100, 0)};
+    // A run of six commuting quarter turns about X-type Paulis. Four noise
+    // bits choose which of them fire, so a batch holds many sets; X2 fires in
+    // every shot, so no shot keeps the tableau the run started from. The T
+    // rotation and the measurements then act through each set's tableau.
+    programs[2].num_qubits = 4;
+    programs[2].noise_probabilities = {0.3, 0.45, 0.2, 0.5};
+    programs[2].steps = {rotate(0b0001, 0, 0.5, {}, {0}),
+                         rotate(0b0010, 0, 1.5, {}, {1}),
+                         rotate(0b0011, 0, 0.5, {}, {2}),
+                         rotate(0b1100, 0, 1.5, {}, {3}),
+                         rotate(0b0100, 0, 0.5),
+                         rotate(0b1000, 0, 0.5, {}, {0, 1}),
+                         rotate(0, 0b0101, 0.25),
+                         measure(0b0001, 0b0001),
+                         measure(0, 0b0010),
+                         measure(0b0100, 0b0100),
+                         measure(0, 0b1000),
+                         measure(0b0011, 0b1100)};
+    // A run of 70 commuting quarter turns, so the set a shot fires takes two
+    // words. Eight noise bits fire them in groups. The first 66 turns act
+    // about distinct X products. The last four repeat an earlier axis under
+    // another noise bit: two repeat a turn of the second word and two a turn
+    // of the first.
+    programs[3].num_qubits = 7;
+    programs[3].noise_probabilities.assign(8, 0.3);
+    for (uint32_t turn = 0; turn < 70; ++turn) {
+        const uint32_t repeated = turn < 66 ? turn : turn < 68 ? turn - 2 : turn - 62;
+        programs[3].steps.push_back(
+            rotate(repeated + 1, 0, turn % 2 == 0 ? 0.5 : 1.5, {}, {turn % 8}));
+    }
+    programs[3].steps.push_back(rotate(0, 0b0000001, 0.25));
+    for (uint32_t q = 0; q < programs[3].num_qubits; ++q) {
+        programs[3].steps.push_back(measure(0, uint64_t{1} << q));
+    }
+    return programs;
+}
+
+// Visible records of one finished shared batch, one bit pattern per shot.
+std::vector<uint64_t> shared_record_patterns(const sampling::SharingExecutor& executor,
+                                             uint32_t num_records) {
+    std::vector<uint64_t> patterns(executor.surviving_shots());
+    for (uint32_t lane = 0; lane < patterns.size(); ++lane) {
+        for (uint32_t record = 0; record < num_records; ++record) {
+            patterns[lane] |= uint64_t{executor.measurement(lane, record)} << record;
+        }
+    }
+    return patterns;
+}
+
+TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_frame][sampling]") {
+    constexpr uint32_t kCapacity = 500;
+    constexpr uint32_t kBatches = 16;
+    constexpr uint32_t kShots = kCapacity * kBatches;
+    uint64_t splits = 0;
+    uint32_t shared_batches = 0;
+    uint32_t peak_groups = 0;
+    uint64_t seed = 2000;
+    const auto check_plan = [&](const SamplingPlan& plan) {
+        const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+        std::map<uint64_t, double> expected;
+        for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+            expected[entry.outcome.visible_records] = entry.probability;
+        }
+
+        const sampling::ExecutablePlan executable(plan);
+        const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection checks(executable);
+        sampling::SharingExecutor executor(executable, noise, checks, kCapacity, 1, true, nullptr,
+                                           sampling::kDefaultSharedWorkerStateBudget,
+                                           sampling::BatchOutputMode::Rows);
+        const SeedRoot root = seed_root_from_seed(seed++);
+        std::map<uint64_t, uint32_t> counts;
+        for (uint32_t batch = 0; batch < kBatches; ++batch) {
+            executor.run_batch(root, batch * kCapacity, kCapacity);
+            REQUIRE(executor.surviving_shots() == kCapacity);
+            splits += executor.num_splits();
+            shared_batches += executor.peak_groups() < kCapacity;
+            peak_groups = std::max(peak_groups, executor.peak_groups());
+            for (uint64_t bits : shared_record_patterns(executor, plan.num_visible_records)) {
+                ++counts[bits];
+            }
+        }
+        for (const auto& [bits, count] : counts) {
+            CAPTURE(bits);
+            REQUIRE(expected.contains(bits));
+        }
+        for (const auto& [bits, probability] : expected) {
+            CAPTURE(bits, probability);
+            const double observed = counts.contains(bits) ? double(counts[bits]) / kShots : 0.0;
+            const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
+            REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
+        }
+    };
+    const auto check = [&](const FrameProgram& program) { check_plan(build_frame_plan(program)); };
+
+    SECTION("leading conditional Cliffords") {
+        for (const FrameProgram& program : leading_clifford_programs()) {
+            check(program);
+        }
+        REQUIRE(splits > 0);
+    }
+    SECTION("leading run split by a classical action") {
+        // The frame still fixes the quarter turns after the symbol definition,
+        // so they form a second run, which starts from the tableaus the first
+        // one left: shots that fire the same turns in it but came from
+        // different tableaus must stay apart.
+        SamplingPlan plan = build_frame_plan(leading_clifford_programs()[2]);
+        const SymbolId derived{static_cast<uint32_t>(plan.symbols.size())};
+        plan.symbols.push_back(SymbolKind::Derived);
+        plan.actions.insert(
+            plan.actions.begin() + 3,
+            {0, 0, sampling::DefineSymbol{derived, AffineBool::symbol(SymbolId{0})}});
+        check_plan(plan);
+        REQUIRE(splits > 0);
+    }
+    SECTION("turns about one Pauli in a run") {
+        // The run turns about X0 four times under different noise bits, both
+        // ways, and about X1 twice. A shot is left with one turn about each
+        // Pauli or none, and with the Pauli itself wherever two turns added
+        // to a half turn, so two tableaus differ only by which single turns
+        // they took: four at most, where the sets of fired turns number 64.
+        // Measuring Y first tells the two quarter turns apart, and measuring
+        // Z first tells no turn from the Pauli.
+        for (bool y_first : {true, false}) {
+            FrameProgram program;
+            program.num_qubits = 2;
+            program.noise_probabilities = {0.3, 0.4, 0.5, 0.35, 0.45, 0.25};
+            program.steps = {rotate(0b01, 0, 0.5, {}, {0}), rotate(0b10, 0, 0.5, {}, {4}),
+                             rotate(0b01, 0, 0.5, {}, {1}), rotate(0b01, 0, 1.5, {}, {2}),
+                             rotate(0b10, 0, 1.5, {}, {5}), rotate(0b01, 0, 0.5, {}, {3})};
+            for (uint64_t qubit : {uint64_t{0b01}, uint64_t{0b10}}) {
+                program.steps.push_back(measure(y_first ? qubit : 0, qubit));
+                program.steps.push_back(measure(y_first ? 0 : qubit, qubit));
+            }
+            check(program);
+        }
+        REQUIRE(peak_groups > 1);
+        REQUIRE(peak_groups <= 4);
+    }
+    SECTION("releasing a stabilizer on two coordinates") {
+        // Coordinate b is the frame's last, and the stabilizer on a and b is
+        // released with either as pivot, which leaves the other in place a.
+        //
+        // Released Za*Zb: the outcome of Xa*Xb on |0...0> is a fair coin,
+        // which leaves a sign on a row of Xa or of Xb, whichever the frame
+        // localized, and Za*Zb is then a stabilizer. The release multiplies
+        // the X row of the coordinate that stays by the pivot's, so its X is
+        // the old Xa*Xb, and measuring it repeats the first record.
+        //
+        // Released Xa*Xb: Xa, Za*Zb and Xa*Xb in turn are three fair coins and
+        // leave both products known. The release multiplies the Z row of the
+        // coordinate that stays by the pivot's, so its Z is the old Za*Zb,
+        // and measuring it repeats the second record.
+        //
+        // A Pauli applied first, Z of the pivot before a released Za*Zb and X
+        // of it before a released Xa*Xb, changes no outcome above but signs
+        // the row of the pivot that decides which other row signs a release
+        // flips.
+        //
+        // The wider frames put the two coordinates in different words of a
+        // tableau row and of a shot's row signs, or both past the first word.
+        struct Placement {
+            uint32_t width;
+            uint32_t a;
+        };
+        for (const Placement& where : {Placement{2, 0}, Placement{65, 63}, Placement{70, 64}}) {
+            const uint32_t b = where.width - 1;
+            for (const uint32_t variant : {0U, 1U, 2U, 3U}) {
+                const bool release_x = (variant & 1) != 0;
+                const bool signed_pivot = (variant & 2) != 0;
+                for (uint32_t pivot : {where.a, b}) {
+                    CAPTURE(where.width, where.a, release_x, signed_pivot, pivot);
+                    const auto pauli = [&](bool x_type,
+                                           std::initializer_list<uint32_t> coordinates) {
+                        const size_t words = (size_t{where.width} + 63) / 64;
+                        FramePauli product{std::vector<uint64_t>(words),
+                                           std::vector<uint64_t>(words)};
+                        for (uint32_t q : coordinates) {
+                            (x_type ? product.x : product.z)[q / 64] |= uint64_t{1} << (q % 64);
+                        }
+                        return product;
+                    };
+                    SamplingPlan plan;
+                    plan.num_qubits = where.width;
+                    plan.frame_width = where.width;
+                    const auto measure_pauli = [&](FramePauli product) {
+                        const SymbolId branch{static_cast<uint32_t>(plan.symbols.size())};
+                        plan.symbols.push_back(SymbolKind::Branch);
+                        plan.actions.push_back(
+                            {0, 0,
+                             sampling::MeasureFramePauli{std::move(product), branch,
+                                                         AffineBool::symbol(branch),
+                                                         RecordSlot{index(branch)}}});
+                    };
+                    if (signed_pivot) {
+                        plan.actions.push_back({0, 0,
+                                                sampling::ApplyConditionalClifford{
+                                                    pauli(release_x, {pivot}),
+                                                    CliffordRotation::PAULI, AffineBool(true)}});
+                    }
+                    if (release_x) {
+                        measure_pauli(pauli(true, {where.a}));
+                        measure_pauli(pauli(false, {where.a, b}));
+                    }
+                    measure_pauli(pauli(true, {where.a, b}));
+                    if (!release_x) {
+                        measure_pauli(pauli(false, {where.a, b}));
+                    }
+                    plan.actions.push_back(
+                        {0, 0,
+                         sampling::ReleaseFrameCoordinate{pauli(release_x, {where.a, b}), pivot,
+                                                          where.width}});
+                    measure_pauli(pauli(!release_x, {where.a}));
+                    plan.num_visible_records = static_cast<uint32_t>(plan.symbols.size());
+                    const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+                    REQUIRE(exact.kept_outcomes.size() == (release_x ? 8 : 2));
+                    for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+                        const uint64_t records = entry.outcome.visible_records;
+                        const auto record = [&](uint32_t slot) { return (records >> slot) & 1; };
+                        if (release_x) {
+                            REQUIRE(record(3) == record(1));
+                        } else {
+                            REQUIRE((records == 0b000 || records == 0b101));
+                        }
+                    }
+                    check_plan(plan);
+                }
+            }
+        }
+    }
+    SECTION("a release ends the quarter turns the frame fixes") {
+        // Coordinate 1 takes a quarter turn about X where the fault fires.
+        // Coordinate 0 is untouched, so Z on it is a stabilizer; releasing it
+        // moves coordinate 1 into its place. The opposite turn about X on that
+        // place undoes the first, and Z there reads zero. The second turn
+        // must map through the frame: the release changed what X0 means.
+        SamplingPlan plan;
+        plan.num_qubits = 2;
+        plan.frame_width = 2;
+        plan.num_visible_records = 1;
+        const SymbolId fault{0};
+        const SymbolId branch{1};
+        plan.symbols = {SymbolKind::Presampled, SymbolKind::Branch};
+        plan.presampled_noise_sites.push_back({0.5, {{fault, 0.5}}});
+        plan.actions = {
+            {0, 0,
+             sampling::ApplyConditionalClifford{FramePauli{{0b10}, {0}}, CliffordRotation::SQRT,
+                                                AffineBool::symbol(fault)}},
+            {0, 0, sampling::ReleaseFrameCoordinate{FramePauli{{0}, {0b01}}, 0, 2}},
+            {0, 0,
+             sampling::ApplyConditionalClifford{FramePauli{{0b01}, {0}}, CliffordRotation::SQRT_DAG,
+                                                AffineBool::symbol(fault)}},
+            {0, 0,
+             sampling::MeasureFramePauli{FramePauli{{0}, {0b01}}, branch,
+                                         AffineBool::symbol(branch), RecordSlot{0}}},
+        };
+        const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+        REQUIRE(exact.kept_outcomes.size() == 1);
+        REQUIRE(exact.kept_outcomes.front().outcome.visible_records == 0);
+        check_plan(plan);
+    }
+    SECTION("record-conditioned correction") {
+        check(t_teleportation(0.3, true));
+        check(t_teleportation(0.3, false));
+    }
+    SECTION("random programs") {
+        Xoshiro256PlusPlus rng(705);
+        for (uint32_t trial = 0; trial < 24; ++trial) {
+            CAPTURE(trial);
+            check(random_frame_program(rng));
+        }
+        REQUIRE(splits > 0);
+        REQUIRE(shared_batches > 0);
+    }
+}
+
+TEST_CASE("Shared frame groups give every shot the result of its own frame",
+          "[runtime_frame][sampling]") {
+    // A shot's draws do not depend on its group, so sharing a tableau and a
+    // state must reproduce the run where every shot keeps its own.
+    Xoshiro256PlusPlus rng(7051);
+    constexpr uint32_t kCapacity = 193;
+    uint64_t boundaries = 0;
+    uint64_t splits = 0;
+    uint64_t merges = 0;
+    uint32_t shared_batches = 0;
+    uint32_t rejecting_batches = 0;
+    bool saw_one = false;
+    std::vector<FrameProgram> programs = leading_clifford_programs();
+    while (programs.size() < 60) {
+        programs.push_back(random_frame_program(rng));
+    }
+    // Every program also runs with its first record postselected, so shots
+    // drop out while their groups hold tableaus.
+    for (uint32_t trial = 0; trial < 2 * programs.size(); ++trial) {
+        CAPTURE(trial);
+        const bool postselect = trial >= programs.size();
+        SamplingPlan plan = build_frame_plan(programs[trial % programs.size()]);
+        if (postselect) {
+            const auto first = std::ranges::find_if(plan.actions, [](const auto& planned) {
+                return std::holds_alternative<sampling::MeasureFramePauli>(planned.action);
+            });
+            if (first == plan.actions.end()) {
+                continue;
+            }
+            const uint32_t width = first->active_after;
+            plan.num_detectors = 1;
+            plan.actions.insert(
+                first + 1, {width, width,
+                            sampling::WriteDetector{sampling::RecordParity{false, {RecordSlot{0}}},
+                                                    sampling::DetectorSlot{0}, true}});
+        }
+        const sampling::ExecutablePlan executable(plan);
+        const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection checks(executable);
+        const auto make = [&](uint32_t initial_states, bool share) {
+            return sampling::SharingExecutor(
+                executable, noise, checks, kCapacity, initial_states, share, nullptr,
+                sampling::kDefaultSharedWorkerStateBudget, sampling::BatchOutputMode::Rows);
+        };
+        sampling::SharingExecutor growing = make(1, true);
+        sampling::SharingExecutor reserved = make(kCapacity, true);
+        sampling::SharingExecutor independent = make(kCapacity, false);
+        for (uint32_t shots : {kCapacity, 1u, 64u, 65u}) {
+            CAPTURE(shots);
+            const SeedRoot root = seed_root_from_seed(3000 + trial);
+            growing.run_batch(root, 11, shots);
+            reserved.run_batch(root, 11, shots);
+            independent.run_batch(root, 11, shots);
+            boundaries += growing.storage_boundaries();
+            splits += growing.num_splits();
+            merges += growing.num_merges();
+            shared_batches += shots == kCapacity && growing.peak_groups() < shots;
+            REQUIRE(independent.peak_groups() == shots);
+            REQUIRE(independent.num_merges() == 0);
+            const auto expected = shared_record_patterns(independent, plan.num_visible_records);
+            REQUIRE((postselect || expected.size() == shots));
+            rejecting_batches += expected.size() != 0 && expected.size() < shots;
+            REQUIRE(shared_record_patterns(growing, plan.num_visible_records) == expected);
+            REQUIRE(shared_record_patterns(reserved, plan.num_visible_records) == expected);
+            saw_one |= std::ranges::any_of(expected, [](uint64_t bits) { return bits != 0; });
+        }
+    }
+    REQUIRE(boundaries > 0);
+    REQUIRE(splits > 0);
+    REQUIRE(merges > 0);
+    REQUIRE(shared_batches > 0);
+    REQUIRE(rejecting_batches > 0);
+    REQUIRE(saw_one);
+}
+
+TEST_CASE("Shared frame execution retires and restarts a frame", "[runtime_frame][sampling]") {
+    // Three rounds on the same qubits. Each has a signed pair for the frame
+    // and one T gate that needs coefficients, and ends by measuring and
+    // resetting every qubit, which lets the plan retire the frame.
+    std::string source;
+    for (int round = 0; round < 3; ++round) {
+        source += "H 0 2\nCX 0 1\nX_ERROR(0.3) 0\nT 0 2\nT_DAG 1\nCX 0 1\nH 0 2\nMR 0 1 2\n";
+    }
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+    const auto count = [&](auto matches) { return std::ranges::count_if(plan.actions, matches); };
+    REQUIRE(count([](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::RetireFrame>(planned.action);
+            }) >= 2);
+    REQUIRE(plan.peak_active_width == 1);
+
+    const sampling::ExecutablePlan executable(plan);
+    // After a retirement the frame is the identity again, so the next round's
+    // conditional Cliffords take the kernel for Paulis the frame fixes.
+    const std::string listing = executable.inspect();
+    size_t fixed_cliffords = 0;
+    for (size_t at = listing.find("kernel=support"); at != std::string::npos;
+         at = listing.find("kernel=support", at + 1)) {
+        ++fixed_cliffords;
+    }
+    REQUIRE(fixed_cliffords == static_cast<size_t>(count([](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+            })));
+
+    const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+    std::map<uint64_t, double> expected;
+    for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+        expected[entry.outcome.visible_records] = entry.probability;
+    }
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    const sampling::EarlyPostselection checks(executable);
+    constexpr uint32_t kCapacity = 500;
+    constexpr uint32_t kBatches = 16;
+    const auto make = [&](bool share) {
+        return sampling::SharingExecutor(executable, noise, checks, kCapacity, 1, share, nullptr,
+                                         sampling::kDefaultSharedWorkerStateBudget,
+                                         sampling::BatchOutputMode::Rows);
+    };
+    sampling::SharingExecutor shared = make(true);
+    sampling::SharingExecutor independent = make(false);
+    const SeedRoot root = seed_root_from_seed(77);
+    std::map<uint64_t, uint32_t> counts;
+    uint64_t merges = 0;
+    for (uint32_t batch = 0; batch < kBatches; ++batch) {
+        shared.run_batch(root, batch * kCapacity, kCapacity);
+        independent.run_batch(root, batch * kCapacity, kCapacity);
+        merges += shared.num_merges();
+        REQUIRE(independent.num_merges() == 0);
+        const auto patterns = shared_record_patterns(shared, plan.num_visible_records);
+        REQUIRE(patterns == shared_record_patterns(independent, plan.num_visible_records));
+        for (uint64_t bits : patterns) {
+            ++counts[bits];
+        }
+    }
+    // Every round starts again from one group.
+    REQUIRE(merges > 0);
+    REQUIRE(shared.peak_groups() < kCapacity);
+    for (const auto& [bits, count_of] : counts) {
+        CAPTURE(bits);
+        REQUIRE(expected.contains(bits));
+    }
+    constexpr double kShots = kCapacity * kBatches;
+    for (const auto& [bits, probability] : expected) {
+        CAPTURE(bits, probability);
+        const double observed = counts.contains(bits) ? counts[bits] / kShots : 0.0;
+        const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
+        REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
+    }
+}
+
+TEST_CASE("Shared frame execution releases part of a frame", "[runtime_frame][sampling]") {
+    // A signed pair on qubits 4 and 5 is checked only at the end, so its frame
+    // coordinate stays live. Three rounds then run a signed pair on qubits 0
+    // and 1 and measure and reset both, which fixes that pair's coordinate.
+    // The plan releases it where the next round starts, and that round is
+    // reduced on it again.
+    std::string source = "H 4\nCX 4 5\nX_ERROR(0.3) 4\nT 4\nT_DAG 5\n";
+    for (int round = 0; round < 3; ++round) {
+        source += "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nCX 0 1\nH 0\nMR 0 1\n";
+    }
+    source += "MPP X4*X5\nM 4 5\n";
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+    const auto count = [&]<typename Action>() {
+        return std::ranges::count_if(plan.actions, [](const PlannedAction& planned) {
+            return std::holds_alternative<Action>(planned.action);
+        });
+    };
+    REQUIRE(count.operator()<sampling::ReleaseFrameCoordinate>() == 2);
+    REQUIRE(count.operator()<sampling::ApplyConditionalClifford>() == 4);
+    REQUIRE(count.operator()<sampling::RotateFramePauli>() == 0);
+    REQUIRE(plan.peak_active_width == 0);
+    // The frame never covers more than the two pairs.
+    REQUIRE(plan.frame_width == 2);
+
+    const ExactPlanDistribution exact = compute_exact_plan_distribution(plan);
+    std::map<uint64_t, double> expected;
+    for (const ExactOutcomeEntry& entry : exact.kept_outcomes) {
+        expected[entry.outcome.visible_records] = entry.probability;
+    }
+    const sampling::ExecutablePlan executable(plan);
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    const sampling::EarlyPostselection checks(executable);
+    constexpr uint32_t kCapacity = 500;
+    constexpr uint32_t kBatches = 16;
+    const auto make = [&](bool share) {
+        return sampling::SharingExecutor(executable, noise, checks, kCapacity, 1, share, nullptr,
+                                         sampling::kDefaultSharedWorkerStateBudget,
+                                         sampling::BatchOutputMode::Rows);
+    };
+    sampling::SharingExecutor shared = make(true);
+    sampling::SharingExecutor independent = make(false);
+    const SeedRoot root = seed_root_from_seed(78);
+    std::map<uint64_t, uint32_t> counts;
+    uint64_t merges = 0;
+    uint32_t peak_groups = 0;
+    for (uint32_t batch = 0; batch < kBatches; ++batch) {
+        shared.run_batch(root, batch * kCapacity, kCapacity);
+        independent.run_batch(root, batch * kCapacity, kCapacity);
+        merges += shared.num_merges();
+        peak_groups = std::max(peak_groups, shared.peak_groups());
+        REQUIRE(independent.num_merges() == 0);
+        const auto patterns = shared_record_patterns(shared, plan.num_visible_records);
+        REQUIRE(patterns == shared_record_patterns(independent, plan.num_visible_records));
+        for (uint64_t bits : patterns) {
+            ++counts[bits];
+        }
+    }
+    // The shots a round's fault separated share a tableau again once its
+    // coordinate is released: two frames for the live pair, times two for the
+    // round in progress.
+    REQUIRE(merges > 0);
+    REQUIRE(peak_groups <= 4);
+    for (const auto& [bits, count_of] : counts) {
+        CAPTURE(bits);
+        REQUIRE(expected.contains(bits));
+    }
+    constexpr double kShots = kCapacity * kBatches;
+    for (const auto& [bits, probability] : expected) {
+        CAPTURE(bits, probability);
+        const double observed = counts.contains(bits) ? counts[bits] / kShots : 0.0;
+        const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
+        REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
+    }
+}
+
+TEST_CASE("Shared frame execution follows random rounds that release coordinates",
+          "[runtime_frame][sampling]") {
+    // Random rounds beside a data qubit that stays unmeasured. Their plans
+    // release coordinates while some groups hold coefficients, share tableaus,
+    // or carry row signs from random measurements. Shared execution is
+    // compared with independent shots bit for bit, in batches of a few lanes,
+    // where the table of equal tableaus is small, and of many; and the samples
+    // are compared with the exact plan distribution.
+    Xoshiro256PlusPlus rng(0x706C);
+    constexpr uint32_t kPlans = 16;
+    uint32_t plans = 0;
+    uint64_t merges = 0;
+    for (uint32_t trial = 0; plans < kPlans; ++trial) {
+        REQUIRE(trial < 400);
+        const std::string source = random_partial_rounds_source(rng, 3 + trial % 3);
+        const SamplingPlan plan =
+            sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+        if (std::ranges::none_of(plan.actions, [](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::ReleaseFrameCoordinate>(planned.action);
+            })) {
+            continue;
+        }
+        ++plans;
+        CAPTURE(trial, source);
+        std::map<uint64_t, double> expected;
+        for (const ExactOutcomeEntry& entry : compute_exact_plan_distribution(plan).kept_outcomes) {
+            expected[entry.outcome.visible_records] = entry.probability;
+        }
+        const sampling::ExecutablePlan executable(plan);
+        const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection checks(executable);
+        const SeedRoot root = seed_root_from_seed(3000 + trial);
+        struct Run {
+            uint32_t capacity;
+            uint32_t batches;
+        };
+        std::map<uint64_t, uint32_t> counts;
+        constexpr Run kMany{500, 12};
+        for (const Run& run : {Run{4, 150}, kMany}) {
+            const auto make = [&](bool share) {
+                return sampling::SharingExecutor(executable, noise, checks, run.capacity, 1, share,
+                                                 nullptr, sampling::kDefaultSharedWorkerStateBudget,
+                                                 sampling::BatchOutputMode::Rows);
+            };
+            sampling::SharingExecutor shared = make(true);
+            sampling::SharingExecutor independent = make(false);
+            for (uint32_t batch = 0; batch < run.batches; ++batch) {
+                shared.run_batch(root, batch * run.capacity, run.capacity);
+                independent.run_batch(root, batch * run.capacity, run.capacity);
+                merges += shared.num_merges();
+                const auto patterns = shared_record_patterns(shared, plan.num_visible_records);
+                REQUIRE(patterns == shared_record_patterns(independent, plan.num_visible_records));
+                if (run.capacity == kMany.capacity) {
+                    for (uint64_t bits : patterns) {
+                        ++counts[bits];
+                    }
+                }
+            }
+        }
+        // Outcomes too rare to compare one by one are compared together.
+        constexpr double kShots = kMany.capacity * kMany.batches;
+        double rare_probability = 0.0;
+        uint32_t rare_count = 0;
+        for (const auto& [bits, count_of] : counts) {
+            CAPTURE(bits);
+            REQUIRE(expected.contains(bits));
+        }
+        const auto require_close = [&](double probability, uint32_t count_of) {
+            const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
+            REQUIRE(std::abs(count_of / kShots - probability) <= 6.0 * sigma + 1e-9);
+        };
+        for (const auto& [bits, probability] : expected) {
+            CAPTURE(bits, probability);
+            const uint32_t count_of = counts.contains(bits) ? counts[bits] : 0;
+            if (probability * kShots < 10.0) {
+                rare_probability += probability;
+                rare_count += count_of;
+            } else {
+                require_close(probability, count_of);
+            }
+        }
+        require_close(rare_probability, rare_count);
+    }
+    REQUIRE(merges > 0);
+}
+
+TEST_CASE("Shared frame states are allocated for the width bound of the plan",
+          "[runtime_frame][sampling]") {
+    // One fault decides whether ten qubits each add an active coordinate, so a
+    // few shots need wide states. Four more faults split groups without
+    // widening them. Record 0 is the control, which is one where the fault
+    // that widens fired.
+    constexpr uint32_t kWide = 10;
+    std::string source;
+    for (uint32_t pair = 0; pair < 4; ++pair) {
+        const std::string a = std::to_string(12 + 2 * pair);
+        const std::string b = std::to_string(13 + 2 * pair);
+        source += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(0.5) " + a + "\nT " + a +
+                  "\nT_DAG " + b + "\n";
+    }
+    std::string targets;
+    for (uint32_t q = 0; q < kWide; ++q) {
+        targets += " " + std::to_string(q);
+        source += "CX 10 " + std::to_string(q) + "\n";
+    }
+    source = "H" + targets + "\nT" + targets + "\nX_ERROR(0.05) 10\n" + source + "T" + targets +
+             "\nH_YZ" + targets + "\nT" + targets +
+             "\nM 10\nMPP X12*X13\nMPP X14*X15\n"
+             "MPP X16*X17\nMPP X18*X19\nM" +
+             targets + "\n";
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(source)), {.runtime_frame = true});
+    const sampling::ExecutablePlan executable(plan);
+    REQUIRE(executable.initial_capacity_width() == 0);
+    REQUIRE(executable.peak_active_width() == kWide);
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    const sampling::EarlyPostselection checks(executable);
+    constexpr uint32_t kLanes = 4;
+    const uint64_t at_bound = sampling::SharingExecutor::group_storage_bytes(executable, kWide);
+    const auto make = [&](uint64_t budget) {
+        return sampling::SharingExecutor(executable, noise, checks, kLanes, 1, true, nullptr,
+                                         budget, sampling::BatchOutputMode::Rows);
+    };
+    const auto is_wide = [](uint64_t bits) { return (bits & 1) != 0; };
+    const auto rows = [&](const sampling::SharingExecutor& executor) {
+        return shared_record_patterns(executor, plan.num_visible_records);
+    };
+    const SeedRoot root = seed_root_from_seed(91);
+
+    // The states start without coefficients, but a state is counted at the
+    // bound, so less than one of those holds nothing.
+    REQUIRE_THROWS_AS(make(at_bound - 1), std::invalid_argument);
+
+    // With a state at the bound for every lane, a batch runs whatever it
+    // draws. A wide shot spreads the states out inside the storage they have,
+    // so once the pool holds a state per lane no batch allocates again, and
+    // the next batch packs them for the starting width. An executor that ran
+    // other batches before returns the rows of a new one.
+    sampling::SharingExecutor roomy = make(kLanes * at_bound);
+    uint32_t wide_batches = 0;
+    uint64_t full_pool_bytes = 0;
+    for (uint32_t batch = 0; batch < 300; ++batch) {
+        CAPTURE(batch);
+        roomy.run_batch(root, batch * kLanes, kLanes);
+        const auto expected = rows(roomy);
+        const bool wide = std::ranges::any_of(expected, is_wide);
+        wide_batches += wide;
+        REQUIRE(roomy.state_layout_width() == (wide ? kWide : 0));
+        if (roomy.state_capacity() == kLanes) {
+            if (full_pool_bytes == 0) {
+                full_pool_bytes = roomy.state_pool_bytes();
+            }
+            REQUIRE(roomy.state_pool_bytes() == full_pool_bytes);
+        }
+        sampling::SharingExecutor fresh = make(kLanes * at_bound);
+        fresh.run_batch(root, batch * kLanes, kLanes);
+        REQUIRE(rows(fresh) == expected);
+    }
+    REQUIRE(wide_batches > 10);
+    REQUIRE(full_pool_bytes != 0);
+
+    // Without the pairs a batch stays one group until the fault splits it at
+    // the rotation that also widens, and the wide states split again when
+    // they are measured. The pool then grows by a chunk while its states are
+    // laid out wide. An executor that held a state per lane from the start
+    // never grows and returns the same rows.
+    {
+        std::string fan_out;
+        for (uint32_t q = 0; q < kWide; ++q) {
+            fan_out += "CX 10 " + std::to_string(q) + "\n";
+        }
+        const SamplingPlan late_plan = sampling::plan_sampling(
+            clifft::trace(clifft::parse("H" + targets + "\nT" + targets + "\nX_ERROR(0.4) 10\n" +
+                                        fan_out + "T" + targets + "\nH_YZ" + targets + "\nT" +
+                                        targets + "\nM 10\nM" + targets + "\n")),
+            {.runtime_frame = true});
+        const sampling::ExecutablePlan late(late_plan);
+        REQUIRE(late.initial_capacity_width() == 0);
+        const sampling::PreparedBatchNoise late_noise(late, sampling::BatchNoiseMode::Dense);
+        const sampling::EarlyPostselection late_checks(late);
+        const auto with_states = [&](uint32_t initial_states) {
+            return sampling::SharingExecutor(late, late_noise, late_checks, kLanes, initial_states,
+                                             true, nullptr, kLanes * at_bound,
+                                             sampling::BatchOutputMode::Rows);
+        };
+        sampling::SharingExecutor reserved = with_states(kLanes);
+        uint32_t grown_wide = 0;
+        for (uint32_t batch = 0; batch < 100; ++batch) {
+            CAPTURE(batch);
+            sampling::SharingExecutor growing = with_states(1);
+            growing.run_batch(root, batch * kLanes, kLanes);
+            reserved.run_batch(root, batch * kLanes, kLanes);
+            REQUIRE(reserved.storage_boundaries() == 0);
+            REQUIRE(shared_record_patterns(growing, late_plan.num_visible_records) ==
+                    shared_record_patterns(reserved, late_plan.num_visible_records));
+            grown_wide += growing.state_layout_width() == kWide && growing.state_capacity() > 2;
+        }
+        REQUIRE(grown_wide > 10);
+    }
+
+    // With two states, a batch of two lanes runs and a batch of four, whose
+    // lanes could each need a state, reports the budget. An executor that ran
+    // other batches does both exactly where a new one does.
+    sampling::SharingExecutor carried = make(2 * at_bound);
+    uint32_t refused = 0;
+    uint32_t ran = 0;
+    for (uint32_t batch = 0; batch < 300; ++batch) {
+        CAPTURE(batch);
+        const uint32_t lanes = batch % 2 == 0 ? 2 : kLanes;
+        const auto fits = [&](sampling::SharingExecutor& executor) {
+            try {
+                executor.run_batch(root, batch * kLanes, lanes);
+            } catch (const std::runtime_error&) {
+                return false;
+            }
+            return true;
+        };
+        sampling::SharingExecutor fresh = make(2 * at_bound);
+        const bool fresh_fits = fits(fresh);
+        REQUIRE(fits(carried) == fresh_fits);
+        if (fresh_fits) {
+            REQUIRE(rows(carried) == rows(fresh));
+            ++ran;
+        } else {
+            ++refused;
+        }
+    }
+    REQUIRE(refused > 0);
+    REQUIRE(ran > 0);
+}
+
 TEST_CASE("Output compaction keeps its work estimate across retired frames",
           "[runtime_frame][sampling]") {
     // Each round promotes qubit 2 on a frame that the round's measurements
@@ -1656,6 +2423,123 @@ TEST_CASE("Output compaction keeps its work estimate across retired frames",
                     executable.estimated_batch_lane_work(mode));
         }
     }
+}
+
+TEST_CASE("Groups of a sharing key stay apart through a frame", "[runtime_frame][sampling]") {
+    // A sharing key groups shots by the noise that decides static rotation
+    // signs, here the fault between the two T gates on qubit 2. Those
+    // rotations follow a frame that measures its last active qubit and then
+    // retires, the two places where groups without a key merge. Without the
+    // fault no rotation sign varies, the key separates nothing, and the groups
+    // merge as they do without a key. The third circuit ends before its frame
+    // retires: its groups split at the first of two active qubits and merge
+    // at the second. In the last one the sign comes from a frame measurement:
+    // its outcome applies an X between two rotations, which then cancel.
+    struct Case {
+        const char* source;
+        // Whether noise, or any symbol, decides a static rotation sign.
+        bool noise_signed;
+        bool separates;
+        bool retires;
+    };
+    const Case c = GENERATE(
+        Case{"H 0 4\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4\nT_DAG 1\nCX 0 1\nH 0 4\nMR 0 1 4\n"
+             "H 2\nT 2\nH 2\nX_ERROR(0.3) 2\nT 2\nH 2\nM 2\n",
+             true, true, true},
+        Case{"H 0 4\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4\nT_DAG 1\nCX 0 1\nH 0 4\nMR 0 1 4\n"
+             "H 2\nT 2\nH 2\nT 2\nH 2\nM 2\n",
+             false, false, true},
+        Case{"H 0 4 5\nCX 0 1\nX_ERROR(0.3) 0\nT 0 4 5\nT_DAG 1\nCX 0 1\nH 0 4 5\nM 4 5 0\n", false,
+             false, false},
+        // The check of the first pair lets the plan release its coordinate
+        // before the third pair, a third place where groups can merge.
+        Case{"H 0 4\nCX 0 1\nCX 4 5\nX_ERROR(0.3) 0 4\nT 0 4\nT_DAG 1 5\nMPP X0*X1\n"
+             "CX 1 6\nCX 6 7\nX_ERROR(0.2) 6\nT 6\nT_DAG 7\nM 0 1 4 5 6 7\n"
+             "H 2\nT 2\nH 2\nX_ERROR(0.3) 2\nT 2\nH 2\nM 2\n",
+             true, true, true},
+        Case{"H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nMPP X0*X1\n"
+             "H 2\nR_Z(0.2) 2\nCX rec[-1] 2\nR_Z(0.2) 2\nH 2\nM 2\n",
+             false, true, true});
+    CAPTURE(c.source);
+    const SamplingPlan plan =
+        sampling::plan_sampling(clifft::trace(clifft::parse(c.source)), {.runtime_frame = true});
+    const auto holds = [&]<typename Action>() {
+        return std::ranges::any_of(plan.actions, [](const PlannedAction& planned) {
+            return std::holds_alternative<Action>(planned.action);
+        });
+    };
+    REQUIRE(holds.operator()<sampling::RetireFrame>() == c.retires);
+    REQUIRE(holds.operator()<sampling::MeasureFramePauli>());
+    REQUIRE(holds.operator()<sampling::RotateActivePauli>() == c.retires);
+
+    const sampling::ExecutablePlan executable(plan);
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    const sampling::EarlyPostselection checks(executable);
+    const sampling::SharingKey key(executable);
+    REQUIRE((key.num_bits() != 0) == c.noise_signed);
+    REQUIRE(key.separates_groups() == c.separates);
+    constexpr uint32_t kCapacity = 300;
+    const auto make = [&](bool share, const sampling::SharingKey* grouping) {
+        return sampling::SharingExecutor(executable, noise, checks, kCapacity, 1, share, grouping,
+                                         sampling::kDefaultSharedWorkerStateBudget,
+                                         sampling::BatchOutputMode::Rows);
+    };
+    sampling::SharingExecutor keyed = make(true, &key);
+    sampling::SharingExecutor merging = make(true, nullptr);
+    sampling::SharingExecutor independent = make(false, nullptr);
+    uint64_t merges = 0;
+    bool saw_one = false;
+    for (uint32_t batch = 0; batch < 8; ++batch) {
+        const SeedRoot root = seed_root_from_seed(900 + batch);
+        keyed.run_batch(root, 0, kCapacity);
+        merging.run_batch(root, 0, kCapacity);
+        independent.run_batch(root, 0, kCapacity);
+        REQUIRE(keyed.num_merges() == (c.separates ? 0 : merging.num_merges()));
+        merges += merging.num_merges();
+        const auto expected = shared_record_patterns(independent, plan.num_visible_records);
+        REQUIRE(shared_record_patterns(keyed, plan.num_visible_records) == expected);
+        REQUIRE(shared_record_patterns(merging, plan.num_visible_records) == expected);
+        saw_one |= std::ranges::any_of(expected, [](uint64_t bits) { return bits != 0; });
+    }
+    REQUIRE(merges > 0);
+    REQUIRE(saw_one);
+}
+
+TEST_CASE("Shared frame budgets count the tableau of every group", "[runtime_frame][sampling]") {
+    // No rotation needs an active coordinate, so a group holds a one-amplitude
+    // state and its tableau.
+    FrameProgram program;
+    program.num_qubits = 3;
+    program.noise_probabilities = {0.3};
+    program.steps = {rotate(0b001, 0, 0.5, {}, {0}), measure(0, 0b001), measure(0b010, 0)};
+    const sampling::ExecutablePlan executable(build_frame_plan(program));
+    REQUIRE(executable.peak_active_width() == 0);
+    const uint64_t group_bytes = sampling::SharingExecutor::group_storage_bytes(executable, 0);
+    REQUIRE(group_bytes > sampling::State::storage_bytes(0));
+
+    const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
+    REQUIRE(sampling::max_safe_shared_capacity(executable, noise, nullptr, 100 * group_bytes) ==
+            100);
+    const sampling::EarlyPostselection checks(executable);
+    const auto make = [&](uint32_t lanes, uint64_t budget) {
+        return sampling::SharingExecutor(executable, noise, checks, lanes, 1, false, nullptr,
+                                         budget, sampling::BatchOutputMode::Rows);
+    };
+    REQUIRE_THROWS_AS(make(3, group_bytes - 1), std::invalid_argument);
+    // Without sharing every shot needs its own group, and the third does not fit.
+    sampling::SharingExecutor tight = make(3, 2 * group_bytes);
+    tight.run_batch(seed_root_from_seed(1), 0, 2);
+    REQUIRE(tight.surviving_shots() == 2);
+    // The pool's size, which bounds the workers kept between calls, includes
+    // the tableaus. Enough groups make them outweigh the page that holds the
+    // coefficients.
+    constexpr uint32_t kGroups = 64;
+    sampling::SharingExecutor roomy = make(kGroups, kGroups * group_bytes);
+    roomy.run_batch(seed_root_from_seed(1), 0, kGroups);
+    REQUIRE(roomy.state_capacity() == kGroups);
+    const uint64_t tableau_bytes = group_bytes - sampling::State::storage_bytes(0);
+    REQUIRE(roomy.state_pool_bytes() >= kGroups * (tableau_bytes + sampling::State::slot_bytes(0)));
+    REQUIRE_THROWS_AS(tight.run_batch(seed_root_from_seed(1), 0, 3), std::runtime_error);
 }
 
 TEST_CASE("Fixed-fault sampling on a frame plan follows the static plan",
@@ -1771,6 +2655,21 @@ TEST_CASE("Growing coefficient storage does not change a seeded fixed-fault fram
         }
         REQUIRE(saw_one);
     }
+}
+
+TEST_CASE("Packed execution rejects a frame plan before sizing its storage",
+          "[runtime_frame][sampling]") {
+    // One rotation per coordinate raises the width bound to 40, far past what
+    // 256 packed lanes could allocate.
+    FrameProgram program;
+    program.num_qubits = 40;
+    for (uint32_t q = 0; q < program.num_qubits; ++q) {
+        program.steps.push_back(rotate(uint64_t{1} << q, 0, 0.137));
+    }
+    const sampling::ExecutablePlan plan(build_frame_plan(program));
+    REQUIRE(plan.initial_capacity_width() == 0);
+    REQUIRE(plan.peak_active_width() == 40);
+    REQUIRE_THROWS_AS(sampling::BatchExecutor(plan, 256), std::invalid_argument);
 }
 
 }  // namespace clifft::test

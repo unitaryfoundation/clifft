@@ -59,6 +59,13 @@ class OnlineFrame {
         reset();
     }
 
+    // Bytes a frame over `count` coordinates allocates for its tableau and
+    // scratch rows: the X and Z words and a phase byte of each row.
+    [[nodiscard]] static uint64_t storage_bytes(uint32_t count) noexcept {
+        const uint64_t rows = 2 * uint64_t{count} + kScratchRows;
+        const uint64_t words = (uint64_t{count} + 63) / 64;
+        return rows * (2 * words * sizeof(uint64_t) + 1);
+    }
     void reset() noexcept {
         std::fill_n(storage_.begin(), size_t{2} * n * 2 * words_, uint64_t{0});
         std::fill_n(phases_.begin(), size_t{2} * n, uint8_t{0});
@@ -71,6 +78,12 @@ class OnlineFrame {
     [[nodiscard]] PauliStringView row(uint32_t index) const noexcept {
         return {MaskView{std::span<const uint64_t>(x_words(index), words_)},
                 MaskView{std::span<const uint64_t>(z_words(index), words_)}, phases_[index], n};
+    }
+    // Takes the tableau of another frame over the same coordinates.
+    void copy_tableau(const OnlineFrame& source) noexcept {
+        assert(source.n == n);
+        std::copy_n(source.storage_.begin(), size_t{2} * n * 2 * words_, storage_.begin());
+        std::copy_n(source.phases_.begin(), size_t{2} * n, phases_.begin());
     }
     void axis(uint32_t q, char kind, PauliString& output) const noexcept {
         copy_pauli(row(kind == 'Z' ? n + q : q), output);
@@ -275,10 +288,9 @@ class OnlineFrame {
         localize_x(p, dormant);
         coordinate_swap(dormant, active_width);
     }
-    // Follows a dense measurement of the active Pauli a that collapsed onto
-    // branch and removed coordinate `removed` from a state of the given width.
-    void finish_active_measurement(ActivePauli a, uint32_t removed, uint32_t width,
-                                   bool branch) noexcept {
+    // Changes coordinates so that the active Pauli a of a state of the given
+    // width becomes Z on coordinate `removed`.
+    void localize_measured(ActivePauli a, uint32_t removed, uint32_t width) noexcept {
         if (a.x) {
             const uint32_t body = 2 * n + kBodyRow;
             std::fill_n(x_words(body), size_t{2} * words_, uint64_t{0});
@@ -292,6 +304,13 @@ class OnlineFrame {
                 if (q != removed && ((a.z >> q) & 1))
                     coordinate_cx(q, removed);
         }
+    }
+    // Follows a dense measurement of the active Pauli a that collapsed onto
+    // branch and removed coordinate `removed` from a state of the given width.
+    // The branch only negates the rows with Z on the localized coordinate.
+    void finish_active_measurement(ActivePauli a, uint32_t removed, uint32_t width,
+                                   bool branch) noexcept {
+        localize_measured(a, removed, width);
         if (branch)
             coordinate_x(removed);
         compact(removed, width);
@@ -436,6 +455,26 @@ class OnlineFrame {
         x_words(last)[word] = bit;
         z_words(n + last)[word] = bit;
         phases_[last] = phases_[n + last] = 0;
+    }
+    // A hash of the tableau, and whether two frames hold the same one.
+    [[nodiscard]] uint64_t tableau_hash() const noexcept {
+        uint64_t hash = 0x9E3779B97F4A7C15ULL ^ n;
+        const auto mix = [&](uint64_t value) noexcept {
+            hash ^= value;
+            hash *= 0xFF51AFD7ED558CCDULL;
+            hash ^= hash >> 33;
+        };
+        for (size_t i = 0, end = size_t{2} * n * 2 * words_; i < end; ++i)
+            mix(storage_[i]);
+        for (size_t i = 0, end = size_t{2} * n; i < end; ++i)
+            mix(phases_[i]);
+        return hash;
+    }
+    [[nodiscard]] bool same_tableau(const OnlineFrame& other) const noexcept {
+        return n == other.n &&
+               std::equal(storage_.begin(), storage_.begin() + size_t{2} * n * 2 * words_,
+                          other.storage_.begin()) &&
+               std::equal(phases_.begin(), phases_.begin() + size_t{2} * n, other.phases_.begin());
     }
     // rotate_fixed_clifford for a Pauli X^x when no earlier rotation had a Z
     // factor either. The image of Z_q is then Z_q times X factors, and it

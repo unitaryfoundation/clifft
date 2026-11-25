@@ -1,6 +1,7 @@
 #include "clifft/sampling/sharing_executor.h"
 
 #include "clifft/sampling/measurement_branch.h"
+#include "clifft/sampling/pauli_preparation.h"
 #include "clifft/util/mask_view.h"
 #include "clifft/util/numeric.h"
 
@@ -10,6 +11,7 @@
 #include <cstddef>
 #include <map>
 #include <stdexcept>
+#include <string>
 #include <type_traits>
 
 namespace clifft::sampling {
@@ -42,6 +44,7 @@ SharingKey::SharingKey(const ExecutablePlan& plan) : plan_(&plan) {
         for (uint32_t reg : plan.expression_dependencies_.dependent_registers(symbol)) {
             split_symbols_[symbol] |= required[reg];
         }
+        separates_groups_ |= split_symbols_[symbol] != 0;
     }
 }
 
@@ -90,10 +93,78 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
             key_hash_.resize(std::bit_ceil(size_t{lane_capacity} * 2));
         }
     }
+    // Storage is reserved for every state at the plan's peak width, so the
+    // pool cannot outgrow the budget. A frame plan's peak is a bound its
+    // shots may not reach: its states are laid out for the width the frame
+    // starts with and move apart inside that storage when a shot needs more.
+    state_width_ = plan.initial_capacity_width();
     max_states_ = static_cast<uint32_t>(std::min<uint64_t>(
-        lane_capacity, max_worker_state_bytes / State::storage_bytes(plan.peak_active_width())));
+        lane_capacity,
+        max_worker_state_bytes / group_storage_bytes(plan, plan.peak_active_width())));
     if (max_states_ == 0) {
         throw std::invalid_argument("max_worker_state_bytes cannot hold one shared state");
+    }
+    if (plan.uses_runtime_frame()) {
+        sign_stride_ = size_t{2} * plan.frame_words();
+        if (lane_capacity > shot_signs_.max_size() / sign_stride_) {
+            throw std::length_error("frame sign bits exceed addressable storage");
+        }
+        shot_signs_.resize(size_t{lane_capacity} * sign_stride_);
+        frame_random_.resize(word_capacity_);
+        if (std::ranges::any_of(plan.actions_, [](const ExecutablePlan::Action& action) {
+                return std::holds_alternative<ExecutablePlan::ExecuteFrameRelease>(action);
+            })) {
+            equal_frames_.resize(std::bit_ceil(size_t{lane_capacity} * 2));
+        }
+        frame_of_.resize(lane_capacity);
+        free_frames_.resize(lane_capacity);
+        fired_groups_.resize(lane_capacity);
+        changed_rows_.resize(sign_stride_);
+        // Find the runs of quarter turns the frame fixes, in dispatch order.
+        // They commute, so a shot's tableau depends only on the set it fires.
+        const auto order = checks.action_order();
+        uint32_t longest = 0;
+        bool any_repeat = false;
+        for (size_t begin = 0; begin < order.size();) {
+            size_t end = begin;
+            while (end < order.size() && is_run_turn(plan.actions_[order[end]])) {
+                ++end;
+            }
+            if (end - begin >= 2) {
+                clifford_runs_.resize(order.size());
+                run_first_.resize(order.size());
+                run_repeats_.resize(order.size());
+                clifford_runs_[begin] = static_cast<uint32_t>(end - begin);
+                longest = std::max(longest, clifford_runs_[begin]);
+                std::map<uint32_t, uint32_t> first;
+                for (size_t position = begin; position < end; ++position) {
+                    const uint32_t pauli = std::get<ExecutablePlan::ExecuteFrameClifford>(
+                                               plan.actions_[order[position]])
+                                               .pauli;
+                    const auto offset = static_cast<uint32_t>(position - begin);
+                    run_first_[position] = first.try_emplace(pauli, offset).first->second;
+                    run_repeats_[begin] |= run_first_[position] != offset;
+                }
+                any_repeat |= run_repeats_[begin] != 0;
+            }
+            begin = std::max(end, begin + 1);
+        }
+        if (longest != 0) {
+            const size_t stride = (size_t{longest} + 63) / 64;
+            if (lane_capacity > run_bits_.max_size() / stride) {
+                throw std::length_error("frame run bits exceed addressable storage");
+            }
+            run_bits_.resize(size_t{lane_capacity} * stride);
+            if (any_repeat) {
+                run_paulis_.resize(run_bits_.size());
+            }
+            run_table_.resize(std::bit_ceil(size_t{lane_capacity} * 2));
+            for (auto* table :
+                 {&run_class_, &class_source_, &class_frame_, &class_seen_by_, &class_owner_,
+                  &class_size_, &class_group_, &run_stay_, &run_lanes_, &run_leaving_}) {
+                table->resize(lane_capacity);
+            }
+        }
     }
     initial_states = std::min(initial_states, max_states_);
     grow_state_pool(initial_states);
@@ -116,12 +187,49 @@ SharingExecutor::SharingExecutor(const ExecutablePlan& plan, const PreparedBatch
                     return key_ && key_->split_symbols_[typed.branch] ? 2 : 1;
                 } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteReadoutNoise>) {
                     return key_ && key_->split_symbols_[typed.flip] ? 2 : 1;
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameClifford>) {
+                    // Only a quarter turn changes the tableau of the shots it fires on.
+                    return typed.rotation == CliffordRotation::SQRT ||
+                                   typed.rotation == CliffordRotation::SQRT_DAG
+                               ? 2
+                               : 1;
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameMeasurement>) {
+                    // A collapse splits a group in two, and so does an outcome
+                    // that a rotation sign under the sharing key reads later.
+                    return key_ && key_->split_symbols_[typed.branch] ? 4 : 2;
+                } else if constexpr (std::is_same_v<T, ExecutablePlan::ExecuteFrameRotation>) {
+                    return 2;
                 } else {
                     return 1;
                 }
             },
             action));
     }
+}
+
+bool SharingExecutor::is_run_turn(const ExecutablePlan::Action& action) noexcept {
+    const auto* clifford = std::get_if<ExecutablePlan::ExecuteFrameClifford>(&action);
+    return clifford != nullptr && clifford->fixed_by_frame &&
+           (clifford->rotation == CliffordRotation::SQRT ||
+            clifford->rotation == CliffordRotation::SQRT_DAG);
+}
+
+uint64_t SharingExecutor::frame_storage_bytes(const ExecutablePlan& plan) {
+    if (!plan.uses_runtime_frame()) {
+        return 0;
+    }
+    // The frame's tableau and scratch rows in two allocations. The mapped
+    // Pauli allocates its X and Z words, and the row mask is a fifth.
+    constexpr uint64_t kAllocations = 5;
+    constexpr uint64_t kAllocationOverhead = 16;
+    const uint64_t words_bytes = uint64_t{plan.frame_words()} * sizeof(uint64_t);
+    return saturating_add_u64(
+        OnlineFrame::storage_bytes(plan.frame_width_),
+        sizeof(SharedFrame) + 4 * words_bytes + kAllocations * kAllocationOverhead);
+}
+
+uint64_t SharingExecutor::group_storage_bytes(const ExecutablePlan& plan, uint32_t width) {
+    return saturating_add_u64(State::storage_bytes(width), frame_storage_bytes(plan));
 }
 
 uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
@@ -144,28 +252,68 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
             bytes,
             saturating_multiply_u64(std::bit_ceil(uint64_t{lane_capacity} * 2), sizeof(uint32_t)));
     }
+    if (plan.uses_runtime_frame()) {
+        // One sign bit per tableau row for every lane and for the row mask of
+        // an action, the packed draws of random frame measurements, and three
+        // group tables.
+        const uint64_t sign_words = 2 * uint64_t{plan.frame_words()};
+        bytes = saturating_add_u64(bytes, saturating_multiply_u64(uint64_t{lane_capacity} + 1,
+                                                                  sign_words * sizeof(uint64_t)));
+        bytes = saturating_add_u64(
+            bytes, saturating_multiply_u64(packed_word_count(lane_capacity), sizeof(uint64_t)));
+        bytes =
+            saturating_add_u64(bytes, saturating_multiply_u64(lane_capacity, 3 * sizeof(uint32_t)));
+        // The table that finds equal tableaus after releases.
+        if (std::ranges::any_of(plan.actions_, [](const ExecutablePlan::Action& action) {
+                return std::holds_alternative<ExecutablePlan::ExecuteFrameRelease>(action);
+            })) {
+            bytes = saturating_add_u64(
+                bytes, saturating_multiply_u64(std::bit_ceil(uint64_t{lane_capacity} * 2),
+                                               sizeof(uint32_t)));
+        }
+        // Regrouping a run of conditional quarter turns: for every action its
+        // run length, the first turn about its Pauli and a repeat flag; one
+        // bit per turn for every lane; the class table; and ten entries per
+        // lane. The dispatch order decides where a run ends, so the longest
+        // run is bounded here by all the turns a run can hold.
+        bytes = saturating_add_u64(
+            bytes,
+            saturating_multiply_u64(plan.num_actions(), 2 * sizeof(uint32_t) + sizeof(uint8_t)));
+        const uint64_t turns =
+            static_cast<uint64_t>(std::ranges::count_if(plan.actions_, is_run_turn));
+        // The bits are stored twice when a run turns twice about one Pauli.
+        bytes = saturating_add_u64(
+            bytes,
+            saturating_multiply_u64(lane_capacity, 2 * ((turns + 63) / 64) * sizeof(uint64_t)));
+        bytes = saturating_add_u64(
+            bytes, saturating_multiply_u64(
+                       std::bit_ceil(uint64_t{lane_capacity} * 2) + 10 * uint64_t{lane_capacity},
+                       sizeof(uint32_t)));
+    }
     return bytes;
 }
 
 uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatchNoise& noise,
                                   const SharingKey* key, uint64_t max_worker_state_bytes,
                                   BatchOutputMode output_mode) {
-    // Width-zero plans keep no coefficient states.
-    const uint32_t width = plan.peak_active_width();
-    uint32_t capacity =
-        width == 0
-            ? kMaxAutoSharedBatchShots
-            : static_cast<uint32_t>(std::min<uint64_t>(
-                  kMaxAutoSharedBatchShots, max_worker_state_bytes / State::storage_bytes(width)));
+    // Width-zero plans keep no coefficient states, unless a runtime Clifford
+    // frame gives every group a tableau.
+    const bool grouped = shares_groups(plan);
+    uint32_t capacity = !grouped
+                            ? kMaxAutoSharedBatchShots
+                            : static_cast<uint32_t>(std::min<uint64_t>(
+                                  kMaxAutoSharedBatchShots,
+                                  max_worker_state_bytes / SharingExecutor::group_storage_bytes(
+                                                               plan, plan.peak_active_width())));
     // The sampler retains one observable counter per output alongside the executor.
     const uint64_t counter_bytes =
         saturating_multiply_u64(plan.num_observables(), sizeof(uint64_t));
-    // A width-zero worker is a packed executor without the sharing arrays.
+    // A worker that groups nothing is a packed executor without the sharing arrays.
     const auto worker_bytes = [&](uint32_t lanes) {
-        return width == 0
-                   ? batch_detail::batch_worker_storage_bytes(plan, lanes, output_mode,
-                                                              BatchSamplingMode::Ordinary, &noise)
-                   : SharingExecutor::classical_storage_bytes(plan, noise, key, lanes, output_mode);
+        return grouped
+                   ? SharingExecutor::classical_storage_bytes(plan, noise, key, lanes, output_mode)
+                   : batch_detail::batch_worker_storage_bytes(plan, lanes, output_mode,
+                                                              BatchSamplingMode::Ordinary, &noise);
     };
     while (capacity > 1 && saturating_add_u64(worker_bytes(capacity), counter_bytes) >
                                kMaxAutoSharedWorkerClassicalBytes) {
@@ -239,12 +387,35 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
 uint64_t SharingExecutor::state_pool_bytes() const noexcept {
     uint64_t bytes = saturating_add_u64(
         saturating_multiply_u64(states_.capacity(), sizeof(State)),
-        saturating_multiply_u64(state_chunks_.capacity(), sizeof(PageAlignedAllocation)));
+        saturating_multiply_u64(state_chunks_.capacity(),
+                                sizeof(PageAlignedAllocation) + sizeof(uint32_t)));
     for (const auto& chunk : state_chunks_) {
         bytes = saturating_add_u64(bytes, chunk.size());
     }
-    return bytes;
+    return saturating_add_u64(bytes,
+                              saturating_multiply_u64(frames_.size(), frame_storage_bytes(*plan_)));
 }
+
+namespace {
+
+// One slab of state slots, each sized for the given width.
+[[nodiscard]] PageAlignedAllocation allocate_state_slab(size_t slots, uint32_t width) {
+    const size_t slot_bytes = State::slot_bytes(width);
+    if (slots > std::numeric_limits<size_t>::max() / slot_bytes) {
+        throw std::length_error("shared state slab exceeds addressable memory");
+    }
+    const auto alignment = slot_bytes >= PageAlignedAllocation::kHugePageSize
+                               ? PageAlignedAllocation::Alignment::HugePageEligible
+                               : PageAlignedAllocation::Alignment::BasePage;
+    return PageAlignedAllocation(slots * slot_bytes, alignment);
+}
+
+[[nodiscard]] double* slab_slot(PageAlignedAllocation& slab, size_t slot, uint32_t width) noexcept {
+    return reinterpret_cast<double*>(static_cast<std::byte*>(slab.data()) +
+                                     slot * State::slot_bytes_unchecked(width));
+}
+
+}  // namespace
 
 void SharingExecutor::grow_state_pool(uint32_t required) {
     assert(required <= lane_capacity_ && "shared states cannot outnumber classical lanes");
@@ -268,26 +439,56 @@ void SharingExecutor::grow_state_pool(uint32_t required) {
                   max_states_,
                   std::max<uint64_t>(required,
                                      uint64_t{old_count} + std::max<uint64_t>(old_count / 2, 1))));
-    const uint32_t width = plan_->peak_active_width();
-    const size_t slot_bytes = State::slot_bytes(width);
     const uint32_t add = target - old_count;
-    if (add > std::numeric_limits<size_t>::max() / slot_bytes) {
-        throw std::length_error("shared state slab exceeds addressable memory");
-    }
-    const auto alignment = slot_bytes >= PageAlignedAllocation::kHugePageSize
-                               ? PageAlignedAllocation::Alignment::HugePageEligible
-                               : PageAlignedAllocation::Alignment::BasePage;
+    // Every allocation happens before the pool changes, and a tableau that
+    // fails to allocate takes the ones before it back, so a failed growth
+    // leaves the executor as it was.
     states_.reserve(target);
     state_chunks_.reserve(state_chunks_.size() + 1);
-    PageAlignedAllocation chunk(size_t{add} * slot_bytes, alignment);
-    auto* base = static_cast<std::byte*>(chunk.data());
-    state_chunks_.push_back(std::move(chunk));
+    chunk_states_.reserve(chunk_states_.size() + 1);
+    PageAlignedAllocation slab = allocate_state_slab(add, plan_->peak_active_width());
+    if (sign_stride_ != 0) {
+        frames_.reserve(target);
+        try {
+            for (uint32_t i = 0; i < add; ++i) {
+                frames_.emplace_back(plan_->frame_width_, sign_stride_);
+            }
+        } catch (...) {
+            while (frames_.size() > old_count) {
+                frames_.pop_back();
+            }
+            throw;
+        }
+    }
+    state_chunks_.push_back(std::move(slab));
+    chunk_states_.push_back(add);
     for (uint32_t i = 0; i < add; ++i) {
         const uint32_t slot = old_count + i;
-        auto* storage = reinterpret_cast<double*>(base + size_t{i} * slot_bytes);
-        states_.push_back(State::borrowed(storage, width, plan_->initial_active_width()));
+        if (sign_stride_ != 0) {
+            free_frames_[free_frame_count_++] = slot;
+        }
+        states_.push_back(State::borrowed(slab_slot(state_chunks_.back(), i, state_width_),
+                                          state_width_, plan_->initial_active_width()));
         free_[free_count_++] = slot;
     }
+}
+
+void SharingExecutor::lay_out_states(uint32_t width, bool keep_coefficients) noexcept {
+    assert(width <= plan_->peak_active_width() && (!keep_coefficients || width > state_width_) &&
+           "states stay inside their storage, and coefficients move only apart");
+    // A wider layout puts every array at or above its old address, so the
+    // last state of a chunk moves first.
+    uint32_t end = static_cast<uint32_t>(states_.size());
+    for (size_t chunk = state_chunks_.size(); chunk-- > 0;) {
+        const uint32_t begin = end - chunk_states_[chunk];
+        for (uint32_t slot = end; slot-- > begin;) {
+            State& state = states_[slot];
+            double* storage = slab_slot(state_chunks_[chunk], slot - begin, width);
+            state.relocate(storage, width, keep_coefficients);
+        }
+        end = begin;
+    }
+    state_width_ = width;
 }
 
 void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
@@ -297,6 +498,7 @@ void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint3
     entrance_rejected_ = shots - live_count_;
     storage_boundaries_ = 0;
     num_splits_ = 0;
+    num_merges_ = 0;
     peak_groups_ = 0;
     group_count_ = 0;
     prune_pending_ = false;
@@ -307,12 +509,28 @@ void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint3
         }
         return;
     }
+    // A batch that widened its states leaves them apart. They hold nothing
+    // now, so they pack again for the width a batch starts with.
+    if (state_width_ != plan_->initial_capacity_width()) {
+        lay_out_states(plan_->initial_capacity_width(), false);
+    }
     initialize_groups(root, first_shot, shots);
+    std::fill_n(shot_signs_.begin(), size_t{shots} * sign_stride_, uint64_t{0});
     const auto run = [&]<ExecutorBackend Backend>() {
         while (const uint32_t required = dispatch_until_storage_boundary<Backend>()) {
             ++storage_boundaries_;
             grow_state_pool(required);
         }
+#ifndef NDEBUG
+        // Every listed group holds one reference to its tableau, and nothing
+        // else does.
+        uint64_t frame_users = 0;
+        for (const SharedFrame& frame : frames_) {
+            frame_users += frame.users;
+        }
+        assert((sign_stride_ == 0 || frame_users == group_count_) &&
+               "tableau references match the groups");
+#endif
         // Only the classical output columns need compaction after dispatch.
         // Coefficient groups and hidden state are reset before the next batch.
         if (output_mode_ == BatchOutputMode::Rows && live_count_ != active_lanes()) {
@@ -444,6 +662,26 @@ void SharingExecutor::initialize_groups(const SeedRoot& root, uint32_t first_sho
         groups_[group] = group;
         states_[group].reset();
     }
+    if (sign_stride_ == 0) {
+        return;
+    }
+    frame_stamp_ = 0;
+    free_frame_count_ = 0;
+    for (uint32_t frame = static_cast<uint32_t>(frames_.size()); frame-- > 0;) {
+        frames_[frame].users = 0;
+        frames_[frame].stamp = 0;
+        free_frames_[free_frame_count_++] = frame;
+    }
+    // Every shot starts with the identity tableau, which the groups share.
+    // Without sharing, each group keeps its own throughout.
+    uint32_t frame = kNoShot;
+    for (uint32_t group = 0; group < group_count_; ++group) {
+        if (frame == kNoShot || !share_) {
+            frame = acquire_frame(nullptr);
+        }
+        frame_of_[group] = frame;
+        ++frames_[frame].users;
+    }
 }
 
 template <ExecutorBackend Backend>
@@ -465,10 +703,26 @@ uint32_t SharingExecutor::dispatch_until_storage_boundary() noexcept {
                 }
             },
             action);
+        ++frame_stamp_;
+        if (const uint32_t run = clifford_runs_.empty() ? 0 : clifford_runs_[action_index_];
+            run != 0) {
+            const uint32_t groups = group_count_ + prepare_clifford_run(run);
+            if (groups > states_.size()) {
+                return groups;
+            }
+            execute_clifford_run(run);
+            action_index_ += run;
+            continue;
+        }
         const uint32_t required = static_cast<uint32_t>(
             std::min<uint64_t>(live_count_, uint64_t{group_count_} * split_factors_[plan_index]));
         if (required > states_.size()) {
             return required;
+        }
+        if (const auto* rotation = std::get_if<ExecutablePlan::ExecuteFrameRotation>(&action);
+            rotation != nullptr && frame_rotation_needs_width(*rotation)) {
+            // The storage is already reserved, so this allocates nothing.
+            lay_out_states(state_width_ + 1, true);
         }
         std::visit(
             [&](const auto& typed) noexcept {
@@ -506,6 +760,11 @@ uint32_t SharingExecutor::detach_tail(uint32_t group, uint32_t tail) noexcept {
     assert(free_count_ != 0 && "state split must fit the preflight capacity");
     const uint32_t other = free_[--free_count_];
     copy_state(other, group);
+    if (sign_stride_ != 0) {
+        // The copy refers to the same frame.
+        frame_of_[other] = frame_of_[group];
+        ++frames_[frame_of_[group]].users;
+    }
     end_[group] = tail;
     begin_[other] = tail;
     end_[other] = end;
@@ -608,6 +867,9 @@ void SharingExecutor::prune() noexcept {
             groups_[kept++] = group;
         } else {
             free_[free_count_++] = group;
+            if (sign_stride_ != 0) {
+                release_frame(frame_of_[group]);
+            }
         }
     }
     group_count_ = kept;
@@ -789,24 +1051,775 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteBoundary&) noe
     assert(false && "continuation boundaries are excluded during sharing setup");
 }
 
-void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameClifford&) noexcept {
-    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+std::span<const uint64_t> SharingExecutor::frame_pauli_rows(uint32_t pauli) const noexcept {
+    // The plan stores a frame Pauli as its X words then its Z words, which is
+    // the row layout: X_q selects the image of X_q and Z_q the image of Z_q.
+    return std::span<const uint64_t>(plan_->frame_paulis_)
+        .subspan(size_t{pauli} * sign_stride_, sign_stride_);
 }
 
-void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRotation&) noexcept {
-    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+bool SharingExecutor::shot_flips(uint32_t shot, std::span<const uint64_t> rows) const noexcept {
+    const uint64_t* signs = shot_signs_.data() + size_t{shot} * sign_stride_;
+    uint64_t parity = 0;
+    for (size_t word = 0; word < sign_stride_; ++word) {
+        parity ^= signs[word] & rows[word];
+    }
+    return (std::popcount(parity) & 1) != 0;
 }
 
-void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameMeasurement&) noexcept {
-    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+void SharingExecutor::flip_shot_signs(uint32_t shot, std::span<const uint64_t> rows) noexcept {
+    uint64_t* signs = shot_signs_.data() + size_t{shot} * sign_stride_;
+    for (size_t word = 0; word < sign_stride_; ++word) {
+        signs[word] ^= rows[word];
+    }
+}
+
+uint32_t SharingExecutor::acquire_frame(const SharedFrame* source) noexcept {
+    assert(free_frame_count_ != 0 && "the pool holds a tableau for every group");
+    const uint32_t frame = free_frames_[--free_frame_count_];
+    SharedFrame& slot = frames_[frame];
+    if (source != nullptr && source->changed) {
+        slot.frame.copy_tableau(source->frame);
+        slot.changed = true;
+    } else if (slot.changed) {
+        slot.frame.reset();
+        slot.changed = false;
+    }
+    return frame;
+}
+
+void SharingExecutor::release_frame(uint32_t frame) noexcept {
+    assert(frames_[frame].users != 0 && "a released tableau had a group");
+    if (--frames_[frame].users == 0) {
+        free_frames_[free_frame_count_++] = frame;
+    }
+}
+
+void SharingExecutor::collect_merged_groups() noexcept {
+    // A merge leaves the taken lanes where they were and only renames their
+    // group, so the ranges are rebuilt from group_of_. Every lane in a range
+    // is live here: the action that merges runs after any pending prune.
+    uint32_t kept = 0;
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        if (begin_[group] != end_[group]) {
+            groups_[kept++] = group;
+            end_[group] = 0;
+        } else {
+            free_[free_count_++] = group;
+        }
+    }
+    group_count_ = kept;
+    const MaskView live{std::span<const uint64_t>(live_words_)};
+    for_each_set_bit(live, [&](uint32_t shot) { ++end_[group_of_[shot]]; });
+    uint32_t placed = 0;
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        begin_[group] = placed;
+        placed += end_[group];
+        end_[group] = begin_[group];
+    }
+    for_each_set_bit(live, [&](uint32_t shot) {
+        const uint32_t group = group_of_[shot];
+        position_[shot] = end_[group];
+        order_[end_[group]++] = shot;
+    });
+}
+
+uint32_t SharingExecutor::prepare_clifford_run(uint32_t length) noexcept {
+    const auto order = checks_->action_order();
+    const size_t stride = (size_t{length} + 63) / 64;
+    std::fill_n(run_bits_.begin(), size_t{active_lanes()} * stride, uint64_t{0});
+    if (run_repeats_[action_index_] != 0) {
+        std::fill_n(run_paulis_.begin(), size_t{active_lanes()} * stride, uint64_t{0});
+    }
+    // Collect only the set bits: most shots fire few of the run's turns.
+    const auto turn = [&](uint32_t k) -> const ExecutablePlan::ExecuteFrameClifford& {
+        return std::get<ExecutablePlan::ExecuteFrameClifford>(
+            plan_->actions_[order[action_index_ + k]]);
+    };
+    for (uint32_t k = 0; k < length; ++k) {
+        const auto& action = turn(k);
+        const auto fires = evaluate(action.condition);
+        const uint32_t first = run_first_[action_index_ + k];
+        const size_t bit_word = first / 64;
+        const uint64_t bit = uint64_t{1} << (first & 63);
+        if (first == k) {
+            for (size_t word = 0; word < live_words_.size(); ++word) {
+                for (uint64_t bits = fires[word] & live_words_[word]; bits != 0; bits &= bits - 1) {
+                    const size_t shot = word * 64 + static_cast<size_t>(std::countr_zero(bits));
+                    run_bits_[shot * stride + bit_word] |= bit;
+                }
+            }
+            continue;
+        }
+        // A later turn about the same Pauli composes with what the shot holds
+        // on the first turn's bit. Quarter turns add: with none held the shot
+        // now holds one, and with one held it holds none. Wherever the sum
+        // differs from that by a half turn, the Pauli itself is left over.
+        const bool same_way = action.rotation == turn(first).rotation;
+        for (size_t word = 0; word < live_words_.size(); ++word) {
+            for (uint64_t bits = fires[word] & live_words_[word]; bits != 0; bits &= bits - 1) {
+                const size_t shot = word * 64 + static_cast<size_t>(std::countr_zero(bits));
+                uint64_t& held = run_bits_[shot * stride + bit_word];
+                if (((held & bit) != 0) == same_way) {
+                    run_paulis_[shot * stride + bit_word] ^= bit;
+                }
+                held ^= bit;
+            }
+        }
+    }
+    std::ranges::fill(run_table_, kNoShot);
+    uint32_t added = 0;
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        const uint32_t source = frame_of_[group];
+        uint32_t classes = 0;
+        bool quiet = false;
+        run_stay_[group] = kNoShot;
+        for (uint32_t shot : lanes(group)) {
+            const uint64_t* fired = run_bits_.data() + size_t{shot} * stride;
+            uint64_t hash = source;
+            bool any = false;
+            for (size_t word = 0; word < stride; ++word) {
+                any |= fired[word] != 0;
+                uint64_t mixed = hash ^ fired[word];
+                hash = splitmix64(mixed);
+            }
+            if (!any) {
+                run_class_[shot] = kNoShot;
+                quiet = true;
+                continue;
+            }
+            // Find the class of this tableau and set, or start it with this shot.
+            size_t bucket = hash & (run_table_.size() - 1);
+            uint32_t found = run_table_[bucket];
+            while (found != kNoShot && (class_source_[found] != source ||
+                                        !std::equal(fired, fired + stride,
+                                                    run_bits_.data() + size_t{found} * stride))) {
+                bucket = (bucket + 1) & (run_table_.size() - 1);
+                found = run_table_[bucket];
+            }
+            if (found == kNoShot) {
+                found = shot;
+                run_table_[bucket] = shot;
+                class_source_[shot] = source;
+                class_frame_[shot] = kNoShot;
+                class_seen_by_[shot] = kNoShot;
+                class_owner_[shot] = kNoShot;
+            }
+            run_class_[shot] = found;
+            if (class_seen_by_[found] != group) {
+                class_seen_by_[found] = group;
+                ++classes;
+                if (run_stay_[group] == kNoShot) {
+                    run_stay_[group] = found;
+                }
+            }
+        }
+        // The shots that fire nothing keep the group. When every shot fires,
+        // the first class does, so a group of one class needs no new state.
+        if (quiet) {
+            run_stay_[group] = kNoShot;
+            added += classes;
+        } else if (classes != 0) {
+            added += classes - 1;
+        }
+    }
+    return added;
+}
+
+void SharingExecutor::execute_clifford_run(uint32_t length) noexcept {
+    const auto order = checks_->action_order();
+    const size_t stride = (size_t{length} + 63) / 64;
+    if (run_repeats_[action_index_] != 0) {
+        // A Pauli negates the rows a turn about it would change: the X rows
+        // where it has Z and the Z rows where it has X. Every turn of the run
+        // commutes with it, so it leaves their signs alone.
+        const size_t half = sign_stride_ / 2;
+        for (size_t lane_word = 0; lane_word < live_words_.size(); ++lane_word) {
+            for (uint64_t lanes = live_words_[lane_word]; lanes != 0; lanes &= lanes - 1) {
+                const size_t shot = lane_word * 64 + static_cast<size_t>(std::countr_zero(lanes));
+                const uint64_t* left = run_paulis_.data() + shot * stride;
+                uint64_t* signs = shot_signs_.data() + shot * sign_stride_;
+                for (size_t word = 0; word < stride; ++word) {
+                    for (uint64_t bits = left[word]; bits != 0; bits &= bits - 1) {
+                        const size_t k = word * 64 + static_cast<size_t>(std::countr_zero(bits));
+                        const auto rows =
+                            frame_pauli_rows(std::get<ExecutablePlan::ExecuteFrameClifford>(
+                                                 plan_->actions_[order[action_index_ + k]])
+                                                 .pauli);
+                        for (size_t w = 0; w < half; ++w) {
+                            signs[w] ^= rows[half + w];
+                            signs[half + w] ^= rows[w];
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Applies every turn of the class's set; the turns commute, so their
+    // order does not matter.
+    const auto rotate = [&](uint32_t frame, uint32_t klass) noexcept {
+        SharedFrame& slot = frames_[frame];
+        const uint64_t* fired = run_bits_.data() + size_t{klass} * stride;
+        for (size_t word = 0; word < stride; ++word) {
+            for (uint64_t bits = fired[word]; bits != 0; bits &= bits - 1) {
+                const size_t k = word * 64 + static_cast<size_t>(std::countr_zero(bits));
+                const auto& action = std::get<ExecutablePlan::ExecuteFrameClifford>(
+                    plan_->actions_[order[action_index_ + k]]);
+                if (action.x_only) {
+                    slot.frame.rotate_fixed_x_clifford(plan_->frame_pauli_x(action.pauli),
+                                                       action.rotation);
+                } else {
+                    slot.frame.rotate_fixed_clifford(plan_->frame_pauli(action.pauli),
+                                                     action.rotation);
+                }
+            }
+        }
+        slot.changed = true;
+    };
+    // Points a group at its class's tableau, making that tableau on first use.
+    const auto take_class_frame = [&](uint32_t group, uint32_t klass) noexcept {
+        const uint32_t source = frame_of_[group];
+        if (class_frame_[klass] == kNoShot) {
+            if (frames_[source].users == 1) {
+                // No other group has the source tableau: rotate it in place.
+                rotate(source, klass);
+                class_frame_[klass] = source;
+                return;
+            }
+            class_frame_[klass] = acquire_frame(&frames_[source]);
+            rotate(class_frame_[klass], klass);
+        }
+        frame_of_[group] = class_frame_[klass];
+        ++frames_[class_frame_[klass]].users;
+        release_frame(source);
+    };
+    const uint32_t original_group_count = group_count_;
+    for (uint32_t index = 0; index < original_group_count; ++index) {
+        const uint32_t group = groups_[index];
+        const uint32_t stay = run_stay_[group];
+        const uint32_t begin = begin_[group];
+        const uint32_t end = end_[group];
+        // Count the group's shots in every class that leaves it.
+        uint32_t leaving_classes = 0;
+        uint32_t leaving_shots = 0;
+        for (uint32_t position = begin; position < end; ++position) {
+            const uint32_t shot = order_[position];
+            run_lanes_[position] = shot;
+            const uint32_t klass = run_class_[shot];
+            if (klass == stay) {
+                continue;
+            }
+            if (class_owner_[klass] != group) {
+                class_owner_[klass] = group;
+                class_size_[klass] = 0;
+                run_leaving_[leaving_classes++] = klass;
+            }
+            ++class_size_[klass];
+            ++leaving_shots;
+        }
+        if (leaving_classes != 0) {
+            // Every leaving class takes a range behind the shots that stay, a
+            // copy of the group's coefficients, and its own tableau.
+            uint32_t cursor = end - leaving_shots;
+            for (uint32_t i = 0; i < leaving_classes; ++i) {
+                const uint32_t klass = run_leaving_[i];
+                assert(free_count_ != 0 && "the run's groups fit the prepared capacity");
+                const uint32_t other = free_[--free_count_];
+                copy_state(other, group);
+                frame_of_[other] = frame_of_[group];
+                ++frames_[frame_of_[group]].users;
+                take_class_frame(other, klass);
+                begin_[other] = end_[other] = cursor;
+                cursor += class_size_[klass];
+                class_group_[klass] = other;
+                groups_[group_count_++] = other;
+                ++num_splits_;
+            }
+            end_[group] = begin;
+            for (uint32_t position = begin; position < end; ++position) {
+                const uint32_t shot = run_lanes_[position];
+                const uint32_t klass = run_class_[shot];
+                const uint32_t target = klass == stay ? group : class_group_[klass];
+                group_of_[shot] = target;
+                position_[shot] = end_[target];
+                order_[end_[target]++] = shot;
+            }
+        }
+        // The source tableau was copied for the other classes above, so the
+        // group's own class can now rotate it in place.
+        if (stay != kNoShot) {
+            take_class_frame(group, stay);
+        }
+    }
+    peak_groups_ = std::max(peak_groups_, group_count_);
+}
+
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameClifford& action) noexcept {
+    if (action.rotation == CliffordRotation::IDENTITY) {
+        return;
+    }
+    const auto fires = evaluate(action.condition);
+    const auto rows = frame_pauli_rows(action.pauli);
+    // A frame maps Paulis by conjugation, which preserves commutation: a row
+    // anticommutes with the image of the action's Pauli exactly when its
+    // generator anticommutes with the Pauli. The rotation therefore changes
+    // the same rows in every tableau: the X rows where the Pauli has Z and
+    // the Z rows where it has X.
+    const size_t half = sign_stride_ / 2;
+    std::copy_n(rows.begin() + half, half, changed_rows_.begin());
+    std::copy_n(rows.begin(), half, changed_rows_.begin() + half);
+    // Only the lanes the condition selects are visited: most shots fire few
+    // of a plan's conditional Cliffords.
+    const auto for_each_fired = [&](auto&& visit) noexcept {
+        for (size_t word = 0; word < live_words_.size(); ++word) {
+            for (uint64_t bits = fires[word] & live_words_[word]; bits != 0; bits &= bits - 1) {
+                visit(static_cast<uint32_t>(word * 64 + std::countr_zero(bits)));
+            }
+        }
+    };
+    if (action.rotation == CliffordRotation::PAULI) {
+        // A Pauli rotation negates the changed rows: it flips the sign bits
+        // of the shots it fires on and leaves every tableau alone.
+        for_each_fired([&](uint32_t shot) noexcept { flip_shot_signs(shot, changed_rows_); });
+        return;
+    }
+    const auto rotate = [&](SharedFrame& slot) noexcept {
+        if (action.x_only) {
+            slot.frame.rotate_fixed_x_clifford(plan_->frame_pauli_x(action.pauli), action.rotation);
+        } else if (action.fixed_by_frame) {
+            slot.frame.rotate_fixed_clifford(plan_->frame_pauli(action.pauli), action.rotation);
+        } else {
+            slot.frame.map(plan_->frame_pauli_x(action.pauli), plan_->frame_pauli_z(action.pauli),
+                           slot.mapped);
+            slot.frame.rotate_clifford(slot.mapped.view(), action.rotation);
+        }
+        slot.changed = true;
+    };
+    // A quarter turn changes the tableau, so the shots it fires on move to the
+    // rotated one. They gather at the tail of their group, which then leaves
+    // with them unless the whole group fires.
+    uint32_t fired_count = 0;
+    for_each_fired([&](uint32_t shot) noexcept {
+        const uint32_t group = group_of_[shot];
+        if (departing_[group]++ == 0) {
+            fired_groups_[fired_count++] = group;
+        }
+        swap_lanes(position_[shot], end_[group] - departing_[group]);
+    });
+    for (uint32_t index = 0; index < fired_count; ++index) {
+        const uint32_t group = fired_groups_[index];
+        const uint32_t tail = end_[group] - departing_[group];
+        departing_[group] = 0;
+        const uint32_t fired = tail == begin_[group] ? group : detach_tail(group, tail);
+        const uint32_t source = frame_of_[fired];
+        SharedFrame& slot = frames_[source];
+        if (slot.stamp != frame_stamp_) {
+            slot.stamp = frame_stamp_;
+            slot.link = kNoShot;
+        }
+        if (slot.link != kNoShot || slot.users != 1) {
+            if (slot.link == kNoShot) {
+                // Other groups keep this tableau: rotate a copy.
+                slot.link = acquire_frame(&slot);
+                rotate(frames_[slot.link]);
+            }
+            frame_of_[fired] = slot.link;
+            ++frames_[slot.link].users;
+            release_frame(source);
+        } else {
+            rotate(slot);
+        }
+        if (action.fixed_by_frame) {
+#ifndef NDEBUG
+            for (uint32_t shot : lanes(fired)) {
+                assert(!shot_flips(shot, rows) &&
+                       "a Pauli fixed by the frame keeps its sign in every shot");
+            }
+#endif
+            continue;
+        }
+        // Each changed row was multiplied by the shot's image of the Pauli,
+        // so it also takes that image's sign.
+        for (uint32_t shot : lanes(fired)) {
+            if (shot_flips(shot, rows)) {
+                flip_shot_signs(shot, changed_rows_);
+            }
+        }
+    }
+}
+
+SharingExecutor::SharedFrame& SharingExecutor::prepare_frame_rotation(
+    uint32_t group, const ExecutablePlan::ExecuteFrameRotation& action) noexcept {
+    SharedFrame& slot = frames_[frame_of_[group]];
+    if (slot.stamp != frame_stamp_) {
+        slot.stamp = frame_stamp_;
+        slot.frame.map(plan_->frame_pauli_x(action.pauli), plan_->frame_pauli_z(action.pauli),
+                       slot.mapped);
+        const PauliStringView axis = slot.mapped.view();
+        // Groups that share a tableau have the same active width.
+        const uint32_t width = states_[group].active_width();
+        const auto dormant = OnlineFrame::dormant_x(axis, width);
+        slot.active = OnlineFrame::active(axis, width);
+        slot.axis = dormant                     ? SharedFrame::Axis::Dormant
+                    : slot.active.is_identity() ? SharedFrame::Axis::Identity
+                                                : SharedFrame::Axis::Active;
+        slot.pivot = dormant.value_or(0);
+        slot.axis_sign = axis.sign();
+        slot.applied = false;
+    }
+    return slot;
+}
+
+bool SharingExecutor::frame_rotation_needs_width(
+    const ExecutablePlan::ExecuteFrameRotation& action) noexcept {
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        if (prepare_frame_rotation(group, action).axis == SharedFrame::Axis::Dormant &&
+            states_[group].active_width() == state_width_) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRotation& action) noexcept {
+    const auto signs = evaluate(action.sign);
+    const auto rows = frame_pauli_rows(action.pauli);
+    const uint32_t original_group_count = group_count_;
+    for (uint32_t index = 0; index < original_group_count; ++index) {
+        const uint32_t group = groups_[index];
+        SharedFrame& slot = prepare_frame_rotation(group, action);
+        if (slot.axis == SharedFrame::Axis::Identity) {
+            // Only dormant Z factors remain: the rotation is a global phase.
+            continue;
+        }
+        const uint32_t width = states_[group].active_width();
+        for (uint32_t shot : lanes(group)) {
+            choices_[shot] = lane_bit(signs, shot) ^ slot.axis_sign ^ shot_flips(shot, rows);
+        }
+        const bool promotes = slot.axis == SharedFrame::Axis::Dormant;
+        if (promotes && !slot.applied) {
+            assert(width < states_[group].max_active_width() &&
+                   "promotion width is checked before dispatch");
+            // The promotion's coordinate change does not depend on the sign,
+            // so it runs once for every group on this tableau.
+            slot.frame.promote(slot.mapped.view(), slot.pivot, width);
+            slot.applied = true;
+            slot.changed = true;
+        }
+        const auto apply = [&](uint32_t target, bool sign) noexcept {
+            if (promotes) {
+                apply_promotion(states_[target], action.rotation, sign);
+            } else {
+                apply_rotation(states_[target],
+                               {prepare_pauli_unchecked(slot.active, width), action.rotation.cosine,
+                                action.rotation.sine},
+                               sign);
+            }
+        };
+        const uint32_t other = split(group);
+        apply(group, choices_[lanes(group).front()] != 0);
+        if (other != kNoShot) {
+            apply(other, true);
+        }
+    }
+}
+
+void SharingExecutor::execute_action(
+    const ExecutablePlan::ExecuteFrameMeasurement& action) noexcept {
+    const auto rows = frame_pauli_rows(action.pauli);
+    const size_t half = sign_stride_ / 2;
+    // Random outcomes of measurements that leave the coefficients alone come
+    // from packed draws, one bit per lane whether or not its group uses it, so
+    // a seeded batch does not depend on how its shots are grouped.
+    for (size_t word = 0; word < word_capacity_; ++word) {
+        frame_random_[word] = rng_() & live_words_[word];
+    }
+    std::ranges::fill(scratch_words_, uint64_t{0});
+    bool merged = false;
+    const uint32_t original_group_count = group_count_;
+    for (uint32_t index = 0; index < original_group_count; ++index) {
+        const uint32_t group = groups_[index];
+        SharedFrame& slot = frames_[frame_of_[group]];
+        // Groups that share a tableau have the same active width.
+        const uint32_t width = states_[group].active_width();
+        if (slot.stamp != frame_stamp_) {
+            // Map the Pauli and update the tableau once for every group on
+            // it. A branch refers to the unsigned image and only negates the
+            // rows collected in the mask, which each shot applies to its bits.
+            slot.stamp = frame_stamp_;
+            slot.link = kNoShot;
+            OnlineFrame& frame = slot.frame;
+            frame.map(plan_->frame_pauli_x(action.pauli), plan_->frame_pauli_z(action.pauli),
+                      slot.mapped);
+            const PauliStringView axis = slot.mapped.view();
+            slot.axis_sign = axis.sign();
+            const auto collect_rows = [&](bool z_bits, uint32_t coordinate) noexcept {
+                std::ranges::fill(slot.rows, uint64_t{0});
+                for (uint32_t q = 0; q < frame.n; ++q) {
+                    const PauliStringView x_image = frame.row(q);
+                    const PauliStringView z_image = frame.row(frame.n + q);
+                    if (z_bits ? x_image.z().bit_get(coordinate)
+                               : x_image.x().bit_get(coordinate)) {
+                        slot.rows[q >> 6] |= uint64_t{1} << (q & 63);
+                    }
+                    if (z_bits ? z_image.z().bit_get(coordinate)
+                               : z_image.x().bit_get(coordinate)) {
+                        slot.rows[half + (q >> 6)] |= uint64_t{1} << (q & 63);
+                    }
+                }
+            };
+            if (const auto dormant = OnlineFrame::dormant_x(axis, width)) {
+                // A fair coin that negates the rows with X on the pivot.
+                slot.axis = SharedFrame::Axis::Dormant;
+                collect_rows(false, *dormant);
+                frame.measure_dormant(axis, *dormant, false);
+                slot.changed = true;
+            } else if (slot.active = OnlineFrame::active(axis, width); slot.active.is_identity()) {
+                // Only dormant Z factors remain, so the unsigned image has eigenvalue +1.
+                slot.axis = SharedFrame::Axis::Identity;
+            } else {
+                // A collapse that negates the rows with Z on the measured coordinate.
+                slot.axis = SharedFrame::Axis::Active;
+                slot.pivot = OnlineFrame::measurement_pivot(slot.active);
+                frame.localize_measured(slot.active, slot.pivot, width);
+                collect_rows(true, slot.pivot);
+                frame.compact(slot.pivot, width);
+                slot.changed = true;
+            }
+        }
+        // The symbol and record refer to the plan's Pauli, so a shot's value
+        // also takes the sign of its image.
+        const auto record = [&](uint32_t shot, bool branch) noexcept {
+            if (branch ^ slot.axis_sign ^ shot_flips(shot, rows)) {
+                scratch_words_[shot >> 6] |= uint64_t{1} << (shot & 63);
+            }
+            if (branch) {
+                flip_shot_signs(shot, slot.rows);
+            }
+        };
+        if (slot.axis != SharedFrame::Axis::Active) {
+            const bool random = slot.axis == SharedFrame::Axis::Dormant;
+            for (uint32_t shot : lanes(group)) {
+                record(shot, random && lane_bit(frame_random_, shot));
+            }
+            continue;
+        }
+        const PreparedMeasurement measurement =
+            prepare_measurement_unchecked(slot.active, width, slot.pivot);
+        const MeasurementProbabilities probabilities =
+            measurement_probabilities(states_[group], measurement);
+        const auto kind = classify_measurement_branch(probabilities).kind;
+        for (uint32_t shot : lanes(group)) {
+            const bool branch =
+                kind == MeasurementBranchKind::Random
+                    ? shot_rng_[shot].next_double() * probabilities.total() >= probabilities.zero
+                    : kind == MeasurementBranchKind::DeterministicOne;
+            choices_[shot] = branch;
+            record(shot, branch);
+        }
+        if (width == 1) {
+            // Either outcome leaves no coefficients. Dropping the scalar's
+            // phase and rounding lets the groups on this tableau merge.
+            State& state = states_[group];
+            state.set_active_width(0);
+            state.real()[0] = 1.0;
+            state.imag()[0] = 0.0;
+            // Groups a sharing key separates keep the uniform rotation
+            // signs that static actions after a retirement rely on.
+            if (!share_ || (key_ != nullptr && key_->separates_groups())) {
+                continue;
+            }
+            if (slot.link == kNoShot) {
+                slot.link = group;
+                continue;
+            }
+            for (uint32_t shot : lanes(group)) {
+                group_of_[shot] = slot.link;
+            }
+            // The emptied group stays listed, and its state reserved, until
+            // the action ends, so a later split cannot take the state.
+            end_[group] = begin_[group];
+            release_frame(frame_of_[group]);
+            ++num_merges_;
+            merged = true;
+            continue;
+        }
+        const auto collapse = [&](uint32_t target, bool branch) noexcept {
+            collapse_measurement(states_[target], measurement, branch,
+                                 probabilities.for_branch(branch));
+        };
+        const uint32_t other = kind == MeasurementBranchKind::Random ? split(group) : kNoShot;
+        collapse(group, choices_[lanes(group).front()] != 0);
+        if (other != kNoShot) {
+            collapse(other, true);
+        }
+    }
+    propagate_symbol(action.branch, scratch_words_);
+    if (records_.num_columns() != 0) {
+        records_.assign_xor(action.record, scratch_words_, evaluate(action.correction),
+                            live_words_);
+    }
+    if (merged) {
+        collect_merged_groups();
+    }
+    split_on_symbol(action.branch);
+}
+
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRelease& action) noexcept {
+    const MaskView x = plan_->frame_pauli_x(action.pauli);
+    const MaskView z = plan_->frame_pauli_z(action.pauli);
+    // Every tableau follows the plan's change of frame coordinates and drops
+    // the coordinate.
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        SharedFrame& slot = frames_[frame_of_[group]];
+        if (slot.stamp != frame_stamp_) {
+            slot.stamp = frame_stamp_;
+            slot.frame.release(x, z, action.pivot, action.width, states_[group].active_width());
+            slot.changed = true;
+        }
+    }
+    // A shot's row signs follow the same change. The plan multiplied the
+    // generators below by the pivot's conjugate, X of the pivot for a
+    // stabilizer of Z factors and Z of the pivot otherwise; then the pivot's
+    // rows take those of the last coordinate, whose new rows are unsigned.
+    const size_t half = sign_stride_ / 2;
+    const size_t pivot_word = action.pivot / 64;
+    const uint64_t pivot_bit = uint64_t{1} << (action.pivot % 64);
+    const uint32_t last = action.width - 1;
+    const size_t last_word = last / 64;
+    const uint64_t last_bit = uint64_t{1} << (last % 64);
+    bool diagonal = true;
+    for (size_t word = 0; word < half; ++word) {
+        diagonal = diagonal && x.words[word] == 0;
+    }
+    for (size_t word = 0; word < half; ++word) {
+        changed_rows_[word] = z.words[word];
+        changed_rows_[half + word] = diagonal ? 0 : x.words[word];
+    }
+    changed_rows_[pivot_word] &= ~pivot_bit;
+    changed_rows_[half + pivot_word] &= ~pivot_bit;
+    const size_t conjugate_word = (diagonal ? 0 : half) + pivot_word;
+    for (size_t lane_word = 0; lane_word < live_words_.size(); ++lane_word) {
+        for (uint64_t lanes = live_words_[lane_word]; lanes != 0; lanes &= lanes - 1) {
+            const size_t shot = lane_word * 64 + static_cast<size_t>(std::countr_zero(lanes));
+            uint64_t* signs = shot_signs_.data() + shot * sign_stride_;
+            if ((signs[conjugate_word] & pivot_bit) != 0) {
+                for (size_t word = 0; word < sign_stride_; ++word) {
+                    signs[word] ^= changed_rows_[word];
+                }
+            }
+            for (size_t block : {size_t{0}, half}) {
+                const bool moved = (signs[block + last_word] & last_bit) != 0;
+                signs[block + last_word] &= ~last_bit;
+                if (action.pivot != last) {
+                    signs[block + pivot_word] =
+                        (signs[block + pivot_word] & ~pivot_bit) | (moved ? pivot_bit : 0);
+                }
+            }
+        }
+    }
+    // Shots that differed only on released coordinates share a tableau again.
+    // One pass after the last release of a run finds them.
+    const auto order = checks_->action_order();
+    if (action_index_ + 1 >= order.size() ||
+        !std::holds_alternative<ExecutablePlan::ExecuteFrameRelease>(
+            plan_->actions_[order[action_index_ + 1]])) {
+        merge_equal_frames();
+    }
+}
+
+void SharingExecutor::merge_equal_frames() noexcept {
+    // Groups a sharing key separates keep the uniform rotation signs that
+    // later static actions rely on, so they stay apart.
+    if (!share_ || (key_ != nullptr && key_->separates_groups()) || group_count_ < 2) {
+        return;
+    }
+    ++frame_stamp_;
+    std::ranges::fill(equal_frames_, kNoShot);
+    bool merged = false;
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        // Groups with coefficients would need those compared as well.
+        if (states_[group].active_width() != 0) {
+            continue;
+        }
+        const uint32_t frame = frame_of_[group];
+        SharedFrame& slot = frames_[frame];
+        if (slot.stamp != frame_stamp_) {
+            // First group on this tableau: find a tableau with equal content
+            // and take its group, or become the one others find.
+            slot.stamp = frame_stamp_;
+            slot.link = kNoShot;
+            size_t bucket = slot.frame.tableau_hash() & (equal_frames_.size() - 1);
+            while (equal_frames_[bucket] != kNoShot &&
+                   !frames_[equal_frames_[bucket]].frame.same_tableau(slot.frame)) {
+                bucket = (bucket + 1) & (equal_frames_.size() - 1);
+            }
+            if (equal_frames_[bucket] == kNoShot) {
+                equal_frames_[bucket] = frame;
+            } else {
+                slot.link = frames_[equal_frames_[bucket]].link;
+            }
+        }
+        if (slot.link == kNoShot) {
+            slot.link = group;
+            // The scalar's phase and rounding do not matter without
+            // coefficients, and dropping them lets the groups agree.
+            states_[group].real()[0] = 1.0;
+            states_[group].imag()[0] = 0.0;
+            continue;
+        }
+        for (uint32_t shot : lanes(group)) {
+            group_of_[shot] = slot.link;
+        }
+        end_[group] = begin_[group];
+        release_frame(frame);
+        ++num_merges_;
+        merged = true;
+    }
+    if (merged) {
+        collect_merged_groups();
+    }
 }
 
 void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&) noexcept {
-    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
-}
-
-void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRelease&) noexcept {
-    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+    // Every shot's frame is the identity again, so one tableau serves them
+    // all. Each stabilizer the plan relied on came from a measurement that
+    // left its coordinate dormant, so no group keeps coefficients.
+    std::fill_n(shot_signs_.begin(), size_t{active_lanes()} * sign_stride_, uint64_t{0});
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        assert(states_[group].active_width() == 0 && "a retired frame has no active coordinates");
+        release_frame(frame_of_[group]);
+    }
+    // Groups a sharing key separates keep the uniform rotation signs that
+    // later static actions rely on, so they stay apart.
+    const bool merge = share_ && (key_ == nullptr || !key_->separates_groups());
+    uint32_t frame = kNoShot;
+    for (uint32_t index = 0; index < group_count_; ++index) {
+        const uint32_t group = groups_[index];
+        if (merge && index != 0) {
+            for (uint32_t shot : lanes(group)) {
+                group_of_[shot] = groups_[0];
+            }
+            end_[group] = begin_[group];
+            ++num_merges_;
+            continue;
+        }
+        if (frame == kNoShot || !share_) {
+            frame = acquire_frame(nullptr);
+        }
+        frame_of_[group] = frame;
+        ++frames_[frame].users;
+    }
+    if (merge && group_count_ > 1) {
+        collect_merged_groups();
+    }
 }
 
 }  // namespace clifft::sampling
