@@ -31,15 +31,11 @@ SharedWorkerKey shared_worker_key(const ExecutablePlan& plan, const SamplingExec
     };
 }
 
-// With split_on_budget, a batch whose groups outgrow max_worker_state_bytes
-// runs again as halves of its lanes, which return the rows the whole batch
-// would have. A call that sized its own batches asks for that; a batch size
-// the caller chose reports the budget instead.
 template <typename Result>
 Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
                   std::optional<uint64_t> seed, SamplingOutputs outputs,
                   const SamplingExecution& execution,
-                  std::vector<std::unique_ptr<SharedWorker>>& workers, bool split_on_budget) {
+                  std::vector<std::unique_ptr<SharedWorker>>& workers) {
     constexpr bool survivors = std::is_same_v<Result, SamplingSurvivorResult>;
     const auto& plan = preparation.plan();
     Result result;
@@ -82,65 +78,22 @@ Result run_shared(const SamplingPreparation& preparation, uint32_t shots,
         [&](auto& worker, ShotRange range) {
             std::visit(
                 [&](auto& executor) {
-                    // Fewer lanes make fewer groups. A range of lanes keeps
-                    // the draws of the whole batch, so splitting one changes
-                    // no row: a batch that redrew its noise would return the
-                    // faults that widen its states less often than they occur.
-                    uint32_t piece = capacity;
-                    const auto run_piece = [&](uint32_t first, uint32_t count, uint32_t done,
-                                               uint32_t lanes) {
-                        try {
-                            if constexpr (std::is_same_v<std::decay_t<decltype(executor)>,
-                                                         SharingExecutor>) {
-                                executor.run_batch(root, first, count, done, lanes);
-                            } else {
-                                executor.run_batch(root, first, count);
-                            }
-                        } catch (const SharedStateBudgetError&) {
-                            if (!split_on_budget || lanes == 1) {
-                                throw;
-                            }
-                            piece = lanes / 2;
-                            return false;
-                        }
-                        return true;
-                    };
                     for (uint32_t batch = range.begin; batch < range.end; ++batch) {
                         const uint32_t first = static_cast<uint32_t>(uint64_t{batch} * capacity);
-                        const uint32_t count = std::min(capacity, shots - first);
-                        piece = capacity;
-                        for (uint32_t done = 0; done < count;) {
-                            const uint32_t lanes = std::min(piece, count - done);
-                            if (!run_piece(first, count, done, lanes)) {
-                                continue;
+                        executor.run_batch(root, first, std::min(capacity, shots - first));
+                        if constexpr (survivors) {
+                            worker->passed += executor.surviving_shots();
+                            worker->logical_errors +=
+                                executor.accumulate_survivor_counts(worker->observable_ones);
+                            if (outputs.rows()) {
+                                auto& batch_rows = rows.batch(first);
+                                batch_detail::resize_output_rows(
+                                    batch_rows, executor.surviving_shots(), plan, outputs);
+                                batch_detail::copy_batch_rows(batch_rows, executor, plan, outputs,
+                                                              executor.surviving_shots());
                             }
-                            if constexpr (survivors) {
-                                worker->passed += executor.surviving_shots();
-                                worker->logical_errors +=
-                                    executor.accumulate_survivor_counts(worker->observable_ones);
-                                if (outputs.rows()) {
-                                    // Later pieces of a batch append to its rows.
-                                    batch_detail::OutputRows piece_rows;
-                                    auto& kept = done == 0 ? rows.batch(first) : piece_rows;
-                                    batch_detail::resize_output_rows(
-                                        kept, executor.surviving_shots(), plan, outputs);
-                                    batch_detail::copy_batch_rows(kept, executor, plan, outputs,
-                                                                  executor.surviving_shots());
-                                    if (done != 0) {
-                                        auto& batch_rows = rows.batch(first);
-                                        const auto append = [](auto& to, const auto& from) {
-                                            to.insert(to.end(), from.begin(), from.end());
-                                        };
-                                        append(batch_rows.measurements, piece_rows.measurements);
-                                        append(batch_rows.detectors, piece_rows.detectors);
-                                        append(batch_rows.observables, piece_rows.observables);
-                                        append(batch_rows.exp_vals, piece_rows.exp_vals);
-                                    }
-                                }
-                            } else {
-                                batch_detail::copy_batch_rows(result, executor, plan, outputs);
-                            }
-                            done += lanes;
+                        } else {
+                            batch_detail::copy_batch_rows(result, executor, plan, outputs);
                         }
                     }
                 },
@@ -263,9 +216,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                                    shots > 1 && options.tuning_budget_seconds.value_or(0) > 0;
     const bool fits_states =
         !(shared || compare_executors) || !grouped ||
-        options.max_worker_state_bytes /
-                SharingExecutor::group_storage_bytes(compiled, compiled.initial_capacity_width()) >=
-            2;
+        options.max_worker_state_bytes / SharingExecutor::group_storage_bytes(compiled, width) >= 2;
     if (!fits_states) {
         if (options.sharing == true) {
             throw std::invalid_argument(
@@ -436,7 +387,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                         return [&, trial, trial_workers = std::move(trial_workers)](
                                    uint32_t count, uint64_t trial_seed) {
                             (void)run_shared<Result>(preparation, count, trial_seed, outputs, trial,
-                                                     *trial_workers, !options.batch_size);
+                                                     *trial_workers);
                         };
                     },
                     shots);
@@ -454,8 +405,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
     }
     const auto worker_key = shared_worker_key(preparation.plan(), execution, outputs);
     auto call_workers = preparation.borrow_shared_workers(worker_key, execution.shot_workers);
-    auto result = run_shared<Result>(preparation, shots, seed, outputs, execution, call_workers,
-                                     !options.batch_size);
+    auto result = run_shared<Result>(preparation, shots, seed, outputs, execution, call_workers);
     if (execution.shot_workers != 0) {
         preparation.return_shared_workers(worker_key, std::move(call_workers));
     }
@@ -477,16 +427,12 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
         return false;
     }
     constexpr uint32_t kMinSharedStates = 2;
-    // A frame plan's width is an upper bound that its shots may not reach, so
-    // groups are sized for the width its states start with. A batch whose
-    // groups outgrow the budget runs again in smaller ranges of its lanes,
-    // down to one, which fits when a state of the widest shot does. A plan
-    // whose bound is wider than that is left to the scalar executor.
+    // A frame plan's width is an upper bound that its shots may not reach.
+    // Sizing every group for it keeps a batch within the budget however far
+    // its states grow.
     const uint64_t state_capacity =
-        max_worker_state_bytes /
-        SharingExecutor::group_storage_bytes(compiled, compiled.initial_capacity_width());
-    if (state_capacity < kMinSharedStates ||
-        max_worker_state_bytes < SharingExecutor::group_storage_bytes(compiled, width)) {
+        max_worker_state_bytes / SharingExecutor::group_storage_bytes(compiled, width);
+    if (state_capacity < kMinSharedStates) {
         return false;
     }
     // Shots of a frame plan share tableau work, and with every shot on its own

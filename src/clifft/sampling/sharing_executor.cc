@@ -282,14 +282,16 @@ uint32_t max_safe_shared_capacity(const ExecutablePlan& plan, const PreparedBatc
                                   const SharingKey* key, uint64_t max_worker_state_bytes,
                                   BatchOutputMode output_mode) {
     // Width-zero plans keep no coefficient states, unless a runtime Clifford
-    // frame gives every group a tableau.
+    // frame gives every group a tableau. A frame plan's states start narrower
+    // than its width bound; counting every lane at the bound keeps a batch
+    // within the budget however far they grow.
     const bool grouped = shares_groups(plan);
-    uint32_t capacity =
-        !grouped ? kMaxAutoSharedBatchShots
-                 : static_cast<uint32_t>(std::min<uint64_t>(
-                       kMaxAutoSharedBatchShots,
-                       max_worker_state_bytes / SharingExecutor::group_storage_bytes(
-                                                    plan, plan.initial_capacity_width())));
+    uint32_t capacity = !grouped
+                            ? kMaxAutoSharedBatchShots
+                            : static_cast<uint32_t>(std::min<uint64_t>(
+                                  kMaxAutoSharedBatchShots,
+                                  max_worker_state_bytes / SharingExecutor::group_storage_bytes(
+                                                               plan, plan.peak_active_width())));
     // The sampler retains one observable counter per output alongside the executor.
     const uint64_t counter_bytes =
         saturating_multiply_u64(plan.num_observables(), sizeof(uint64_t));
@@ -485,10 +487,10 @@ uint32_t SharingExecutor::grown_states(uint32_t old_count, uint32_t required,
 }
 
 void SharingExecutor::throw_over_budget() const {
-    throw SharedStateBudgetError("shared states need " + std::to_string(refused_bytes_) +
-                                 " bytes, but max_worker_state_bytes is " +
-                                 std::to_string(max_worker_state_bytes_) +
-                                 "; increase the budget or reduce batch_size");
+    throw std::runtime_error("shared states need " + std::to_string(refused_bytes_) +
+                             " bytes, but max_worker_state_bytes is " +
+                             std::to_string(max_worker_state_bytes_) +
+                             "; increase the budget or reduce batch_size");
 }
 
 void SharingExecutor::reset_state_pool() {
@@ -505,50 +507,28 @@ void SharingExecutor::reset_state_pool() {
     assert(fits && "one state fits the budget");
 }
 
-void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
-                                uint32_t first_lane, uint32_t lane_count) {
-    if (run_batch_once(root, first_shot, shots, first_lane, lane_count)) {
+void SharingExecutor::run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
+    if (run_batch_once(root, first_shot, shots)) {
         return;
     }
     // A pool that widened, in this batch or an earlier one, holds every state
     // at that width, and can run out where a pool of one state would not. The
-    // lanes then start over on such a pool. Their draws do not depend on the
-    // pool, so their rows are the same.
+    // batch then starts over on such a pool. Its draws do not depend on the
+    // pool, so its rows are the same.
     if (state_width_ == plan_->initial_capacity_width() && !refused_widening_) {
         throw_over_budget();
     }
     reset_state_pool();
-    if (!run_batch_once(root, first_shot, shots, first_lane, lane_count)) {
+    if (!run_batch_once(root, first_shot, shots)) {
         throw_over_budget();
     }
 }
 
-bool SharingExecutor::run_batch_once(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
-                                     uint32_t first_lane, uint32_t lane_count) {
+bool SharingExecutor::run_batch_once(const SeedRoot& root, uint32_t first_shot, uint32_t shots) {
     reset_classical(root, first_shot, shots);
     sample_presampled_noise();
     apply_early_postselection(*checks_);
-    // Every lane is drawn, so that a lane's noise does not depend on the
-    // range. Lanes outside it are then dropped as a failed entrance check
-    // drops a lane.
-    const uint32_t begin_lane = std::min(first_lane, shots);
-    const uint32_t end_lane =
-        static_cast<uint32_t>(std::min<uint64_t>(shots, uint64_t{begin_lane} + lane_count));
-    if (end_lane - begin_lane != shots) {
-        for (size_t word = 0; word < live_words_.size(); ++word) {
-            const uint64_t base = uint64_t{word} * 64;
-            uint64_t in_range = 0;
-            if (begin_lane < base + 64 && end_lane > base) {
-                const uint64_t low = begin_lane > base ? begin_lane - base : 0;
-                const uint64_t high = std::min<uint64_t>(end_lane - base, 64);
-                in_range = (high == 64 ? ~uint64_t{0} : (uint64_t{1} << high) - 1) &
-                           ~((uint64_t{1} << low) - 1);
-            }
-            live_count_ -= static_cast<uint32_t>(std::popcount(live_words_[word] & ~in_range));
-            live_words_[word] &= in_range;
-        }
-    }
-    entrance_rejected_ = end_lane - begin_lane - live_count_;
+    entrance_rejected_ = shots - live_count_;
     storage_boundaries_ = 0;
     num_splits_ = 0;
     num_merges_ = 0;

@@ -82,14 +82,6 @@ class SharingKey;
     uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes = 0,
     std::optional<uint32_t> baseline_capacity = std::nullopt);
 
-// Thrown at a storage boundary when the groups of a batch need more
-// coefficient storage than max_worker_state_bytes holds. Fewer lanes make
-// fewer groups, so the lanes of the batch can run again in smaller ranges.
-class SharedStateBudgetError : public std::runtime_error {
-  public:
-    using std::runtime_error::runtime_error;
-};
-
 // Immutable noise-sign basis shared by workers. Branches affecting this basis
 // split groups as they are sampled, keeping every later rotation sign uniform.
 class SharingKey {
@@ -131,19 +123,13 @@ class SharingExecutor : public BatchClassicalState {
         const ExecutablePlan& plan, const PreparedBatchNoise& noise, const SharingKey* key,
         uint32_t lane_capacity, BatchOutputMode output_mode = BatchOutputMode::AggregateSurvivors);
 
-    // Draws the batch whole and runs lanes [first_lane, first_lane +
-    // lane_count) of it. A lane's row does not depend on which other lanes
-    // run, so ranges that cover the batch return the rows of the whole batch.
-    void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
-                   uint32_t first_lane = 0,
-                   uint32_t lane_count = std::numeric_limits<uint32_t>::max());
+    // Throws std::runtime_error at a storage boundary when the groups of the
+    // batch need more coefficient storage than max_worker_state_bytes holds.
+    void run_batch(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] uint32_t state_capacity() const noexcept {
         return static_cast<uint32_t>(states_.size());
     }
     [[nodiscard]] uint64_t state_pool_bytes() const noexcept;
-    // Returns the coefficient storage to one state of the width a new
-    // executor starts with. Call only between batches.
-    void reset_state_pool();
     [[nodiscard]] uint32_t peak_groups() const noexcept { return peak_groups_; }
     [[nodiscard]] uint32_t storage_boundaries() const noexcept { return storage_boundaries_; }
     [[nodiscard]] uint32_t entrance_rejected() const noexcept { return entrance_rejected_; }
@@ -198,13 +184,15 @@ class SharingExecutor : public BatchClassicalState {
     // so a run of them regroups the shots once.
     [[nodiscard]] static bool is_run_turn(const ExecutablePlan::Action& action) noexcept;
 
-    // Runs the lanes on the pool as it is. Returns false when the pool
-    // cannot grow to hold their groups within the budget.
-    [[nodiscard]] bool run_batch_once(const SeedRoot& root, uint32_t first_shot, uint32_t shots,
-                                      uint32_t first_lane, uint32_t lane_count);
+    // Runs the batch on the pool as it is. Returns false when the pool
+    // cannot grow to hold its groups within the budget.
+    [[nodiscard]] bool run_batch_once(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     [[nodiscard]] bool initialize_groups(const SeedRoot& root, uint32_t first_shot, uint32_t shots);
     // Grows the pool, or returns false when it cannot within the budget.
     [[nodiscard]] bool grow_state_pool(StorageRequest request);
+    // Returns the coefficient storage to one state of the width a new
+    // executor starts with.
+    void reset_state_pool();
     [[noreturn]] void throw_over_budget() const;
     // Slots a pool of old_count grows to for a request, up to max_states.
     [[nodiscard]] static uint32_t grown_states(uint32_t old_count, uint32_t required,

@@ -1624,104 +1624,6 @@ TEST_CASE("Shared frame execution follows the exact distribution", "[runtime_fra
         REQUIRE(peak_groups > 1);
         REQUIRE(peak_groups <= 4);
     }
-    SECTION("batches split when their groups outgrow the budget") {
-        // Six noise bits put the shots on up to 64 tableaus. A rotation about
-        // Z then widens the states of the shots that turned about X on its
-        // coordinate and only adds a phase to the others; three more
-        // coordinates turn in every shot. The budget holds a group for every
-        // lane while the states are empty and fewer at nine active
-        // coordinates, where a state outgrows its first page, so a batch
-        // with a shot that reaches them has to run again in halves.
-        constexpr uint32_t kCoordinates = 9;
-        constexpr uint32_t kNoiseBits = 6;
-        FrameProgram program;
-        program.num_qubits = kCoordinates;
-        program.noise_probabilities.assign(kNoiseBits, 0.5);
-        for (uint32_t q = 0; q < kCoordinates; ++q) {
-            program.steps.push_back(q < kNoiseBits ? rotate(uint64_t{1} << q, 0, 0.5, {}, {q})
-                                                   : rotate(uint64_t{1} << q, 0, 0.5));
-        }
-        for (uint32_t q = 0; q < kCoordinates; ++q) {
-            program.steps.push_back(rotate(0, uint64_t{1} << q, 0.11 + 0.04 * q));
-        }
-        // Five records keep every outcome likely enough to compare.
-        program.steps.push_back(measure(0b000000011, 0b000000100));
-        program.steps.push_back(measure(0b110000000, 0b000001000));
-        program.steps.push_back(measure(0b000000001, 0));
-        program.steps.push_back(measure(0b000010000, 0b000010000));
-        program.steps.push_back(measure(0, 0b010000000));
-        const SamplingPlan plan = build_frame_plan(program);
-        std::map<uint64_t, double> expected;
-        for (const ExactOutcomeEntry& entry : compute_exact_plan_distribution(plan).kept_outcomes) {
-            expected[entry.outcome.visible_records] = entry.probability;
-        }
-        const sampling::ExecutablePlan executable(plan);
-        REQUIRE(executable.initial_capacity_width() == 0);
-        const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
-        const sampling::EarlyPostselection checks(executable);
-        constexpr uint32_t kLanes = 32;
-        constexpr uint32_t kSplitBatches = 250;
-        const uint64_t budget =
-            kLanes * sampling::SharingExecutor::group_storage_bytes(executable, 0);
-        REQUIRE(budget / sampling::SharingExecutor::group_storage_bytes(executable, kCoordinates) <
-                kLanes);
-        sampling::SharingExecutor executor(executable, noise, checks, kLanes, 1, true, nullptr,
-                                           budget, sampling::BatchOutputMode::Rows);
-        const SeedRoot root = seed_root_from_seed(seed);
-        std::map<uint64_t, uint32_t> counts;
-        uint32_t outgrown = 0;
-        for (uint32_t batch = 0; batch < kSplitBatches; ++batch) {
-            uint32_t piece = kLanes;
-            for (uint32_t done = 0; done < kLanes;) {
-                const uint32_t lanes = std::min(piece, kLanes - done);
-                try {
-                    executor.run_batch(root, batch * kLanes, kLanes, done, lanes);
-                } catch (const sampling::SharedStateBudgetError&) {
-                    // The budget holds one state of the widest shot.
-                    REQUIRE(lanes > 1);
-                    piece = lanes / 2;
-                    ++outgrown;
-                    continue;
-                }
-                REQUIRE(executor.surviving_shots() == lanes);
-                for (uint64_t bits : shared_record_patterns(executor, plan.num_visible_records)) {
-                    ++counts[bits];
-                }
-                done += lanes;
-            }
-        }
-        REQUIRE(outgrown > 0);
-        // A reset leaves the storage of a new executor.
-        const sampling::SharingExecutor fresh(executable, noise, checks, kLanes, 1, true, nullptr,
-                                              budget, sampling::BatchOutputMode::Rows);
-        REQUIRE(executor.state_pool_bytes() > fresh.state_pool_bytes());
-        executor.reset_state_pool();
-        REQUIRE(executor.state_pool_bytes() == fresh.state_pool_bytes());
-        constexpr double kSplitShots = kLanes * kSplitBatches;
-        for (const auto& [bits, count] : counts) {
-            CAPTURE(bits);
-            REQUIRE(expected.contains(bits));
-        }
-        for (const auto& [bits, probability] : expected) {
-            CAPTURE(bits, probability);
-            const double observed = counts.contains(bits) ? counts[bits] / kSplitShots : 0.0;
-            const double sigma = std::sqrt(probability * (1.0 - probability) / kSplitShots);
-            REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
-        }
-    }
-    SECTION("record-conditioned correction") {
-        check(t_teleportation(0.3, true));
-        check(t_teleportation(0.3, false));
-    }
-    SECTION("random programs") {
-        Xoshiro256PlusPlus rng(705);
-        for (uint32_t trial = 0; trial < 24; ++trial) {
-            CAPTURE(trial);
-            check(random_frame_program(rng));
-        }
-        REQUIRE(splits > 0);
-        REQUIRE(shared_batches > 0);
-    }
 }
 
 TEST_CASE("Shared frame groups give every shot the result of its own frame",
@@ -1896,11 +1798,12 @@ TEST_CASE("Shared frame execution retires and restarts a frame", "[runtime_frame
     }
 }
 
-TEST_CASE("Lane ranges of a shared batch return the rows of the whole batch",
+TEST_CASE("A shared batch reports the budget only where a new executor would",
           "[runtime_frame][sampling]") {
     // One fault decides whether ten qubits each add an active coordinate, so a
     // few shots need wide states. Four more faults split groups without
-    // widening them. The measured control records the fault that widens.
+    // widening them. Record 0 is the control, which is one where the fault
+    // that widens fired.
     constexpr uint32_t kWide = 10;
     std::string source;
     for (uint32_t pair = 0; pair < 4; ++pair) {
@@ -1926,106 +1829,62 @@ TEST_CASE("Lane ranges of a shared batch return the rows of the whole batch",
     REQUIRE(executable.peak_active_width() == kWide);
     const sampling::PreparedBatchNoise noise(executable, sampling::BatchNoiseMode::Dense);
     const sampling::EarlyPostselection checks(executable);
-    constexpr uint32_t kLanes = 32;
+    constexpr uint32_t kLanes = 4;
     const uint64_t at_start = sampling::SharingExecutor::group_storage_bytes(executable, 0);
     const uint64_t at_bound = sampling::SharingExecutor::group_storage_bytes(executable, kWide);
+    REQUIRE(kLanes * at_start <= at_bound);
     const auto make = [&](uint64_t budget) {
         return sampling::SharingExecutor(executable, noise, checks, kLanes, 1, true, nullptr,
                                          budget, sampling::BatchOutputMode::Rows);
     };
+    const auto is_wide = [](uint64_t bits) { return (bits & 1) != 0; };
     const SeedRoot root = seed_root_from_seed(91);
 
-    // The whole batch on ample storage gives the rows. An executor whose
-    // budget holds a group for every lane while the states are empty, and
-    // three once they are wide, runs the same batches as ranges of lanes,
-    // halving a range that outgrows the budget. It keeps its storage from
-    // batch to batch, so a batch also meets the pool an earlier one widened.
-    sampling::SharingExecutor ample = make(kLanes * at_bound);
-    sampling::SharingExecutor tight = make(std::max(kLanes * at_start, 3 * at_bound));
-    uint32_t split_batches = 0;
-    uint32_t widened = 0;
-    for (uint32_t batch = 0; batch < 120; ++batch) {
-        CAPTURE(batch);
-        ample.run_batch(root, batch * kLanes, kLanes);
-        const auto expected = shared_record_patterns(ample, plan.num_visible_records);
-        REQUIRE(expected.size() == kLanes);
-        // Record 0 is the control, which is one where the fault fired.
-        widened += std::ranges::any_of(expected, [](uint64_t bits) { return (bits & 1) != 0; });
-        std::vector<uint64_t> rows;
-        bool split = false;
-        uint32_t piece = kLanes;
-        for (uint32_t done = 0; done < kLanes;) {
-            const uint32_t lanes = std::min(piece, kLanes - done);
-            try {
-                tight.run_batch(root, batch * kLanes, kLanes, done, lanes);
-            } catch (const sampling::SharedStateBudgetError&) {
-                REQUIRE(lanes > 1);
-                piece = lanes / 2;
-                split = true;
-                continue;
-            }
-            REQUIRE(tight.surviving_shots() == lanes);
-            const auto part = shared_record_patterns(tight, plan.num_visible_records);
-            rows.insert(rows.end(), part.begin(), part.end());
-            done += lanes;
-        }
-        REQUIRE(rows == expected);
-        split_batches += split;
-    }
-    REQUIRE(widened > 20);
-    REQUIRE(split_batches > 0);
-
-    // With room for one wide state, a wide lane run alone leaves the pool at
-    // that width, where it holds one state. Lanes that stay narrow but form
-    // several groups then need a pool of the starting width again.
-    sampling::SharingExecutor single = make(at_bound);
-    constexpr uint32_t kNarrowLanes = 4;
-    REQUIRE(kNarrowLanes * at_start <= at_bound);
+    // The budget holds one wide state or a group for each of four narrow
+    // lanes. A wide shot run alone leaves the pool at that width, where it
+    // holds one state. The batch after it forms several narrow groups, which
+    // a pool of the starting width holds: the executor starts over on one and
+    // returns the rows a new executor returns.
+    sampling::SharingExecutor carried = make(at_bound);
     uint32_t after_wide = 0;
-    for (uint32_t batch = 0; batch + 1 < 120; ++batch) {
+    for (uint32_t batch = 0; batch < 400; ++batch) {
         CAPTURE(batch);
-        ample.run_batch(root, batch * kLanes, kLanes);
-        const auto expected = shared_record_patterns(ample, plan.num_visible_records);
-        const auto wide = std::ranges::find_if(expected, [](uint64_t bits) { return bits & 1; });
-        if (wide == expected.end()) {
+        const uint32_t first = batch * kLanes;
+        sampling::SharingExecutor fresh = make(at_bound);
+        fresh.run_batch(root, first, 1);
+        const auto alone = shared_record_patterns(fresh, plan.num_visible_records);
+        if (!is_wide(alone.front())) {
             continue;
         }
-        const auto lane = static_cast<uint32_t>(wide - expected.begin());
-        single.run_batch(root, batch * kLanes, kLanes, lane, 1);
-        REQUIRE(shared_record_patterns(single, plan.num_visible_records) ==
-                std::vector<uint64_t>{*wide});
-        ample.run_batch(root, (batch + 1) * kLanes, kLanes);
-        const auto next = shared_record_patterns(ample, plan.num_visible_records);
-        if (std::ranges::any_of(next.begin(), next.begin() + kNarrowLanes,
-                                [](uint64_t bits) { return (bits & 1) != 0; })) {
+        carried.run_batch(root, first, 1);
+        REQUIRE(shared_record_patterns(carried, plan.num_visible_records) == alone);
+        sampling::SharingExecutor next = make(kLanes * at_bound);
+        next.run_batch(root, first + kLanes, kLanes);
+        const auto expected = shared_record_patterns(next, plan.num_visible_records);
+        if (std::ranges::any_of(expected, is_wide)) {
             continue;
         }
-        single.run_batch(root, (batch + 1) * kLanes, kLanes, 0, kNarrowLanes);
-        REQUIRE(shared_record_patterns(single, plan.num_visible_records) ==
-                std::vector<uint64_t>(next.begin(), next.begin() + kNarrowLanes));
-        after_wide += single.peak_groups() > 1;
+        carried.run_batch(root, first + kLanes, kLanes);
+        REQUIRE(shared_record_patterns(carried, plan.num_visible_records) == expected);
+        after_wide += carried.peak_groups() > 1;
     }
     REQUIRE(after_wide > 0);
 
-    // A budget below one wide state is a limit, not an allowance: the lane
-    // that needs the state reports it, and the lanes beside it still run.
+    // A budget below one wide state is a limit: the shot that needs the state
+    // reports it, and the shots beside it still run.
     sampling::SharingExecutor narrow = make(at_bound - 1);
+    sampling::SharingExecutor ample = make(at_bound);
     uint32_t refused = 0;
-    for (uint32_t batch = 0; batch < 40; ++batch) {
-        ample.run_batch(root, batch * kLanes, kLanes);
+    for (uint32_t shot = 0; shot < 400; ++shot) {
+        CAPTURE(shot);
+        ample.run_batch(root, shot, 1);
         const auto expected = shared_record_patterns(ample, plan.num_visible_records);
-        for (uint32_t lane = 0; lane < kLanes; ++lane) {
-            CAPTURE(batch, lane);
-            const bool wide = (expected[lane] & 1) != 0;
-            if (wide) {
-                REQUIRE_THROWS_AS(narrow.run_batch(root, batch * kLanes, kLanes, lane, 1),
-                                  sampling::SharedStateBudgetError);
-                ++refused;
-            } else {
-                narrow.run_batch(root, batch * kLanes, kLanes, lane, 1);
-                REQUIRE(shared_record_patterns(narrow, plan.num_visible_records) ==
-                        std::vector<uint64_t>{expected[lane]});
-            }
+        if (is_wide(expected.front())) {
+            REQUIRE_THROWS_AS(narrow.run_batch(root, shot, 1), std::runtime_error);
+            ++refused;
+        } else {
+            narrow.run_batch(root, shot, 1);
+            REQUIRE(shared_record_patterns(narrow, plan.num_visible_records) == expected);
         }
     }
     REQUIRE(refused > 0);
