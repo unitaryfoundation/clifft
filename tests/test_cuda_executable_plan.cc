@@ -10,6 +10,7 @@
 #include <algorithm>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_string.hpp>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -226,4 +227,13 @@ TEST_CASE("CUDA replay circuits preserve visible and hidden record layout") {
     REQUIRE(batched.num_visible_records() == 2);
     REQUIRE(batched.num_records() == 3);
     REQUIRE(batched.peak_active_width() >= 1);
+}
+
+TEST_CASE("CUDA execution rejects a plan with a runtime Clifford frame") {
+    const std::string_view circuit = "H 0 1\nMPP Z0*Z1\nT 0\nT_DAG 1\nH 0 1\nM 0 1\n";
+    REQUIRE_NOTHROW(ExecutablePlan(plan_from(circuit)));
+    const SamplingPlan frame = clifft::sampling::plan_sampling(
+        clifft::trace(clifft::parse(circuit)), {.runtime_frame = true});
+    REQUIRE(frame.frame_width != 0);
+    REQUIRE_THROWS_AS(ExecutablePlan(frame), std::invalid_argument);
 }
