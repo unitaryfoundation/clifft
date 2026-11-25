@@ -246,11 +246,12 @@ uint64_t SharingExecutor::classical_storage_bytes(const ExecutablePlan& plan,
             saturating_multiply_u64(std::bit_ceil(uint64_t{lane_capacity} * 2), sizeof(uint32_t)));
     }
     if (plan.uses_runtime_frame()) {
-        // One sign bit per tableau row for every lane, the packed draws of
-        // random frame measurements, and three group tables.
+        // One sign bit per tableau row for every lane and for the row mask of
+        // an action, the packed draws of random frame measurements, and three
+        // group tables.
         const uint64_t sign_words = 2 * uint64_t{plan.frame_words()};
-        bytes = saturating_add_u64(
-            bytes, saturating_multiply_u64(lane_capacity, sign_words * sizeof(uint64_t)));
+        bytes = saturating_add_u64(bytes, saturating_multiply_u64(uint64_t{lane_capacity} + 1,
+                                                                  sign_words * sizeof(uint64_t)));
         bytes = saturating_add_u64(
             bytes, saturating_multiply_u64(packed_word_count(lane_capacity), sizeof(uint64_t)));
         bytes =
