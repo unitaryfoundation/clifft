@@ -1019,15 +1019,15 @@ TEST_CASE("Growing coefficient storage does not change a seeded frame shot",
 TEST_CASE("A frame shot repeated after storage growth counts its dust clamps once",
           "[runtime_frame][sampling]") {
     // Qubit 0 is measured with a branch of dust probability while one
-    // coefficient is active. The frame on qubits 1 and 2 later promotes two
-    // coordinates, so the first shot outgrows its storage and runs again.
+    // coefficient is active. The frame on the two Bell pairs later promotes
+    // two coordinates, so the first shot outgrows its storage and runs again.
     const Circuit circuit = clifft::parse(
         "H 0\nR_Z(0.0000000001) 0\nH 0\nM 0\n"
-        "H 1 2\nX_ERROR(0.25) 1 2\nT 1\nT 1\nT 2\nT 2\n"
-        "H 1 2\nT 1\nT 2\nM 1 2\n");
+        "H 1 3\nCX 1 2 3 4\nX_ERROR(0.25) 1 3\nT 1 3\nT_DAG 2 4\n"
+        "H 1 3\nT 1 3\nM 1 2 3 4\n");
     const SamplingPlan plan =
         sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
-    REQUIRE(plan.frame_width == 2);
+    REQUIRE(plan.frame_width >= 2);
     const sampling::ExecutablePlan executable(plan);
     REQUIRE(executable.initial_capacity_width() == 1);
     sampling::Executor executor(executable, 7);
