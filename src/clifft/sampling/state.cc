@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstring>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -35,7 +36,15 @@ size_t State::slot_bytes(uint32_t max_active_width) {
     if (doubles > std::numeric_limits<size_t>::max() / sizeof(double)) {
         throw std::length_error("sampling state allocation exceeds addressable memory");
     }
-    return static_cast<size_t>(doubles) * sizeof(double);
+    return slot_bytes_unchecked(max_active_width);
+}
+
+size_t State::slot_bytes_unchecked(uint32_t max_active_width) noexcept {
+    assert(max_active_width < kDenseActiveWidthLimit);
+    const uint64_t capacity = uint64_t{1} << max_active_width;
+    return static_cast<size_t>(2 * round_array_stride(capacity) +
+                               2 * round_array_stride(std::max(uint64_t{1}, capacity >> 1))) *
+           sizeof(double);
 }
 
 size_t State::storage_bytes(uint32_t max_active_width) {
@@ -138,6 +147,23 @@ void State::reset_parallel(uint32_t workers, uint32_t min_active_width) noexcept
         std::fill(imag_ + begin, imag_ + end, 0.0);
     });
     real_[0] = 1.0;
+}
+
+void State::relocate(double* storage, uint32_t max_active_width, bool keep_coefficients) noexcept {
+    assert(allocation_.data() == nullptr && "only a borrowed state can move to other storage");
+    if (!keep_coefficients) {
+        initialize_views(storage, max_active_width, initial_active_width_);
+        return;
+    }
+    assert(max_active_width >= active_width_ && "the new layout holds the live coefficients");
+    const double* old_real = real_;
+    const double* old_imag = imag_;
+    const uint32_t active_width = active_width_;
+    const size_t bytes = static_cast<size_t>(size()) * sizeof(double);
+    initialize_views(storage, max_active_width, initial_active_width_);
+    active_width_ = active_width;
+    std::memmove(imag_, old_imag, bytes);
+    std::memmove(real_, old_real, bytes);
 }
 
 void State::ensure_capacity(uint32_t max_active_width) {

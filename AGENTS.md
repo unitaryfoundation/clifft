@@ -69,8 +69,9 @@ architecture cannot support it:
   at compile time or guarded by an explicit activation boundary. The
   explicitly selected noncomputational online backend runs its frame over
   every qubit. In both cases ordinary dispatch remains allocation-free and
-  exception-free; coefficient storage may grow only after suspension at an
-  explicit activation boundary.
+  exception-free; coefficient storage, and the tableaus shared execution keeps
+  for its groups, may grow only after suspension at an explicit activation
+  boundary.
 
 ## Code Simplicity, Prose, and Test Rules
 
