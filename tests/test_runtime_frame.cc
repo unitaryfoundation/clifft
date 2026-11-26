@@ -1040,6 +1040,30 @@ TEST_CASE("A frame shot repeated after storage growth counts its dust clamps onc
     }
 }
 
+TEST_CASE("A T gate that anticommutes with the held-back region starts a new one",
+          "[runtime_frame][sampling]") {
+    // The rotations about X3 and X0 are held back together. The T gate about
+    // Z0 anticommutes with the second of them, so the region ends there and a
+    // new one starts, which the signed pair on qubits 1 and 2 then joins and
+    // is reduced in. Left in the first region, the pair would be applied one
+    // rotation at a time and need an active qubit of its own.
+    const auto circuit = clifft::parse(
+        "H 1\nCX 1 2\nX_ERROR(0.3) 1\n"
+        "H 3\nT 3\nH 3\n"
+        "H 0\nT 0\nH 0\n"
+        "T 0\n"
+        "T 1\nT_DAG 2\n"
+        "MPP X1*X2\nM 0 3\n");
+    const SamplingPlan fixed = sampling::plan_sampling(clifft::trace(circuit));
+    const SamplingPlan frame =
+        sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
+    REQUIRE(fixed.peak_active_width == 3);
+    REQUIRE(frame.peak_active_width == 2);
+    REQUIRE(std::ranges::count_if(frame.actions, [](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+            }) == 1);
+}
+
 TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame][sampling]") {
     Xoshiro256PlusPlus rng(704);
     constexpr uint32_t kShots = 8000;
