@@ -313,6 +313,10 @@ class ExecutablePlan {
         // commutes with this one. The frame then maps this Pauli to itself, so
         // the rotation applies to it directly and touches only its support.
         bool fixed_by_frame = false;
+        // True when, in addition, neither this Pauli nor an earlier one has a
+        // Z factor. The image of each Z_q is then Z_q times X factors, and the
+        // rotation only adds X words to the rows it changes.
+        bool x_only = false;
     };
 
     struct ExecuteFrameRotation {

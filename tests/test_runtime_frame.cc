@@ -977,9 +977,45 @@ TEST_CASE("Leading commuting conditional Cliffords skip the frame map",
     REQUIRE(uses_support(0));
     REQUIRE(uses_support(1));
     REQUIRE(uses_support(2));
+    // Only the first Pauli comes before any Z factor.
+    const auto adds_x_words_only = [&](size_t action) {
+        return executable.inspect_action(action).find("kernel=support_x") != std::string::npos;
+    };
+    REQUIRE(adds_x_words_only(0));
+    REQUIRE_FALSE(adds_x_words_only(1));
+    REQUIRE_FALSE(adds_x_words_only(2));
     REQUIRE_FALSE(uses_support(3));
     REQUIRE_FALSE(uses_support(4));
     REQUIRE_FALSE(uses_support(6));
+}
+
+TEST_CASE("Rotations about X products from the identity only add X words",
+          "[runtime_frame][sampling]") {
+    // A frame over 70 coordinates, so rows span two words. Random products of
+    // X commute, and from the identity each one's image is itself.
+    constexpr uint32_t kCoordinates = 70;
+    Xoshiro256PlusPlus rng(0x5EED);
+    for (uint32_t trial = 0; trial < 20; ++trial) {
+        CAPTURE(trial);
+        sampling::OnlineFrame general(kCoordinates);
+        sampling::OnlineFrame x_only(kCoordinates);
+        for (uint32_t step = 0; step < 40; ++step) {
+            PauliString pauli(kCoordinates);
+            const uint32_t factors = 1 + static_cast<uint32_t>(rng() % 6);
+            for (uint32_t i = 0; i < factors; ++i) {
+                pauli.set_pauli(static_cast<uint32_t>(rng() % kCoordinates), true, false);
+            }
+            constexpr CliffordRotation kRotations[] = {
+                CliffordRotation::SQRT, CliffordRotation::PAULI, CliffordRotation::SQRT_DAG};
+            const CliffordRotation rotation = kRotations[rng() % 3];
+            general.rotate_clifford(pauli.view(), rotation);
+            x_only.rotate_fixed_x_clifford(pauli.x(), rotation);
+        }
+        for (uint32_t row = 0; row < 2 * kCoordinates; ++row) {
+            CAPTURE(row);
+            REQUIRE(PauliString(x_only.row(row)) == PauliString(general.row(row)));
+        }
+    }
 }
 
 TEST_CASE("Random frame programs match dense evolution", "[runtime_frame][sampling]") {
