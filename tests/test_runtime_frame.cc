@@ -1595,6 +1595,99 @@ TEST_CASE("A frame shot repeated after storage growth counts its dust clamps onc
     }
 }
 
+TEST_CASE("A T gate that anticommutes with the held-back region starts a new one",
+          "[runtime_frame][sampling]") {
+    // The rotations about X3 and X0 are held back together. The T gate about
+    // Z0 anticommutes with the second of them, so the region ends there and a
+    // new one starts, which the signed pair on qubits 1 and 2 then joins and
+    // is reduced in. Left in the first region, the pair would be applied one
+    // rotation at a time and need an active qubit of its own.
+    const auto circuit = clifft::parse(
+        "H 1\nCX 1 2\nX_ERROR(0.3) 1\n"
+        "H 3\nT 3\nH 3\n"
+        "H 0\nT 0\nH 0\n"
+        "T 0\n"
+        "T 1\nT_DAG 2\n"
+        "MPP X1*X2\nM 0 3\n");
+    const SamplingPlan fixed = sampling::plan_sampling(clifft::trace(circuit));
+    const SamplingPlan frame =
+        sampling::plan_sampling(clifft::trace(circuit), {.runtime_frame = true});
+    REQUIRE(fixed.peak_active_width == 3);
+    REQUIRE(frame.peak_active_width == 2);
+    REQUIRE(std::ranges::count_if(frame.actions, [](const PlannedAction& planned) {
+                return std::holds_alternative<sampling::ApplyConditionalClifford>(planned.action);
+            }) == 1);
+}
+
+TEST_CASE("A frame over more than 64 coordinates follows the fault of every pair",
+          "[runtime_frame][sampling]") {
+    // Seventy signed pairs give the frame one coordinate each, so six of them
+    // lie in the second word of its Pauli masks. A pair's check reads one in
+    // half of the shots where its fault fired and never otherwise. Before the
+    // single checks, pair i and pair i + 35 are checked together, and for the
+    // last six of those the measured Pauli spans both words. The joint outcome
+    // is the parity of the two single ones in every shot. The fault
+    // probabilities repeat every nine pairs, so pairs that are checked
+    // together, neighbors, and pairs 64 apart all differ, and a sign that
+    // reaches the wrong pair shows in its rate.
+    constexpr uint32_t kPairs = 70;
+    constexpr uint32_t kJoint = kPairs / 2;
+    constexpr uint32_t kShots = 8000;
+    const auto fault = [](uint32_t pair) { return 0.1 + 0.08 * (pair % 9); };
+    const auto product = [](uint32_t pair) {
+        return "X" + std::to_string(pair) + "*X" + std::to_string(pair + kPairs);
+    };
+    std::string prepare;
+    std::string rotate;
+    std::string joint;
+    std::string single;
+    for (uint32_t pair = 0; pair < kPairs; ++pair) {
+        const std::string a = std::to_string(pair);
+        const std::string b = std::to_string(pair + kPairs);
+        prepare += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(" + std::to_string(fault(pair)) +
+                   ") " + a + "\n";
+        rotate += "T " + a + "\nT_DAG " + b + "\n";
+        if (pair < kJoint) {
+            joint += "MPP " + product(pair) + "*" + product(pair + kJoint) + "\n";
+        }
+        single += "MPP " + product(pair) + "\n";
+    }
+    const SamplingPlan plan = sampling::plan_sampling(
+        clifft::trace(clifft::parse(prepare + rotate + joint + single)), {.runtime_frame = true});
+    REQUIRE(plan.frame_width > 64);
+    REQUIRE(plan.peak_active_width == 0);
+
+    const sampling::ExecutablePlan executable(plan);
+    sampling::Executor executor(executable, 709);
+    std::vector<uint32_t> joint_ones(kJoint, 0);
+    std::vector<uint32_t> single_ones(kPairs, 0);
+    for (uint32_t shot = 0; shot < kShots; ++shot) {
+        executor.run_frame_shot();
+        const auto records = executor.visible_records();
+        for (uint32_t pair = 0; pair < kPairs; ++pair) {
+            single_ones[pair] += records[kJoint + pair];
+        }
+        for (uint32_t pair = 0; pair < kJoint; ++pair) {
+            joint_ones[pair] += records[pair];
+            REQUIRE(records[pair] == (records[kJoint + pair] ^ records[kJoint + pair + kJoint]));
+        }
+    }
+    const auto check_rate = [&](uint32_t ones, double expected) {
+        const double sigma = std::sqrt(expected * (1.0 - expected) / kShots);
+        REQUIRE(std::abs(double(ones) / kShots - expected) <= 6.0 * sigma);
+    };
+    for (uint32_t pair = 0; pair < kPairs; ++pair) {
+        CAPTURE(pair);
+        check_rate(single_ones[pair], 0.5 * fault(pair));
+    }
+    for (uint32_t pair = 0; pair < kJoint; ++pair) {
+        CAPTURE(pair);
+        const double first = 0.5 * fault(pair);
+        const double second = 0.5 * fault(pair + kJoint);
+        check_rate(joint_ones[pair], first + second - 2.0 * first * second);
+    }
+}
+
 TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame][sampling]") {
     Xoshiro256PlusPlus rng(704);
     constexpr uint32_t kShots = 8000;
