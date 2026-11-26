@@ -12,6 +12,7 @@
 #include "clifft/sampling/executable_plan.h"
 #include "clifft/sampling/executor.h"
 #include "clifft/sampling/planner.h"
+#include "clifft/sampling/sampler.h"
 #include "clifft/sampling/state_queries.h"
 #include "clifft/util/numeric.h"
 #include "clifft/util/xoshiro.h"
@@ -19,6 +20,7 @@
 #include "dense_circuit_oracle.h"
 
 #include <algorithm>
+#include <array>
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 #include <cmath>
@@ -122,6 +124,29 @@ SamplingPlan build_frame_plan(const FrameProgram& program) {
     plan.num_visible_records = static_cast<uint32_t>(record_values.size());
     plan.peak_active_width = width;
     return plan;
+}
+
+// The same plan after `width` promotions and `width` measurements with fixed
+// outcomes. They draw nothing from the RNG and leave |0...0>, but raise the
+// storage allocated at construction to the width the frame later needs.
+SamplingPlan with_storage_from_the_start(const SamplingPlan& lazy, uint32_t width) {
+    SamplingPlan eager = lazy;
+    eager.num_hidden_records = width;
+    eager.peak_active_width = width;
+    std::vector<PlannedAction> prefix;
+    for (uint32_t active = 0; active < width; ++active) {
+        prefix.push_back({active, active + 1, sampling::PromoteDormantRotation{0.0, AffineBool{}}});
+    }
+    for (uint32_t active = width; active > 0; --active) {
+        const SymbolId branch{static_cast<uint32_t>(eager.symbols.size())};
+        eager.symbols.push_back(SymbolKind::Branch);
+        prefix.push_back({active, active - 1,
+                          sampling::MeasureActivePauli{
+                              sampling::ActivePauli{0, 1}, 0, branch, AffineBool::symbol(branch),
+                              RecordSlot{lazy.num_visible_records + active - 1}}});
+    }
+    eager.actions.insert(eager.actions.begin(), prefix.begin(), prefix.end());
+    return eager;
 }
 
 // Evaluates the same program with a 2^n statevector, branching on each
@@ -974,29 +999,8 @@ TEST_CASE("Growing coefficient storage does not change a seeded frame shot",
         measure(0b011, 0b100),       rotate(0b100, 0, 0.21), measure(0b100, 0b100),
         rotate(0b001, 0b010, 0.137), measure(0, 0b001),      measure(0b010, 0)};
     const SamplingPlan lazy = build_frame_plan(program);
-
-    // The same plan after three promotions and three measurements with fixed
-    // outcomes. They draw nothing from the RNG and leave |000>, but raise the
-    // storage allocated at construction to the width the frame later needs.
-    SamplingPlan eager = lazy;
-    eager.num_hidden_records = 3;
-    eager.peak_active_width = 3;
-    std::vector<PlannedAction> prefix;
-    for (uint32_t width = 0; width < 3; ++width) {
-        prefix.push_back({width, width + 1, sampling::PromoteDormantRotation{0.0, AffineBool{}}});
-    }
-    for (uint32_t width = 3; width > 0; --width) {
-        const SymbolId branch{static_cast<uint32_t>(eager.symbols.size())};
-        eager.symbols.push_back(SymbolKind::Branch);
-        prefix.push_back({width, width - 1,
-                          sampling::MeasureActivePauli{
-                              sampling::ActivePauli{0, 1}, 0, branch, AffineBool::symbol(branch),
-                              RecordSlot{lazy.num_visible_records + width - 1}}});
-    }
-    eager.actions.insert(eager.actions.begin(), prefix.begin(), prefix.end());
-
     const sampling::ExecutablePlan lazy_executable(lazy);
-    const sampling::ExecutablePlan eager_executable(eager);
+    const sampling::ExecutablePlan eager_executable(with_storage_from_the_start(lazy, 3));
     REQUIRE(lazy_executable.initial_capacity_width() == 0);
     REQUIRE(eager_executable.initial_capacity_width() == 3);
     sampling::Executor lazy_executor(lazy_executable, 99);
@@ -1166,6 +1170,121 @@ TEST_CASE("Sampled frame plans follow their exact distribution", "[runtime_frame
             const double sigma = std::sqrt(probability * (1.0 - probability) / kShots);
             REQUIRE(std::abs(observed - probability) <= 6.0 * sigma + 1e-9);
         }
+    }
+}
+
+TEST_CASE("Fixed-fault sampling on a frame plan follows the static plan",
+          "[runtime_frame][sampling]") {
+    // Faults before the T region decide its rotation signs, and readout
+    // faults flip the reported records.
+    const std::string body =
+        "H 0 2\n"
+        "CX 0 1\n"
+        "X_ERROR(0.2) 0\n"
+        "Z_ERROR(0.3) 2\n"
+        "DEPOLARIZE1(0.1) 1\n"
+        "T 0\nT_DAG 1\nT 2\n"
+        "H 0 1 2\n"
+        "M(0.05) 0 1 2\n";
+    constexpr uint32_t kShots = 40000;
+    // Two-sample bound at six standard deviations for a count out of kShots.
+    const auto require_close = [&](uint64_t a, uint64_t b) {
+        const double pooled = static_cast<double>(a + b) / (2.0 * kShots);
+        const double sigma = std::sqrt(2.0 * pooled * (1.0 - pooled) / kShots);
+        REQUIRE(std::abs(static_cast<double>(a) - static_cast<double>(b)) / kShots <=
+                6.0 * sigma + 1e-12);
+    };
+
+    SECTION("record rows") {
+        const HirModule hir = clifft::trace(clifft::parse(body));
+        const SamplingPlan frame_plan = sampling::plan_sampling(hir, {.runtime_frame = true});
+        REQUIRE(frame_plan.frame_width != 0);
+        const sampling::ExecutablePlan fixed(sampling::plan_sampling(hir));
+        const sampling::ExecutablePlan frame(frame_plan);
+        for (uint32_t k = 0; k <= 3; ++k) {
+            CAPTURE(k);
+            const auto histogram = [&](const sampling::ExecutablePlan& plan, uint64_t seed) {
+                const sampling::SamplingResult result = sampling::sample_k(plan, kShots, k, seed);
+                std::array<uint64_t, 8> counts{};
+                for (uint32_t shot = 0; shot < kShots; ++shot) {
+                    const size_t row = size_t{3} * shot;
+                    ++counts[result.measurements[row] | (result.measurements[row + 1] << 1) |
+                             (result.measurements[row + 2] << 2)];
+                }
+                return counts;
+            };
+            const auto expected = histogram(fixed, 705 + k);
+            const auto actual = histogram(frame, 805 + k);
+            for (size_t pattern = 0; pattern < expected.size(); ++pattern) {
+                CAPTURE(pattern);
+                require_close(expected[pattern], actual[pattern]);
+            }
+        }
+    }
+
+    SECTION("survivor counts") {
+        const HirModule hir = clifft::trace(
+            clifft::parse(body + "DETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-2] rec[-3]\n"));
+        const std::vector<uint8_t> mask = {1};
+        const SamplingPlan frame_plan =
+            sampling::plan_sampling(hir, {.postselection_mask = mask, .runtime_frame = true});
+        REQUIRE(frame_plan.frame_width != 0);
+        const sampling::ExecutablePlan fixed(
+            sampling::plan_sampling(hir, {.postselection_mask = mask}));
+        const sampling::ExecutablePlan frame(frame_plan);
+        for (uint32_t k = 0; k <= 3; ++k) {
+            CAPTURE(k);
+            const auto expected = sampling::sample_k_survivors(fixed, kShots, k, 905 + k);
+            const auto actual = sampling::sample_k_survivors(frame, kShots, k, 1005 + k);
+            require_close(expected.passed_shots, actual.passed_shots);
+            require_close(expected.observable_ones.at(0), actual.observable_ones.at(0));
+        }
+    }
+}
+
+TEST_CASE("Growing coefficient storage does not change a seeded fixed-fault frame shot",
+          "[runtime_frame][sampling]") {
+    // Every rotation sign reads a noise bit, so the faults a shot selects
+    // decide which promotions it needs. Equal probabilities select sites from
+    // a shuffled pool and unequal ones from a table.
+    for (const std::vector<double>& probabilities :
+         {std::vector<double>(4, 0.2), std::vector<double>{0.2, 0.3, 0.1, 0.25}}) {
+        FrameProgram program;
+        program.num_qubits = 3;
+        program.noise_probabilities = probabilities;
+        program.steps = {rotate(0b001, 0, 0.137, {}, {0}),
+                         rotate(0b010, 0, 0.3, {}, {1}),
+                         rotate(0b110, 0b001, 0.25, {}, {2}),
+                         measure(0b011, 0b100),
+                         rotate(0b100, 0, 0.21, {}, {3}),
+                         measure(0b100, 0b100),
+                         rotate(0b001, 0b010, 0.137, {}, {0, 1}),
+                         measure(0, 0b001),
+                         measure(0b010, 0)};
+        const SamplingPlan lazy = build_frame_plan(program);
+        const sampling::ExecutablePlan lazy_executable(lazy);
+        const sampling::ExecutablePlan eager_executable(with_storage_from_the_start(lazy, 3));
+        REQUIRE(lazy_executable.initial_capacity_width() == 0);
+        REQUIRE(eager_executable.initial_capacity_width() == 3);
+
+        // Each call starts new executors, so each one repeats the shots that
+        // first reach a wider state.
+        constexpr uint32_t kShots = 8;
+        const size_t stride = lazy.num_visible_records;
+        bool saw_one = false;
+        for (uint32_t k = 0; k <= 3; ++k) {
+            for (uint64_t seed = 0; seed < 40; ++seed) {
+                CAPTURE(probabilities, k, seed);
+                const sampling::SamplingResult grown =
+                    sampling::sample_k(lazy_executable, kShots, k, seed);
+                const sampling::SamplingResult eager =
+                    sampling::sample_k(eager_executable, kShots, k, seed);
+                REQUIRE(grown.measurements.size() == kShots * stride);
+                REQUIRE(std::ranges::equal(grown.measurements, eager.measurements));
+                saw_one |= std::ranges::count(grown.measurements, uint8_t{1}) != 0;
+            }
+        }
+        REQUIRE(saw_one);
     }
 }
 

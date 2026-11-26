@@ -723,10 +723,6 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
         throw std::invalid_argument(
             "forced-fault sampling does not support instrument traps or trajectory drivers");
     }
-    if (plan.uses_runtime_frame()) {
-        throw std::invalid_argument(
-            "forced-fault sampling does not support runtime Clifford frames");
-    }
     if (plan.num_unbound_presampled_symbols() != 0) {
         throw std::invalid_argument(
             "forced-fault sampling requires a distribution for every presampled symbol");
@@ -756,8 +752,9 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
             return std::make_unique<ConditionedBatchSamplingWorker>(plan, fault_distribution,
                                                                     capacity);
         },
-        [](ConditionedSamplingWorker& worker) noexcept {
-            worker.executor.run_shot(worker.fault_sampler);
+        [frame = plan.uses_runtime_frame()](ConditionedSamplingWorker& worker) {
+            frame ? worker.executor.run_frame_shot(worker.fault_sampler)
+                  : worker.executor.run_shot(worker.fault_sampler);
         },
         [](ConditionedBatchSamplingWorker& worker, const SeedRoot& root, uint32_t first_shot,
            uint32_t batch) noexcept {
@@ -776,10 +773,6 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
         throw std::invalid_argument(
             "forced-fault survivor sampling does not support instrument traps or trajectory "
             "drivers");
-    }
-    if (plan.uses_runtime_frame()) {
-        throw std::invalid_argument(
-            "forced-fault survivor sampling does not support runtime Clifford frames");
     }
     if (plan.num_unbound_presampled_symbols() != 0) {
         throw std::invalid_argument(
@@ -807,8 +800,9 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
             return std::make_unique<ConditionedBatchSurvivorWorker>(plan, fault_distribution,
                                                                     capacity, output_mode, noise);
         },
-        [](ConditionedSurvivorWorker& worker) noexcept {
-            worker.executor.run_shot(worker.fault_sampler);
+        [frame = plan.uses_runtime_frame()](ConditionedSurvivorWorker& worker) {
+            frame ? worker.executor.run_frame_shot(worker.fault_sampler)
+                  : worker.executor.run_shot(worker.fault_sampler);
         },
         [](ConditionedBatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
            uint32_t batch) noexcept {

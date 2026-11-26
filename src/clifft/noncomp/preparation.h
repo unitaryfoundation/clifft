@@ -14,6 +14,11 @@ namespace clifft {
 struct NonComputationalRequirements {
     bool final_status = true;
     std::optional<uint32_t> max_active_width = std::nullopt;
+    // Plan the fixed candidate with a runtime Clifford frame where that needs
+    // fewer active coordinates. Such a plan states an upper bound on its
+    // active width, and max_active_width applies to that bound. Trajectory
+    // and online execution ignore this.
+    bool runtime_frame = false;
 };
 
 // Internal preparation boundary. Owning the expanded circuit and model lets

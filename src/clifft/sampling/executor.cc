@@ -134,6 +134,14 @@ void Executor::run_shot(std::span<const uint8_t> presampled_values,
     readout_inputs_ = {};
 }
 
+void Executor::run_frame_shot(std::span<const uint8_t> presampled_values,
+                              std::span<const ReadoutNoiseInput> readout_inputs) {
+    (void)run_with_activation([&]() noexcept {
+        run_shot(presampled_values, readout_inputs);
+        return ReplayResult{};
+    });
+}
+
 void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     plan_ = root_plan_;
     assert(fault_sampler.num_sites() ==
@@ -146,6 +154,15 @@ void Executor::run_shot(KFaultSampler& fault_sampler) noexcept {
     (void)execute_actions_for_backend<ShotMode::FixedFaultCount>({});
     forced_fault_sites_ = {};
     forced_fault_cursor_ = 0;
+}
+
+void Executor::run_frame_shot(KFaultSampler& fault_sampler) {
+    // A fault draw depends only on the RNG stream, so a repeated shot selects
+    // the same sites.
+    (void)run_with_activation([&]() noexcept {
+        run_shot(fault_sampler);
+        return ReplayResult{};
+    });
 }
 
 void Executor::resume(const ExecutablePlan& continuation,

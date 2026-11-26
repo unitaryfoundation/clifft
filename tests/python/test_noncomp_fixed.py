@@ -91,6 +91,101 @@ def test_fixed_joint_distribution_matches_dense_physical_model(text, fixed_sampl
     assert result.final_status is None
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # The partner channel of a leaked or lost qubit decides the signs of
+        # a T pair that cancels without it.
+        "H 0 2\nCX 0 1\nLEAKAGE(0.25) 0\nCX 0 2\nT 0\nT_DAG 1\nT 2\nH 0 1 2\nM 0 1 2",
+        "H 0\nCX 0 1\nLOSS(0.3) 2\nCX 2 0\nT 0\nT_DAG 1\nH 0 1\nM 0 1 2",
+        "H 0\nCX 0 1\nLEAKAGE(0.3) 2\nLOSS(0.2) 3\nCX 2 0\nCX 3 1\nT 0\nT_DAG 1\nH 0 1\nM 0 1",
+    ],
+)
+def test_fixed_runtime_frame_matches_dense_physical_model(text):
+    model = noncomp.Model(
+        classifier=noncomp.Classifier(CLASSIFIER),
+        gate_partner_effects={"leaked": DEPOLARIZE, "lost": DEPOLARIZE},
+    )
+    expected = dense.enumerate_exact(
+        text,
+        initial=[1, 0, 0, 0, 0],
+        transitions={},
+        classifier=CLASSIFIER,
+        depolarize_partner=True,
+    )
+    assert expected.dropped_mass < 1e-10
+    expected.require_precision(smallest_probability=0.025, relative_tolerance=1e-6)
+    program = prepare(text, model, runtime_frame=True)
+    assert program.metrics["peak_active_width"] < prepare(text, model).metrics["peak_active_width"]
+    # A plan with a runtime Clifford frame runs on the scalar executor.
+    result = sample(program)
+    assert result.stats["scalar_shots"] == 16000
+    empirical = dense.empirical_record_probs(result.measurements)
+    assert dense.tvd(expected.record_probs, empirical) < 0.025
+    threaded = sample(program, threads=3)
+    np.testing.assert_array_equal(threaded.measurements, result.measurements)
+
+
+def test_fixed_runtime_frame_joint_outputs_match_trajectories():
+    # The loss of qubit 2 depolarizes its partner, which decides the T signs.
+    text = (
+        "H 0\nCX 0 1\nLOSS(0.3) 2\nCX 2 0\nT 0\nT_DAG 1\nH 0 1\nM 0 1 2\n"
+        "DETECTOR rec[-1] rec[-2]\nOBSERVABLE_INCLUDE(0) rec[-1]"
+    )
+    model = noncomp.Model(
+        classifier=noncomp.Classifier(CLASSIFIER),
+        gate_partner_effects={"leaked": DEPOLARIZE, "lost": DEPOLARIZE},
+    )
+    program = prepare(text, model, runtime_frame=True, final_status=True)
+    ordinary = prepare(text, model, final_status=True)
+    assert program.metrics["peak_active_width"] < ordinary.metrics["peak_active_width"]
+    expected = noncomp.sample(
+        text,
+        model,
+        shots=16000,
+        seed=71,
+        threads=1,
+        final_status=True,
+        execution="trajectory",
+    )
+
+    def joint(result):
+        return dense.empirical_record_probs(
+            np.concatenate(
+                [
+                    result.measurements,
+                    result.heralds,
+                    result.detectors,
+                    result.observables,
+                    result.final_status,
+                ],
+                axis=1,
+            )
+        )
+
+    # The joint law ties each record to the status that decided its T signs.
+    assert dense.tvd(joint(sample(program)), joint(expected)) < 0.04
+
+
+def test_fixed_runtime_frame_without_status_inputs_matches_the_ordinary_plan():
+    # No qubit can leave the computational space, so the driver supplies no
+    # inputs and the executor samples the noise itself.
+    text = "H 0 2\nCX 0 1\nX_ERROR(0.2) 1\nZ_ERROR(0.3) 2\nT 0\nT_DAG 1\nT 2\nH 0 1 2\nM 0 1 2"
+    model = noncomp.Model(classifier=noncomp.Classifier(CLASSIFIER))
+    program = prepare(text, model, runtime_frame=True)
+    assert program.metrics["classical_workspace_bytes"] == 0
+    actual = sample(program)
+    assert actual.stats["scalar_shots"] == 16000
+    expected = sample(prepare(text, model), seed=44)
+    assert (
+        dense.tvd(
+            dense.empirical_record_probs(actual.measurements),
+            dense.empirical_record_probs(expected.measurements),
+        )
+        < 0.025
+    )
+
+
 @pytest.mark.parametrize("rotation", ["T", "R_Z(0.173)"])
 @pytest.mark.parametrize("loss_probability", [0.0, 0.4, 1.0])
 def test_fixed_non_clifford_partner_channel_matches_aer(rotation, loss_probability, fixed_sample):

@@ -80,6 +80,15 @@ def _assert_same_distribution(a: np.ndarray, b: np.ndarray) -> None:
     assert np.all(np.abs(counts_a - counts_b) / shots <= 6 * sigma + 1e-12)
 
 
+def _assert_same_survivor_counts(expected: object, actual: object, shots: int) -> None:
+    """Two-sample check at six standard deviations for the survivor counts."""
+    for attribute in ("passed_shots", "logical_errors"):
+        a = getattr(expected, attribute)
+        b = getattr(actual, attribute)
+        pooled = (a + b) / (2 * shots)
+        assert abs(a - b) / shots <= 6 * np.sqrt(2 * pooled * (1 - pooled) / shots)
+
+
 def test_frame_plan_needs_no_active_coordinate() -> None:
     fixed, frame = _programs(SIGNED_PAIR)
     assert fixed.peak_active_width == 1
@@ -116,11 +125,7 @@ def test_sample_survivors_follows_the_ordinary_plan(keep_records: bool) -> None:
     shots = 40_000
     expected = clifft.sample_survivors(fixed, shots, seed=21, keep_records=keep_records)
     actual = clifft.sample_survivors(frame, shots, seed=22, keep_records=keep_records)
-    for attribute in ("passed_shots", "logical_errors"):
-        a = getattr(expected, attribute)
-        b = getattr(actual, attribute)
-        pooled = (a + b) / (2 * shots)
-        assert abs(a - b) / shots <= 6 * np.sqrt(2 * pooled * (1 - pooled) / shots)
+    _assert_same_survivor_counts(expected, actual, shots)
     if keep_records:
         assert actual.measurements.shape == (actual.passed_shots, 4)
         assert not actual.detectors.any()
@@ -221,9 +226,19 @@ def test_sampling_selection_keeps_frame_plans_on_the_scalar_executor(active_qubi
             clifft.sample_survivors(frame, 64, seed=5, **controls)
 
 
-def test_fixed_fault_sampling_rejects_frame_plans() -> None:
-    _, frame = _programs(SIGNED_PAIR)
-    with pytest.raises(ValueError, match="runtime Clifford frame"):
-        clifft.sample_k(frame, 16, 1, seed=3)
-    with pytest.raises(ValueError, match="runtime Clifford frame"):
-        clifft.sample_k_survivors(frame, 16, 1, seed=3)
+@pytest.mark.parametrize("k", [0, 1])
+def test_fixed_fault_sampling_follows_the_ordinary_plan(k: int) -> None:
+    fixed, frame = _programs(SIGNED_PAIR)
+    shots = 40_000
+    expected = clifft.sample_k(fixed, shots, k, seed=31)
+    actual = clifft.sample_k(frame, shots, k, seed=32)
+    _assert_same_distribution(expected.measurements, actual.measurements)
+
+
+@pytest.mark.parametrize("k", [0, 1])
+def test_fixed_fault_survivor_sampling_follows_the_ordinary_plan(k: int) -> None:
+    fixed, frame = _programs(SIGNED_PAIR, postselection_mask=[1])
+    shots = 40_000
+    expected = clifft.sample_k_survivors(fixed, shots, k, seed=41)
+    actual = clifft.sample_k_survivors(frame, shots, k, seed=42)
+    _assert_same_survivor_counts(expected, actual, shots)

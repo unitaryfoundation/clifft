@@ -545,13 +545,15 @@ void register_noncomp(nb::module_& m) {
     m.def(
         "_prepare_noncomputational_fixed",
         [](const clifft::Circuit& circuit, const clifft::NonComputationalModel& model,
-           bool final_status, std::optional<uint32_t> max_active_width) -> nb::object {
+           bool final_status, std::optional<uint32_t> max_active_width,
+           bool runtime_frame) -> nb::object {
             auto result = [&] {
                 nb::gil_scoped_release release;
                 return clifft::prepare_fixed_noncomputational(
-                    clifft::PreparedNonComputationalRequest(
-                        circuit, model,
-                        {.final_status = final_status, .max_active_width = max_active_width}));
+                    clifft::PreparedNonComputationalRequest(circuit, model,
+                                                            {.final_status = final_status,
+                                                             .max_active_width = max_active_width,
+                                                             .runtime_frame = runtime_frame}));
             }();
             if (auto* program = std::get_if<clifft::FixedNonComputationalProgram>(&result)) {
                 return nb::cast(std::move(*program));
@@ -559,7 +561,7 @@ void register_noncomp(nb::module_& m) {
             return nb::none();
         },
         nb::arg("circuit"), nb::arg("model"), nb::arg("final_status") = false,
-        nb::arg("max_active_width") = nb::none());
+        nb::arg("max_active_width") = nb::none(), nb::arg("runtime_frame") = false);
 
     m.def(
         "_build_noncomp_model",
@@ -2007,8 +2009,9 @@ NB_MODULE(_clifft_core, m) {
                 const auto& preparation = owner.sampling_preparation(
                     outputs,
                     {.early_postselection = false, .fixed_faults = true, .survivor_counts = true});
+                // A frame plan runs on the scalar executor, which samples its own noise.
                 const auto* noise =
-                    batch_size == 1 || shots == 0
+                    batch_size == 1 || shots == 0 || preparation.plan().uses_runtime_frame()
                         ? nullptr
                         : &preparation.noise(clifft::sampling::BatchNoiseMode::Dense);
                 result = clifft::sampling::sample_k_survivors(preparation.plan(), shots, k, seed,
