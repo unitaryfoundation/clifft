@@ -2,186 +2,186 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/acknowledgments/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/development/building/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/development/contributing/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/development/cuda-backend/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/development/hip-backend/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/development/hip-kernel-development/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/development/releasing/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/development/tableau-conventions/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/development/testing/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/getting-started/choosing-a-workflow/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/getting-started/installation/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/getting-started/quickstart/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/circuit-inputs/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/compilation/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/cpu-execution/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/delayed-loss/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/importance-sampling-tutorial/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/importance-sampling/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/leakage-and-loss/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/neutral-atom-leakage/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/partner-interactions/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/performance/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/simulation/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/sinter/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/strong-simulation/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/surface-code/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/guide/circuits/neutral_atom/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/reference/compiler-ir/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/reference/gates/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/reference/passes/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/reference/python-api/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/theory/architecture/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/theory/basis_probabilities/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/theory/noncomputational/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/theory/overview/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/theory/stabilizer-optimization/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/updates/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/updates/less-work-per-shot/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/updates/packed-sampling/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/updates/parallel-sampling/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/updates/sampling-through-leakage-and-loss/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/updates/smaller-active-states/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/updates/smaller-plans-shared-trajectories/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
     <url>
          <loc>https://unitaryfoundation.github.io/clifft/pr-preview/pr-771/updates/symbolic-sampling/</loc>
-         <lastmod>2026-11-25</lastmod>
+         <lastmod>2026-11-26</lastmod>
     </url>
 </urlset>
