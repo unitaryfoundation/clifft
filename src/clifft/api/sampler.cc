@@ -156,10 +156,10 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             ? ThreadLayout{.shot_workers = std::min(shots, resolve_thread_budget(options.threads)),
                            .intra_shot_workers = 1}
             : resolve_thread_layout(compiled, shots, options.threads, options.thread_layout);
-    // A plan with a runtime Clifford frame runs on the scalar executor unless
-    // the call asks for shared execution. Packed execution cannot run it: an
-    // explicit packed capacity falls back to scalar, and noise preparation
-    // without sharing has nothing to prepare.
+    // A plan with a runtime Clifford frame runs on the scalar or the shared
+    // executor. Packed execution cannot run it: an explicit packed capacity
+    // falls back to scalar, and noise preparation without sharing has nothing
+    // to prepare.
     const bool frame = compiled.uses_runtime_frame();
     if (frame && options.noise_preparation.has_value() && options.sharing != true) {
         throw std::invalid_argument(
@@ -206,12 +206,12 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                                   ? std::chrono::steady_clock::now()
                                   : std::chrono::steady_clock::time_point{};
     bool shared = options.sharing.value_or(false);
-    if (!options.sharing && !options.batch_size && supported && width != 0) {
+    if (!options.sharing && !options.batch_size && supported && grouped) {
         shared =
             should_share_sampling(compiled, shots, outputs, layout, options.max_worker_state_bytes);
     }
-    // Calibration compares shared and ordinary execution except on a frame
-    // plan, which shares by request only.
+    // Calibration compares shared with ordinary execution, which on a frame
+    // plan is the scalar executor and has no capacity to calibrate.
     const bool compare_executors = !options.sharing && supported && width != 0 && !frame &&
                                    shots > 1 && options.tuning_budget_seconds.value_or(0) > 0;
     const bool fits_states =
@@ -285,7 +285,14 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         execution.group_by_noise = options.group_by_noise.value_or(false);
     }
     execution.noise_preparation = shared_noise_mode;
-    auto policy = resolve_shared_execution_policy(safe, shots, workers);
+    // Where most shots of a frame plan end on their own tableau, a small
+    // batch keeps the tableaus it walks in the cache. Postselection discards
+    // shots as they diverge, so those plans keep full batches.
+    constexpr uint32_t kDivergentFrameLanes = 256;
+    const bool small_batches =
+        !compiled.has_postselection() && preparation.plan().frame_trajectories_diverge();
+    auto policy = resolve_shared_execution_policy(
+        small_batches ? std::min(safe, kDivergentFrameLanes) : safe, shots, workers);
     if (options.batch_size) {
         if (shots == 0) {
             policy.lane_capacity = *options.batch_size;
@@ -321,7 +328,8 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
                      ? uint64_t{outputs.stride(preparation.plan().num_detectors())} +
                            outputs.stride(preparation.plan().num_observables())
                      : 0);
-            auto candidates = shared_tuning_candidates(safe, shots, workers, row_bytes);
+            auto candidates =
+                shared_tuning_candidates(safe, shots, workers, row_bytes, policy.lane_capacity);
             if (compare_executors) {
                 const auto& ordinary = program.sampling_preparation(
                     outputs, {.early_postselection = false, .survivor_counts = survivors});
@@ -412,17 +420,25 @@ bool should_share_sampling(const sampling::ExecutablePlan& compiled, uint32_t sh
                            uint64_t max_worker_state_bytes) noexcept {
     using namespace sampling;
     const uint32_t width = compiled.peak_active_width();
-    // Shared execution of a runtime Clifford frame is by request only.
-    if (width == 0 || compiled.uses_runtime_frame() || layout.intra_shot_workers != 1 ||
+    // A plan without coefficients has nothing to share unless its shots share
+    // the tableau of a runtime Clifford frame.
+    if (!shares_groups(compiled) || layout.intra_shot_workers != 1 ||
         (outputs.expectations() && compiled.num_exp_vals() != 0)) {
         return false;
     }
     constexpr uint32_t kMinSharedStates = 2;
-    const uint64_t state_capacity = max_worker_state_bytes / State::storage_bytes(width);
+    // A frame plan's width is an upper bound that its shots may not reach.
+    // Sizing every group for it keeps a batch within the budget however far
+    // its states grow.
+    const uint64_t state_capacity =
+        max_worker_state_bytes / SharingExecutor::group_storage_bytes(compiled, width);
     if (state_capacity < kMinSharedStates) {
         return false;
     }
-    if (compiled.has_postselection()) {
+    // Shots of a frame plan share tableau work, and with every shot on its own
+    // tableau a shared batch still matches the scalar executor, the only
+    // other one that runs a frame.
+    if (compiled.has_postselection() || compiled.uses_runtime_frame()) {
         return shots >= kDefaultMinAutoBatchShots;
     }
     constexpr uint32_t kMinUnitaryPrefixShots = 16;
