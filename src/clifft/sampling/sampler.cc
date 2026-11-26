@@ -659,7 +659,9 @@ SamplingResult sample(const ExecutablePlan& plan, uint32_t shots, std::optional<
         [&](uint32_t, uint32_t capacity) {
             return std::make_unique<BatchSamplingWorker>(plan, capacity, noise);
         },
-        [](SamplingWorker& worker) noexcept { worker.executor.run_shot(); },
+        [frame = plan.uses_runtime_frame()](SamplingWorker& worker) {
+            frame ? worker.executor.run_frame_shot() : worker.executor.run_shot();
+        },
         [](BatchSamplingWorker& worker, const SeedRoot& root, uint32_t first_shot,
            uint32_t batch) noexcept { worker.executor.run_batch(root, first_shot, batch); });
 }
@@ -702,7 +704,9 @@ SamplingSurvivorResult sample_survivors(const ExecutablePlan& plan, uint32_t sho
         [&](uint32_t, uint32_t capacity) {
             return std::make_unique<BatchSurvivorWorker>(plan, capacity, output_mode, noise);
         },
-        [](SurvivorWorker& worker) noexcept { worker.executor.run_shot(); },
+        [frame = plan.uses_runtime_frame()](SurvivorWorker& worker) {
+            frame ? worker.executor.run_frame_shot() : worker.executor.run_shot();
+        },
         [](BatchSurvivorWorker& worker, const SeedRoot& root, uint32_t first_shot,
            uint32_t batch) noexcept { worker.executor.run_batch(root, first_shot, batch); });
 }
@@ -718,6 +722,10 @@ SamplingResult sample_k(const ExecutablePlan& plan, uint32_t shots, uint32_t k,
     if (plan.has_instruments()) {
         throw std::invalid_argument(
             "forced-fault sampling does not support instrument traps or trajectory drivers");
+    }
+    if (plan.uses_runtime_frame()) {
+        throw std::invalid_argument(
+            "forced-fault sampling does not support runtime Clifford frames");
     }
     if (plan.num_unbound_presampled_symbols() != 0) {
         throw std::invalid_argument(
@@ -768,6 +776,10 @@ SamplingSurvivorResult sample_k_survivors(const ExecutablePlan& plan, uint32_t s
         throw std::invalid_argument(
             "forced-fault survivor sampling does not support instrument traps or trajectory "
             "drivers");
+    }
+    if (plan.uses_runtime_frame()) {
+        throw std::invalid_argument(
+            "forced-fault survivor sampling does not support runtime Clifford frames");
     }
     if (plan.num_unbound_presampled_symbols() != 0) {
         throw std::invalid_argument(
@@ -837,8 +849,9 @@ std::vector<double> record_log_probabilities(const ExecutablePlan& plan,
     std::vector<double> log_probabilities(num_records);
     Executor executor(plan);
     for (size_t record = 0; record < num_records; ++record) {
-        const ReplayResult replay =
-            executor.replay_shot(forced_records.subspan(record * stride, stride));
+        const auto forced = forced_records.subspan(record * stride, stride);
+        const ReplayResult replay = plan.uses_runtime_frame() ? executor.replay_frame_shot(forced)
+                                                              : executor.replay_shot(forced);
         log_probabilities[record] =
             replay.reachable ? replay.log_probability : std::numeric_limits<double>::lowest();
     }

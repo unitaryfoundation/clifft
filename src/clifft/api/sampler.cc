@@ -157,6 +157,14 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             ? ThreadLayout{.shot_workers = std::min(shots, resolve_thread_budget(options.threads)),
                            .intra_shot_workers = 1}
             : resolve_thread_layout(compiled, shots, options.threads, options.thread_layout);
+    // A plan with a runtime Clifford frame runs on the scalar executor only.
+    // An explicit packed capacity falls back to it; controls that only shared
+    // or packed execution can honor are rejected.
+    const bool scalar_only = compiled.uses_runtime_frame();
+    if (scalar_only && (options.sharing == true || options.noise_preparation.has_value())) {
+        throw std::invalid_argument(
+            "sharing=True and noise_preparation are incompatible with runtime Clifford frames");
+    }
     if (options.noise_preparation.has_value()) {
         if (options.batch_size == 1) {
             throw std::invalid_argument(
@@ -186,7 +194,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
             throw std::invalid_argument("sharing=True is incompatible with intra-shot workers");
         }
     }
-    const bool supported = kPackedBatchExecutionAvailable &&
+    const bool supported = kPackedBatchExecutionAvailable && !scalar_only &&
                            !(outputs.expectations() && compiled.num_exp_vals() != 0) &&
                            options.batch_size != 1 && layout.intra_shot_workers == 1;
 
@@ -242,7 +250,7 @@ Result sample_program(const Program& program, uint32_t shots, std::optional<uint
         const PreparedBatchNoise* noise = nullptr;
         const bool tuning_packed =
             budget.value_or(0) > 0 && shots > 1 && layout.intra_shot_workers == 1;
-        if (shots != 0 && capacity != 1 &&
+        if (shots != 0 && capacity != 1 && !scalar_only &&
             (capacity || tuning_packed ||
              automatic_batch_eligible(preparation.plan(), shots, layout.intra_shot_workers,
                                       mode))) {

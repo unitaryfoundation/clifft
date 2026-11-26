@@ -5,6 +5,7 @@
 // one place gives both inspectors identical number and operand rendering.
 
 #include <cstdint>
+#include <span>
 #include <string>
 
 namespace clifft::sampling {
@@ -18,6 +19,9 @@ namespace clifft::sampling {
 // contributes X<i>, Z<i>, or Y<i> depending on which of x/z hold it, joined by
 // '*'. Both masks zero renders as "I".
 [[nodiscard]] std::string format_pauli_product(uint64_t x, uint64_t z);
+// The same notation for masks that span several words of equal count.
+[[nodiscard]] std::string format_pauli_product(std::span<const uint64_t> x,
+                                               std::span<const uint64_t> z);
 
 // Active-width prefix for one inspected action: "w<n>" when an action leaves
 // the active width unchanged, or "w<before>-><after>" when it changes.

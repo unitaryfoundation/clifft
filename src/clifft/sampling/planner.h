@@ -18,6 +18,12 @@ struct SamplingPlanOptions {
     // complete parallel source map. Sampling and ordinary lowering do not
     // require or retain it.
     bool retain_source_map = false;
+    // Plan commuting T regions whose rotation signs depend on the shot on a
+    // runtime Clifford frame when that needs fewer active coordinates than
+    // signed rotations. Noise, random outcomes, and readout flips then change
+    // a region by Cliffords instead of widening the coefficient state. HIR
+    // with instruments or expectation probes keeps the static plan.
+    bool runtime_frame = false;
 };
 
 // EXP_VAL probes become plan actions. Exact final-state queries instead retain

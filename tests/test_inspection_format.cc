@@ -18,6 +18,7 @@
 using clifft::sampling::ActiveExpectation;
 using clifft::sampling::ActivePauli;
 using clifft::sampling::AffineBool;
+using clifft::sampling::ApplyConditionalClifford;
 using clifft::sampling::ApplyInstrument;
 using clifft::sampling::ApplyReadoutNoise;
 using clifft::sampling::BatchOutputMode;
@@ -28,11 +29,13 @@ using clifft::sampling::ExpValSlot;
 using clifft::sampling::format_double_roundtrip;
 using clifft::sampling::format_pauli_product;
 using clifft::sampling::format_width_prefix;
+using clifft::sampling::FramePauli;
 using clifft::sampling::InstrumentBoundary;
 using clifft::sampling::InstrumentMode;
 using clifft::sampling::InstrumentSiteId;
 using clifft::sampling::MeasureActivePauli;
 using clifft::sampling::MeasureDormantRandom;
+using clifft::sampling::MeasureFramePauli;
 using clifft::sampling::ObservableSlot;
 using clifft::sampling::PlannedAction;
 using clifft::sampling::PromoteDormantRotation;
@@ -40,6 +43,7 @@ using clifft::sampling::RecordClassical;
 using clifft::sampling::RecordParity;
 using clifft::sampling::RecordSlot;
 using clifft::sampling::RotateActivePauli;
+using clifft::sampling::RotateFramePauli;
 using clifft::sampling::SamplingAction;
 using clifft::sampling::SamplingPlan;
 using clifft::sampling::SymbolId;
@@ -231,7 +235,7 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
     // Adding, removing, or renaming a SamplingAction alternative changes this
     // count. Extend the action list below and the plan_actions table in
     // docs/compiler_ir.json together, then update this assertion.
-    static_assert(std::variant_size_v<SamplingAction> == 12);
+    static_assert(std::variant_size_v<SamplingAction> == 15);
 
     const SymbolId s0{0};
     const AffineBool empty{};
@@ -255,6 +259,12 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
                       ApplyInstrument{InstrumentSiteId{0}, InstrumentMode::Classical, ActivePauli{},
                                       empty, s0}},
         PlannedAction{0, 0, InstrumentBoundary{InstrumentSiteId{0}, 0, 0}},
+        PlannedAction{
+            0, 0,
+            ApplyConditionalClifford{FramePauli{{1}, {0}}, clifft::CliffordRotation::SQRT, empty}},
+        PlannedAction{0, 1, RotateFramePauli{FramePauli{{1}, {0}}, 0.25, empty}},
+        PlannedAction{0, 0,
+                      MeasureFramePauli{FramePauli{{1}, {0}}, s0, branch_outcome, RecordSlot{0}}},
     };
 
     std::set<std::string> mnemonics;
@@ -269,9 +279,10 @@ TEST_CASE("Compact inspection mnemonics cover every SamplingAction and its docs 
     }
 
     const std::set<std::string> expected = {
-        "ROTATE_ACTIVE",    "PROMOTE_DORMANT",   "MEASURE_ACTIVE",   "MEASURE_DORMANT",
-        "RECORD_CLASSICAL", "DEFINE_SYMBOL",     "READOUT_NOISE",    "WRITE_DETECTOR",
-        "WRITE_OBSERVABLE", "WRITE_EXPECTATION", "APPLY_INSTRUMENT", "INSTRUMENT_BOUNDARY",
+        "ROTATE_ACTIVE",        "PROMOTE_DORMANT",   "MEASURE_ACTIVE",   "MEASURE_DORMANT",
+        "RECORD_CLASSICAL",     "DEFINE_SYMBOL",     "READOUT_NOISE",    "WRITE_DETECTOR",
+        "WRITE_OBSERVABLE",     "WRITE_EXPECTATION", "APPLY_INSTRUMENT", "INSTRUMENT_BOUNDARY",
+        "CONDITIONAL_CLIFFORD", "ROTATE_FRAME",      "MEASURE_FRAME",
     };
     REQUIRE(mnemonics == expected);
 

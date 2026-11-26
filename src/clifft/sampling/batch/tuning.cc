@@ -61,7 +61,8 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
     (void)additional_worker_bit_columns;
     (void)noise;
 #else
-    if (candidates.empty() || intra_shot_workers > 1) {
+    // A plan with a runtime Clifford frame runs on the scalar executor only.
+    if (candidates.empty() || intra_shot_workers > 1 || plan.uses_runtime_frame()) {
         return candidates;
     }
     for (const uint32_t size : std::array<uint32_t, 5>{1, 64, 256, 1024, 2048}) {

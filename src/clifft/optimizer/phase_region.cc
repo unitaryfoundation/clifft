@@ -23,6 +23,65 @@ BitMask<N> PhaseRegion<N>::coordinates(PauliString& body) const {
 }
 
 template <size_t N>
+bool PhaseRegion<N>::add_rotation(const PauliString& axis, bool dagger, uint32_t num_qubits,
+                                  const KnownStabilizers& fixed,
+                                  const KnownStabilizers* postselected, uint32_t variable_limit,
+                                  Work& work) {
+    const size_t words = (num_qubits + 63) / 64;
+    work.charge((num_qubits + 3 * axes.size() + 1) * words);
+    auto reduced = fixed.reduce_body(axis);
+    const bool entry_stabilizer = reduced.x().is_zero() && reduced.z().is_zero();
+    if ((postselected && !postselected->commutes(axis.view())) ||
+        std::ranges::any_of(axes, [&](const auto& g) { return !axis.view().commutes(g.view()); }) ||
+        (!entry_stabilizer && !required.commutes(axis.view()))) {
+        return false;
+    }
+    auto mask = coordinates(reduced);
+    const bool new_axis = !reduced.x().is_zero() || !reduced.z().is_zero();
+    if (new_axis && axes.size() == variable_limit) {
+        capped = true;
+        return false;
+    }
+    if constexpr (N == 128) {
+        // A full table can still update or cancel an existing parity.
+        // Stop before changing the basis so this prefix can be synthesized.
+        const auto& terms = polynomial.terms();
+        if (terms.size() == work.max_terms && (new_axis || !terms.contains(mask))) {
+            work.term_limit_reached = true;
+            return false;
+        }
+    }
+    if (new_axis) {
+        Mask next;
+        next.bit_set(axes.size(), true);
+        const auto pivot = pivot_of(reduced);
+        rows.emplace(pivot, Row{std::move(reduced), mask ^ next});
+        mask = next;
+        auto generator = axis;
+        generator.set_sign(false);
+        axes.push_back(std::move(generator));
+    }
+    auto residual = axis_product(axes, mask, num_qubits);
+    auto unsigned_axis = axis;
+    unsigned_axis.set_sign(false);
+    residual.right_multiply(unsigned_axis.view());
+    const auto negative = available.eigenvalue(residual);
+    if (!negative) {
+        return false;
+    }
+    if (!residual.x().is_zero() || !residual.z().is_zero()) {
+        residual.set_sign(residual.sign() ^ *negative);
+        required.insert(std::move(residual));
+    }
+    int coefficient = dagger != axis.sign() ? -1 : 1;
+    if (*negative) {
+        coefficient = -coefficient;
+    }
+    polynomial.add(mask, coefficient, work);
+    return true;
+}
+
+template <size_t N>
 bool PhaseRegion<N>::extend(const HirModule& hir, const KnownStabilizers& fixed,
                             const CliffordAbsorption& frame, const KnownStabilizers* postselected,
                             uint32_t variable_limit, Work& work) {
@@ -30,58 +89,10 @@ bool PhaseRegion<N>::extend(const HirModule& hir, const KnownStabilizers& fixed,
     const auto& op = hir.ops[end];
     const auto type = op.op_type();
     if (type == OpType::T_GATE) {
-        work.charge((hir.num_qubits + 3 * axes.size() + 1) * words);
-        auto axis = frame.read(hir.mask_view(op), hir.num_qubits);
-        auto reduced = fixed.reduce_body(axis);
-        const bool entry_stabilizer = reduced.x().is_zero() && reduced.z().is_zero();
-        if ((postselected && !postselected->commutes(axis.view())) ||
-            std::ranges::any_of(axes,
-                                [&](const auto& g) { return !axis.view().commutes(g.view()); }) ||
-            (!entry_stabilizer && !required.commutes(axis.view()))) {
+        if (!add_rotation(frame.read(hir.mask_view(op), hir.num_qubits), op.is_dagger(),
+                          hir.num_qubits, fixed, postselected, variable_limit, work)) {
             return false;
         }
-        auto mask = coordinates(reduced);
-        const bool new_axis = !reduced.x().is_zero() || !reduced.z().is_zero();
-        if (new_axis && axes.size() == variable_limit) {
-            capped = true;
-            return false;
-        }
-        if constexpr (N == 128) {
-            // A full table can still update or cancel an existing parity.
-            // Stop before changing the basis so this prefix can be synthesized.
-            const auto& terms = polynomial.terms();
-            if (terms.size() == work.max_terms && (new_axis || !terms.contains(mask))) {
-                work.term_limit_reached = true;
-                return false;
-            }
-        }
-        if (new_axis) {
-            Mask next;
-            next.bit_set(axes.size(), true);
-            const auto pivot = pivot_of(reduced);
-            rows.emplace(pivot, Row{std::move(reduced), mask ^ next});
-            mask = next;
-            auto generator = axis;
-            generator.set_sign(false);
-            axes.push_back(std::move(generator));
-        }
-        auto residual = axis_product(axes, mask, hir.num_qubits);
-        auto unsigned_axis = axis;
-        unsigned_axis.set_sign(false);
-        residual.right_multiply(unsigned_axis.view());
-        const auto negative = available.eigenvalue(residual);
-        if (!negative) {
-            return false;
-        }
-        if (!residual.x().is_zero() || !residual.z().is_zero()) {
-            residual.set_sign(residual.sign() ^ *negative);
-            required.insert(std::move(residual));
-        }
-        int coefficient = op.is_dagger() != axis.sign() ? -1 : 1;
-        if (*negative) {
-            coefficient = -coefficient;
-        }
-        polynomial.add(mask, coefficient, work);
         rotations.push_back(end);
     } else if (type == OpType::NOISE) {
         const auto& channels = hir.noise_sites[static_cast<uint32_t>(op.noise_site_idx())].channels;
@@ -324,5 +335,29 @@ std::optional<WideRewrite> try_wide_region(const HirModule& hir, size_t start,
         best->observers = std::move(observers);
     }
     return best;
+}
+
+std::optional<WideRewrite> reduce_rotations(uint32_t num_qubits,
+                                            std::span<const AxisRotation> rotations,
+                                            const KnownStabilizers& fixed, uint32_t variable_limit,
+                                            WideBudget& budget) {
+    try {
+        PhaseRegion<128> region(0, fixed);
+        for (const AxisRotation& rotation : rotations) {
+            if (!region.add_rotation(rotation.axis, rotation.dagger, num_qubits, fixed, nullptr,
+                                     variable_limit, budget)) {
+                break;
+            }
+            ++region.end;
+        }
+        if (region.capped || budget.term_limit_reached) {
+            return std::nullopt;
+        }
+        const auto reduction =
+            region.polynomial.synthesize(static_cast<uint32_t>(region.axes.size()), budget);
+        return materialize(reduction, region.axes, region.end, num_qubits, budget);
+    } catch (const SearchLimit&) {
+        return std::nullopt;
+    }
 }
 }  // namespace clifft::phase_detail
