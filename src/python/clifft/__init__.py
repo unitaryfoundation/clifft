@@ -479,6 +479,7 @@ def compile(
     input_format: Literal["stim", "qasm2"] = "stim",
     *,
     reconstruction: bool | Literal["auto"] = "auto",
+    runtime_frame: bool = False,
 ) -> Program:
     """Compile a quantum circuit string to an executable sampling program.
 
@@ -516,6 +517,22 @@ def compile(
             is too wide, sampling can still use a reconstructed plan. State
             queries, exact probabilities, replay, and fixed-fault sampling
             then raise ``OverflowError``.
+        runtime_frame: Noise and random measurement outcomes can flip the
+            signs of T-like rotations, and the original plan then keeps one
+            active qubit for every rotation whose sign varies. ``True``
+            instead tracks those sign flips in a Clifford frame that each
+            shot updates as it runs, which keeps such a region at the active
+            width of its noiseless circuit. This helps wide noisy magic-state
+            factories and costs time on circuits that are already narrow.
+            ``False`` (default) never uses it. The frame plan replaces the
+            original plan, so ``program.original_plan.uses_runtime_frame``
+            reports the choice and ``program.runtime_frame_fallback_reason``
+            explains a plan without one. The frame is planned from the circuit
+            before ``hir_passes`` run, unless a pass changes the sampling
+            distribution; such passes apply to the frame plan as well.
+            A frame plan's ``peak_active_width`` is an upper bound. It runs on
+            the scalar and shared CPU executors and does not support
+            instruments, ``EXP_VAL`` probes, or the GPU backends.
     """
     if isinstance(hir_passes, _DefaultPasses):
         hir_passes = default_hir_pass_manager()
@@ -528,6 +545,7 @@ def compile(
         hir_passes,
         reconstruction=reconstruction,
         input_format=input_format,
+        runtime_frame=runtime_frame,
     )
 
 

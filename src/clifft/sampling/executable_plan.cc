@@ -78,7 +78,7 @@ bool ExecutablePlan::has_reusable_unitary_prefix() const noexcept {
                                      std::is_same_v<T, ExecuteFrameMeasurement> ||
                                      std::is_same_v<T, ExecuteFrameRetirement> ||
                                      std::is_same_v<T, ExecuteFrameRelease>) {
-                    // Shared execution of a runtime Clifford frame is by request only.
+                    // A frame action is not part of a unitary prefix.
                     return true;
                 } else {
                     static_assert(!sizeof(T*), "Unhandled ExecutablePlan action alternative");
@@ -170,7 +170,7 @@ std::vector<AffineBool> ExecutablePlan::affine_registers() const {
     return expressions;
 }
 
-std::vector<uint8_t> ExecutablePlan::rotation_sign_registers() const {
+std::vector<uint8_t> ExecutablePlan::rotation_sign_registers(bool frame_signs) const {
     std::vector<uint8_t> required(num_expression_registers());
     for (const auto& action : actions_) {
         std::visit(
@@ -179,6 +179,11 @@ std::vector<uint8_t> ExecutablePlan::rotation_sign_registers() const {
                 if constexpr (std::is_same_v<T, ExecuteRotation> ||
                               std::is_same_v<T, ExecutePromotion>) {
                     required[typed.sign.register_id] = 1;
+                } else if constexpr (std::is_same_v<T, ExecuteFrameRotation>) {
+                    required[typed.sign.register_id] |= frame_signs;
+                } else if constexpr (std::is_same_v<T, ExecuteFrameClifford>) {
+                    required[typed.condition.register_id] |=
+                        frame_signs && typed.rotation != CliffordRotation::IDENTITY;
                 } else if constexpr (std::is_same_v<T, ExecuteDynamicFusedRotation>) {
                     for (const auto& sign :
                          dynamic_fused_rotations_[typed.rotation_index].sign_basis) {
@@ -204,7 +209,7 @@ std::vector<uint8_t> ExecutablePlan::rotation_sign_registers() const {
 }
 
 ExecutablePlan::TrajectoryDivergence ExecutablePlan::measure_trajectory_divergence() const {
-    const auto sign_registers = rotation_sign_registers();
+    const auto sign_registers = rotation_sign_registers(/*frame_signs=*/true);
     const auto feeds_sign = [&](uint32_t symbol) {
         return std::ranges::any_of(expression_dependencies_.dependent_registers(symbol),
                                    [&](uint32_t reg) { return sign_registers[reg] != 0; });
@@ -247,6 +252,8 @@ ExecutablePlan::TrajectoryDivergence ExecutablePlan::measure_trajectory_divergen
         } else if (std::holds_alternative<ExecuteActiveMeasurement>(action) &&
                    index < coefficient_work_end) {
             ++divergence.mid_circuit_active_measurements;
+        } else if (const auto* frame = std::get_if<ExecuteFrameMeasurement>(&action)) {
+            divergence.mid_circuit_active_measurements += feeds_sign(frame->branch) ? 1 : 0;
         }
     }
     return divergence;
@@ -276,6 +283,22 @@ bool ExecutablePlan::has_bounded_trajectory_divergence(uint32_t lanes) const noe
            divergence.expected_sign_faults <= kMaxExpectedSignFaults &&
            branching <= kMaxBranchingMeasurements &&
            (lanes >> divergence.sign_dormant_measurements) >= kMinLanesPerDormantBranch;
+}
+
+bool ExecutablePlan::frame_trajectories_diverge() const noexcept {
+    // Sharing still matches the scalar executor when every shot has its own
+    // tableau, but each frame action then walks one tableau per lane, and a
+    // large batch of them leaves the cache. On five factory circuits with
+    // their noise scaled, a 256-lane batch is level with a full one at two
+    // expected sign faults and 3 to 22% faster from three.
+    constexpr double kMaxExpectedSignFaults = 3.0;
+    // Each such measurement doubles the tableaus a batch holds.
+    constexpr uint64_t kMaxBranchingMeasurements = 12;
+    const TrajectoryDivergence& divergence = trajectory_divergence_;
+    return uses_runtime_frame() && (divergence.expected_sign_faults > kMaxExpectedSignFaults ||
+                                    uint64_t{divergence.sign_dormant_measurements} +
+                                            divergence.mid_circuit_active_measurements >
+                                        kMaxBranchingMeasurements);
 }
 
 void ExecutablePlan::ExpressionDependencies::validate(uint32_t num_symbols,

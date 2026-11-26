@@ -7,6 +7,7 @@
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/sampling/batch/executor.h"
 #include "clifft/sampling/batch/tuning.h"
+#include "clifft/sampling/planner.h"
 #include "clifft/sampling/sampler.h"
 
 #include <algorithm>
@@ -14,8 +15,10 @@
 #include <atomic>
 #include <catch2/catch_test_macros.hpp>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -91,6 +94,168 @@ TEST_CASE("Program preserves the original plan across bounded reconstruction fai
             REQUIRE_FALSE(fallback->reconstruction_fallback_reason(keep_records).empty());
             REQUIRE(&fallback->sampling_plan(keep_records) == &fallback->original());
             REQUIRE(fallback->original().inspect() == original.original().inspect());
+        }
+    }
+}
+
+// `pairs` Bell pairs whose T and T_DAG cancel unless an X error flips one sign,
+// and `plain` qubits with one T gate. Planned in this order, a pair needs an
+// active qubit in the ordinary plan and none on a runtime Clifford frame; a
+// plain qubit needs one either way.
+Circuit signed_pairs(uint32_t pairs, uint32_t plain) {
+    std::string prepare;
+    std::string rotate;
+    std::string measure;
+    for (uint32_t p = 0; p < pairs; ++p) {
+        const std::string a = std::to_string(2 * p);
+        const std::string b = std::to_string(2 * p + 1);
+        prepare += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(0.05) " + a + "\n";
+        rotate += "T " + a + "\nT_DAG " + b + "\n";
+        measure += "MPP X" + a + "*X" + b + "\n";
+    }
+    for (uint32_t q = 2 * pairs; q < 2 * pairs + plain; ++q) {
+        prepare += "H " + std::to_string(q) + "\n";
+        rotate += "T " + std::to_string(q) + "\n";
+        measure += "H " + std::to_string(q) + "\nM " + std::to_string(q) + "\n";
+    }
+    return parse(prepare + rotate + measure);
+}
+
+TEST_CASE("Program keeps a runtime Clifford frame plan on request") {
+    const Circuit source = signed_pairs(4, 1);
+    const HirModule hir = trace(source);
+    const auto compile = [&](bool runtime_frame) {
+        return Program::compile(source, hir, false, true, {}, runtime_frame);
+    };
+    const Program ordinary = compile(false);
+    REQUIRE_FALSE(ordinary.original().uses_runtime_frame());
+    REQUIRE(ordinary.original().peak_active_width() == 5);
+    REQUIRE_FALSE(ordinary.runtime_frame_fallback_reason().empty());
+
+    const Program frame = compile(true);
+    REQUIRE(frame.original().uses_runtime_frame());
+    REQUIRE(frame.original().peak_active_width() == 1);
+    REQUIRE(frame.runtime_frame_fallback_reason().empty());
+    REQUIRE(frame.num_visible_records() == ordinary.num_visible_records());
+    REQUIRE(&frame.sampling_plan(true) == &frame.original());
+
+    // The frame plan starts from the source circuit, whatever passes ran on
+    // the given HIR, unless they change the sampling distribution.
+    HirModule optimized = hir;
+    default_hir_pass_manager().run(optimized);
+    const std::string after_passes =
+        sampling::ExecutablePlan(sampling::plan_sampling(optimized, {.runtime_frame = true}))
+            .inspect();
+    REQUIRE(after_passes != frame.original().inspect());
+    REQUIRE(Program::compile(source, optimized, false, true, {}, true).original().inspect() ==
+            frame.original().inspect());
+    REQUIRE(Program::compile(source, optimized, false, false, {}, true).original().inspect() ==
+            after_passes);
+
+    // A circuit without a sign that varies keeps its ordinary plan.
+    const Circuit fixed = parse("H 0 1\nT 0 1\nCX 0 1\nT 1\nH 0 1\nM 0 1\n");
+    const HirModule fixed_hir = trace(fixed);
+    const Program unchanged = Program::compile(fixed, fixed_hir, false, true, {}, true);
+    REQUIRE_FALSE(unchanged.original().uses_runtime_frame());
+    REQUIRE_FALSE(unchanged.runtime_frame_fallback_reason().empty());
+    REQUIRE(unchanged.original().inspect() ==
+            Program::compile(fixed, fixed_hir, false).original().inspect());
+}
+
+TEST_CASE("Frame selection keeps a narrower plan that needs no frame", "[reconstruction]") {
+    // T T is an S gate. The ordinary planner activates every qubit for the
+    // first T; the frame planner reduces each pair and leaves no frame action.
+    const auto circuit = [](uint32_t qubits) {
+        std::string all;
+        for (uint32_t q = 0; q < qubits; ++q) {
+            all += " " + std::to_string(q);
+        }
+        return parse("H" + all + "\nT" + all + "\nT" + all + "\nH" + all + "\nM" + all + "\n");
+    };
+    const Circuit source = circuit(16);
+    const HirModule hir = trace(source);
+    const Program ordinary = Program::compile(source, hir, false);
+    REQUIRE(ordinary.original().peak_active_width() == 16);
+    const Program reduced = Program::compile(source, hir, false, true, {}, true);
+    REQUIRE_FALSE(reduced.original().uses_runtime_frame());
+    REQUIRE(reduced.original().peak_active_width() == 0);
+    REQUIRE_FALSE(reduced.runtime_frame_fallback_reason().empty());
+    REQUIRE(reduced.runtime_frame_fallback_reason() !=
+            Program::compile(parse("H 0\nM 0\n"), trace(parse("H 0\nM 0\n")), false, true, {}, true)
+                .runtime_frame_fallback_reason());
+
+    // The reduced plan is the only one a dense state can hold.
+    const Circuit wide = circuit(kDenseActiveWidthLimit + 5);
+    const HirModule wide_hir = trace(wide);
+    REQUIRE_THROWS_AS(Program::compile(wide, wide_hir, false), std::overflow_error);
+    const Program fits = Program::compile(wide, wide_hir, false, true, {}, true);
+    REQUIRE(fits.original().peak_active_width() == 0);
+}
+
+TEST_CASE("Frame selection reports what a frame does not support", "[reconstruction]") {
+    const std::string pair = "H 0\nCX 0 1\nX_ERROR(0.1) 0\nT 0\nT_DAG 1\n";
+    const Circuit source = parse(pair + "EXP_VAL Z0\nM 0 1\n");
+    const HirModule hir = trace(source);
+    const std::string_view unsupported = sampling::runtime_frame_unsupported_reason(hir);
+    REQUIRE_FALSE(unsupported.empty());
+    const Program probed = Program::compile(source, hir, false, true, {}, true);
+    REQUIRE_FALSE(probed.original().uses_runtime_frame());
+    REQUIRE(probed.runtime_frame_fallback_reason() == unsupported);
+
+    const Circuit plain = parse(pair + "M 0 1\n");
+    REQUIRE(sampling::runtime_frame_unsupported_reason(trace(plain)).empty());
+    sampling::ExecutablePlan frame(sampling::plan_sampling(trace(plain), {.runtime_frame = true}));
+    REQUIRE(frame.uses_runtime_frame());
+    REQUIRE(Program(std::move(frame)).runtime_frame_fallback_reason().empty());
+}
+
+TEST_CASE("A reconstruction replaces a runtime frame plan only up to its static width",
+          "[reconstruction]") {
+    // Each loose qubit gets two T gates with a fault between them and, after a
+    // basis change, a third. On a frame the pair needs no active qubit and the
+    // third T needs one only in shots where the fault fired, which the plan
+    // cannot tell: its width bound counts every loose qubit. A plain qubit
+    // needs one active qubit in every shot. Reconstruction measures the qubits
+    // one at a time and runs at width one.
+    const auto circuit = [](uint32_t loose, uint32_t plain) {
+        std::string prepare;
+        std::string rotate;
+        std::string turn;
+        std::string measure;
+        for (uint32_t q = 0; q < loose + plain; ++q) {
+            const std::string s = std::to_string(q);
+            prepare += "H " + s + "\n";
+            if (q < loose) {
+                rotate += "T " + s + "\nX_ERROR(0.05) " + s + "\nT " + s + "\n";
+                turn += "H_YZ " + s + "\nT " + s + "\n";
+                measure += "M " + s + "\nDETECTOR rec[-1]\n";
+            } else {
+                rotate += "T " + s + "\n";
+                measure += "H " + s + "\nM " + s + "\nDETECTOR rec[-1]\n";
+            }
+        }
+        return parse(prepare + rotate + turn + measure);
+    };
+    struct Case {
+        uint32_t plain;
+        bool reconstructed;
+    };
+    for (const Case& c : {Case{0, false}, Case{1, true}}) {
+        CAPTURE(c.plain);
+        const Circuit source = circuit(4, c.plain);
+        const HirModule hir = trace(source);
+        const Program ordinary = Program::compile(source, hir);
+        const Program frame = Program::compile(source, hir, std::nullopt, true, {}, true);
+        REQUIRE(frame.original().uses_runtime_frame());
+        REQUIRE(frame.original().peak_active_width() == 4 + c.plain);
+        REQUIRE(frame.original().initial_capacity_width() == c.plain);
+        for (bool keep_records : {false, true}) {
+            CAPTURE(keep_records);
+            REQUIRE(ordinary.sampling_plan(keep_records).peak_active_width() == 1);
+            const auto& sampled = frame.sampling_plan(keep_records);
+            REQUIRE((&sampled != &frame.original()) == c.reconstructed);
+            REQUIRE(sampled.uses_runtime_frame() != c.reconstructed);
+            REQUIRE(frame.reconstruction_fallback_reason(keep_records).empty() == c.reconstructed);
         }
     }
 }
@@ -408,6 +573,111 @@ TEST_CASE(
         const auto ref = compute_reference_syndrome(noisy_det_hir, &noisy_det_source);
         REQUIRE(ref.detectors == std::vector<uint8_t>{1});
         REQUIRE(ref.observables == std::vector<uint8_t>{1});
+    }
+
+    // Random parities sign a T pair on each of 40 Bell pairs, so the sequential
+    // reference plan needs 40 active qubits: it plans, and no state holds it.
+    // A frame plans the pairs at width zero.
+    {
+        std::string qubits;
+        std::string evens;
+        std::string odds;
+        std::string parities;
+        for (uint32_t p = 0; p < 40; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            qubits += " " + a + " " + b;
+            evens += " " + a;
+            odds += " " + b;
+            parities += "MPP Z" + a + "*Z" + b + "\n";
+        }
+        const auto signed_hir = trace(
+            parse("H" + qubits + "\n" + parities + "T" + evens + "\nT_DAG" + odds + "\nH" + qubits +
+                  "\nM" + qubits + "\nMPAD 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"));
+        const auto ref = compute_reference_syndrome(signed_hir, nullptr, {}, true);
+        REQUIRE(ref.detectors == std::vector<uint8_t>{1});
+        REQUIRE(ref.observables == std::vector<uint8_t>{1});
+    }
+
+    // 65 such pairs, chained by CX gates and checked one by one. The default
+    // passes split the regions a frame reduces, so the frame reference needs
+    // the circuit traced again; from the optimized HIR it stays too wide.
+    {
+        constexpr uint32_t kPairs = 65;
+        std::string text;
+        for (uint32_t p = 0; p < kPairs; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            text +=
+                "H " + a + " " + b + "\nMPP Z" + a + "*Z" + b + "\nT " + a + "\nT_DAG " + b + "\n";
+        }
+        for (uint32_t p = 0; p + 1 < kPairs; ++p) {
+            text += "CX " + std::to_string(2 * p) + " " + std::to_string(2 * p + 2) + "\n";
+        }
+        for (uint32_t p = 0; p < kPairs; ++p) {
+            text += "MPP X" + std::to_string(2 * p) + "*X" + std::to_string(2 * p + 1) +
+                    "\nDETECTOR rec[-1]\n";
+        }
+        const auto chained_source = parse(text);
+        auto chained_hir = trace(chained_source);
+        default_hir_pass_manager().run(chained_hir);
+        const auto ref =
+            compute_reference_syndrome(chained_hir, nullptr, {}, true, &chained_source);
+        REQUIRE(ref.detectors.size() == kPairs);
+        // It is the reference of the frame planned from the circuit's own trace.
+        REQUIRE(ref.detectors ==
+                compute_reference_syndrome(trace(chained_source), nullptr, {}, true).detectors);
+    }
+
+    // The frame plan of a reference states a bound that its one shot can
+    // reach. Here 44 rotations each activate a qubit: the frame plan starts at
+    // width zero and the shot grows to 44, while reconstruction needs none of
+    // them for the detector. Reconstruction is preferred to the frame plan.
+    {
+        std::string rotated;
+        std::string parity = "MPP Z8";
+        for (uint32_t q = 8; q < 52; ++q) {
+            rotated += " " + std::to_string(q);
+            if (q != 8) {
+                parity += "*Z" + std::to_string(q);
+            }
+        }
+        const auto widening_source = parse(
+            "H 0 1 2 3 4 5 6 7\nMPP Z0*Z1 Z2*Z3 Z4*Z5 Z6*Z7\nT 0 2 4 6\nT_DAG 1 3 5 7\nR_X(0.2)" +
+            rotated + "\n" + parity +
+            "\nMPAD 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n");
+        const auto ref = compute_reference_syndrome(trace(widening_source), &widening_source, {},
+                                                    true, &widening_source);
+        REQUIRE(ref.detectors == std::vector<uint8_t>{1});
+        REQUIRE(ref.observables == std::vector<uint8_t>{1});
+    }
+
+    // Forty rotations about Z on one qubit raise the frame plan's bound to
+    // 40, the width of the sequential plan, although the shot keeps one
+    // active qubit. With no reconstruction to turn to, the frame plan is the
+    // reference a state can hold.
+    {
+        constexpr uint32_t kPairs = 40;
+        std::string qubits;
+        std::string evens;
+        std::string odds;
+        std::string parities;
+        std::string rotations;
+        for (uint32_t p = 0; p < kPairs; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            qubits += " " + a + " " + b;
+            evens += " " + a;
+            odds += " " + b;
+            parities += "MPP Z" + a + "*Z" + b + "\n";
+            rotations += "R_Z(0.2) 0\n";
+        }
+        const auto tied_hir =
+            trace(parse("H" + qubits + "\n" + parities + "T" + evens + "\nT_DAG" + odds + "\n" +
+                        rotations + "H" + qubits + "\nM" + qubits +
+                        "\nMPAD 1\nDETECTOR rec[-1]\nOBSERVABLE_INCLUDE(0) rec[-1]\n"));
+        const auto ref = compute_reference_syndrome(tied_hir, nullptr, {}, true);
+        REQUIRE(ref.detectors == std::vector<uint8_t>{1});
     }
 
     // Asymmetric record-only success: zero detectors and observables skip detector reconstruction.

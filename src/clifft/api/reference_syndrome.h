@@ -19,10 +19,15 @@ struct ReferenceSyndrome {
 /// Strips stochastic and readout noise from a copy of the HIR and samples one
 /// shot at seed 0. With a reconstruction source, wide references use a narrower
 /// detector plan when available, including when sequential planning overflows.
+/// With runtime_frame, a reference too wide to sample directly is planned on a
+/// runtime Clifford frame before reconstruction is tried. The frame is planned
+/// from a new trace of frame_source when one is given, because HIR passes
+/// split the regions a frame reduces, and from the HIR otherwise.
 /// This does not check determinism; coherent rotations remain. For coherent
 /// errors, pass the intended ideal circuit's HIR instead.
 [[nodiscard]] ReferenceSyndrome compute_reference_syndrome(
     const HirModule& hir, const Circuit* reconstruction_source = nullptr,
-    const ReconstructionLimits& limits = {});
+    const ReconstructionLimits& limits = {}, bool runtime_frame = false,
+    const Circuit* frame_source = nullptr);
 
 }  // namespace clifft

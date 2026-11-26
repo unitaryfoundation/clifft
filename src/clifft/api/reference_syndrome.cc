@@ -1,6 +1,7 @@
 #include "clifft/api/reference_syndrome.h"
 
 #include "clifft/circuit/gate_data.h"
+#include "clifft/frontend/frontend.h"
 #include "clifft/optimizer/active_width_analysis.h"
 #include "clifft/optimizer/pass_factory.h"
 #include "clifft/optimizer/remove_noise_pass.h"
@@ -42,7 +43,8 @@ ReconstructionLoweringResult reconstruct_noiseless_detectors(const Circuit& sour
 
 ReferenceSyndrome compute_reference_syndrome(const HirModule& hir,
                                              const Circuit* reconstruction_source,
-                                             const ReconstructionLimits& limits) {
+                                             const ReconstructionLimits& limits, bool runtime_frame,
+                                             const Circuit* frame_source) {
     const HirModule& source_hir =
         hir.postselection.pre_postselection_hir ? *hir.postselection.pre_postselection_hir : hir;
 
@@ -68,17 +70,42 @@ ReferenceSyndrome compute_reference_syndrome(const HirModule& hir,
     try {
         clean_program.emplace(sampling::plan_sampling(clean_hir));
     } catch (const std::overflow_error& overflow) {
+        overflow_reason = overflow.what();
+    }
+    if (runtime_frame &&
+        (!clean_program || clean_program->peak_active_width() > kMaxDirectReferenceWidth)) {
+        // Measurement outcomes still sign the T regions of a noiseless
+        // circuit, and the frame planner reduces them where the sequential
+        // plan cannot. It reads the circuit without the optimizations above,
+        // and from before the caller's passes where the source is given.
+        HirModule frame_hir = frame_source != nullptr ? trace(*frame_source) : source_hir;
+        frame_hir.postselection.clear();
+        strip.run(frame_hir);
+        try {
+            sampling::ExecutablePlan frame(
+                sampling::plan_sampling(frame_hir, {.runtime_frame = true}));
+            // At an equal bound the frame plan still starts narrower, and
+            // its one state grows only as far as the shot goes.
+            if (!clean_program || frame.peak_active_width() < clean_program->peak_active_width() ||
+                (frame.uses_runtime_frame() &&
+                 frame.peak_active_width() == clean_program->peak_active_width())) {
+                clean_program.emplace(std::move(frame));
+            }
+        } catch (const std::overflow_error&) {}
+    }
+    if (!clean_program) {
         if (reconstruction_source == nullptr) {
-            throw;
+            throw std::overflow_error(overflow_reason);
         }
         if (clean_hir.num_exp_vals != 0) {
             throw std::overflow_error(
-                std::string(overflow.what()) +
+                overflow_reason +
                 " (reconstruction fallback: EXP_VAL requires the original state evolution)");
         }
-        overflow_reason = overflow.what();
     }
 
+    // A frame plan's width is a bound its shot can reach, so a narrower
+    // reconstruction is still preferred to it.
     const uint32_t width_limit =
         clean_program ? clean_program->peak_active_width() : kDenseActiveWidthLimit;
     if (reconstruction_source && clean_hir.num_exp_vals == 0 &&

@@ -341,7 +341,8 @@ BatchExecutionPolicy resolve_shared_execution_policy(uint32_t safe_capacity, uin
 }
 
 std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
-    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes) {
+    uint32_t safe_capacity, uint32_t shots, uint32_t workers, uint64_t output_row_bytes,
+    std::optional<uint32_t> baseline_capacity) {
     std::vector<batch_detail::BatchTuningCandidate> candidates;
     if (shots == 0) {
         return candidates;
@@ -374,7 +375,8 @@ std::vector<batch_detail::BatchTuningCandidate> shared_tuning_candidates(
             candidates.push_back({{capacity, used, true}, probe_shots, maximum});
         }
     };
-    append(resolve_shared_execution_policy(safe_capacity, shots, workers).lane_capacity);
+    append(baseline_capacity.value_or(
+        resolve_shared_execution_policy(safe_capacity, shots, workers).lane_capacity));
     if (candidates.empty()) {
         return candidates;
     }

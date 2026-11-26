@@ -463,7 +463,94 @@ TEST_CASE(
     REQUIRE_FALSE(should_share_sampling(plan, 63, false, {1, 1}, kDefaultSharedWorkerStateBudget));
 }
 
-TEST_CASE("Native shared sampling sizes runtime Clifford frame batches for the width bound") {
+TEST_CASE("Native automatic selection shares runtime Clifford frame plans") {
+    // Each pair's T and T_DAG cancel unless its X error flips one sign, which
+    // a frame plan applies as a conditional Clifford. `prefix` runs before the
+    // rotations of each pair.
+    const auto pairs_plan = [](uint32_t pairs, const std::string& error, bool postselect) {
+        std::string source;
+        for (uint32_t p = 0; p < pairs; ++p) {
+            const std::string a = std::to_string(2 * p);
+            const std::string b = std::to_string(2 * p + 1);
+            source += "H " + a + "\nCX " + a + " " + b + "\n" + error + " " + a + "\nT " + a +
+                      "\nT_DAG " + b + "\nMPP X" + a + "*X" + b + "\nDETECTOR rec[-1]\n";
+        }
+        auto hir = trace(parse(source));
+        hir.postselection.mask.assign(pairs, postselect ? 1 : 0);
+        return ExecutablePlan(plan_sampling(hir, {.runtime_frame = true}));
+    };
+    const auto shares = [](const ExecutablePlan& plan, uint32_t shots,
+                           uint64_t state_bytes = kDefaultSharedWorkerStateBudget) {
+        return should_share_sampling(plan, shots, plan.has_postselection(), {1, 1}, state_bytes);
+    };
+
+    SECTION("a postselected frame plan shares from the usual batch size") {
+        const ExecutablePlan plan = pairs_plan(8, "X_ERROR(0.3)", true);
+        REQUIRE(plan.uses_runtime_frame());
+        REQUIRE(plan.peak_active_width() == 0);
+        REQUIRE(shares(plan, 64));
+        REQUIRE_FALSE(shares(plan, 63));
+        const Program program{pairs_plan(8, "X_ERROR(0.3)", true)};
+        const auto automatic = clifft::sample_survivors(program, 4096, 7, true, {});
+        REQUIRE(automatic.execution.executor == SamplingExecutor::Shared);
+        const auto scalar = clifft::sample_survivors(program, 4096, 7, true, {.sharing = false});
+        REQUIRE(scalar.execution.executor == SamplingExecutor::Scalar);
+    }
+    SECTION("without postselection the expected sign faults size the batch") {
+        // The condition of a conditional Clifford counts as a sign. A frame
+        // plan shares at any divergence, in small batches once most shots are
+        // expected to leave the shared tableau.
+        const ExecutablePlan rare = pairs_plan(8, "X_ERROR(0.01)", false);
+        REQUIRE(std::abs(rare.trajectory_divergence().expected_sign_faults - 0.08) < 1e-9);
+        REQUIRE(shares(rare, 64));
+        REQUIRE_FALSE(shares(rare, 63));
+        REQUIRE_FALSE(rare.frame_trajectories_diverge());
+        // Twelve faults of probability a quarter are exactly three expected.
+        const ExecutablePlan frequent = pairs_plan(12, "X_ERROR(0.25)", false);
+        REQUIRE(frequent.trajectory_divergence().expected_sign_faults == 3.0);
+        REQUIRE(shares(frequent, 4096));
+        REQUIRE_FALSE(frequent.frame_trajectories_diverge());
+        const ExecutablePlan divergent = pairs_plan(13, "X_ERROR(0.25)", false);
+        REQUIRE(shares(divergent, 4096));
+        REQUIRE(divergent.frame_trajectories_diverge());
+        // A measurement that decides a sign by a fair coin doubles the frames
+        // of a batch. Twelve are within the limit.
+        const auto coins_plan = [](uint32_t pairs) {
+            std::string source;
+            for (uint32_t p = 0; p < pairs; ++p) {
+                const std::string a = std::to_string(2 * p);
+                const std::string b = std::to_string(2 * p + 1);
+                source += "H " + a + " " + b + "\nMPP Z" + a + "*Z" + b + "\nT " + a + "\nT_DAG " +
+                          b + "\nH " + a + " " + b + "\nM " + a + " " + b + "\n";
+            }
+            return ExecutablePlan(plan_sampling(trace(parse(source)), {.runtime_frame = true}));
+        };
+        REQUIRE(coins_plan(12).uses_runtime_frame());
+        REQUIRE(coins_plan(12).trajectory_divergence().expected_sign_faults == 0.0);
+        REQUIRE_FALSE(coins_plan(12).frame_trajectories_diverge());
+        REQUIRE(coins_plan(13).frame_trajectories_diverge());
+
+        const Program level{pairs_plan(12, "X_ERROR(0.25)", false)};
+        const auto full = clifft::sample(level, 4096, 7, true, {.threads = 1});
+        REQUIRE(full.execution.executor == SamplingExecutor::Shared);
+        REQUIRE(full.execution.batch_size == 4096);
+        const Program beyond{pairs_plan(13, "X_ERROR(0.25)", false)};
+        const auto small = clifft::sample(beyond, 4096, 7, true, {.threads = 1});
+        REQUIRE(small.execution.executor == SamplingExecutor::Shared);
+        REQUIRE(small.execution.batch_size == 256);
+        // A tuned call measures that batch size first.
+        const auto tuned =
+            clifft::sample(beyond, 4096, 7, true, {.threads = 1, .tuning_budget_seconds = 0.05});
+        REQUIRE(tuned.batch_tuning.has_value());
+        REQUIRE(tuned.batch_tuning->baseline_batch_size == 256);
+        REQUIRE_FALSE(tuned.batch_tuning->trials.empty());
+        REQUIRE(tuned.batch_tuning->trials.front().batch_size == 256);
+        // Postselection discards shots as they diverge and keeps full batches.
+        const Program checked{pairs_plan(13, "X_ERROR(0.25)", true)};
+        REQUIRE(
+            clifft::sample_survivors(checked, 4096, 7, true, {.threads = 1}).execution.batch_size ==
+            4096);
+    }
     SECTION("a fault that widens the states is sampled as often as it occurs") {
         // An X error on the control decides whether ten targets each add an
         // active qubit, and the control's record reports it. Batches hold as
@@ -511,7 +598,7 @@ TEST_CASE("Native shared sampling sizes runtime Clifford frame batches for the w
         }
     }
 
-    SECTION("batches fit every lane at the width bound") {
+    SECTION("automatic batches fit every lane at the width bound") {
         // A second T layer acts on qubits the frame already covers, so each of
         // its rotations may add an active qubit: the plan bounds its width by
         // ten while its states start without coefficients.
@@ -543,20 +630,23 @@ TEST_CASE("Native shared sampling sizes runtime Clifford frame batches for the w
         const uint64_t at_start = SharingExecutor::group_storage_bytes(plan, 0);
         const uint64_t at_bound = SharingExecutor::group_storage_bytes(plan, kPairs);
         REQUIRE(2 * at_start < at_bound);
+        REQUIRE(shares(plan, 4096, 2 * at_bound));
+        REQUIRE_FALSE(shares(plan, 4096, 2 * at_bound - 1));
         const Program narrow{make_plan(false)};
-        SamplingOptions fits{.threads = 1, .sharing = true, .max_worker_state_bytes = 2 * at_bound};
-        REQUIRE(clifft::sample(narrow, 64, 7, true, fits).execution.executor ==
-                SamplingExecutor::Shared);
-        fits.max_worker_state_bytes = 2 * at_bound - 1;
-        REQUIRE_THROWS_AS(clifft::sample(narrow, 64, 7, true, fits), std::invalid_argument);
+        const SamplingOptions below{.threads = 1, .max_worker_state_bytes = 2 * at_bound - 1};
+        REQUIRE(clifft::sample(narrow, 64, 7, true, below).execution.executor ==
+                SamplingExecutor::Scalar);
+        SamplingOptions insisting = below;
+        insisting.sharing = true;
+        REQUIRE_THROWS_AS(clifft::sample(narrow, 64, 7, true, insisting), std::invalid_argument);
 
         constexpr uint32_t kShots = 3000;
         constexpr uint32_t kWideStates = 8;
         for (bool postselect : {false, true}) {
             CAPTURE(postselect);
             const Program program{make_plan(postselect)};
-            const SamplingOptions tight{
-                .threads = 1, .sharing = true, .max_worker_state_bytes = kWideStates * at_bound};
+            const SamplingOptions tight{.threads = 1,
+                                        .max_worker_state_bytes = kWideStates * at_bound};
             const auto fitted = clifft::sample_survivors(program, kShots, 7, true, tight);
             REQUIRE(fitted.execution.executor == SamplingExecutor::Shared);
             REQUIRE(fitted.execution.batch_size == kWideStates);
@@ -565,12 +655,14 @@ TEST_CASE("Native shared sampling sizes runtime Clifford frame batches for the w
             SamplingOptions threaded = tight;
             threaded.threads = 2;
             threaded.batch_size = kWideStates;
+            threaded.sharing = true;
             const auto paired = clifft::sample_survivors(program, kShots, 7, true, threaded);
             REQUIRE(paired.measurements == fitted.measurements);
             // A larger batch the caller chooses can outgrow the budget, which
             // it then reports.
             SamplingOptions chosen = tight;
             chosen.batch_size = 64;
+            chosen.sharing = true;
             REQUIRE_THROWS_AS(clifft::sample_survivors(program, kShots, 7, true, chosen),
                               std::runtime_error);
         }
