@@ -226,6 +226,49 @@ def test_sampling_selection_keeps_frame_plans_on_the_scalar_executor(active_qubi
             clifft.sample_survivors(frame, 64, seed=5, **controls)
 
 
+def _rounds(count: int) -> str:
+    """Rounds of a signed pair and a plain T qubit that reset every qubit."""
+    one_round = "H 0 2\nCX 0 1\nX_ERROR(0.3) 0\nT 0 2\nT_DAG 1\nCX 0 1\nH 0 2\nMR 0 1 2\n"
+    return one_round * count
+
+
+def test_repeated_rounds_retire_the_frame() -> None:
+    ordinary, frame = _programs(_rounds(3))
+    # Every round ends with its qubits reset, so the frame ends there and the
+    # next round is reduced like the first.
+    assert "FRAME_RETIREMENT" in frame.original_plan.inspect()
+    assert "FRAME_ROTATION" not in frame.original_plan.inspect()
+    assert frame.original_plan.peak_active_width == 1
+    assert ordinary.original_plan.peak_active_width == 2
+    shots = 60_000
+    expected = clifft.sample(ordinary, shots, seed=11).measurements
+    actual = clifft.sample(frame, shots, seed=12).measurements
+    _assert_same_distribution(expected, actual)
+
+
+def _rounds_beside_data(count: int) -> str:
+    """Rounds of a signed pair that reset it, beside a pair checked only at the end."""
+    data = "H 4\nCX 4 5\nX_ERROR(0.3) 4\nT 4\nT_DAG 5\n"
+    one_round = "H 0\nCX 0 1\nX_ERROR(0.3) 0\nT 0\nT_DAG 1\nCX 0 1\nH 0\nMR 0 1\n"
+    return data + one_round * count + "MPP X4*X5\nM 4 5\n"
+
+
+def test_rounds_beside_unmeasured_data_release_frame_coordinates() -> None:
+    ordinary, frame = _programs(_rounds_beside_data(3))
+    # The unmeasured pair keeps the frame live. Each round's reset fixes that
+    # round's coordinate, which the plan hands back before the next round, so
+    # every round is reduced like the first.
+    listing = frame.original_plan.inspect()
+    assert listing.count("FRAME_RELEASE") == 2
+    assert "FRAME_ROTATION" not in listing
+    assert frame.original_plan.peak_active_width == 0
+    assert ordinary.original_plan.peak_active_width == 2
+    shots = 60_000
+    expected = clifft.sample(ordinary, shots, seed=41).measurements
+    actual = clifft.sample(frame, shots, seed=42).measurements
+    _assert_same_distribution(expected, actual)
+
+
 @pytest.mark.parametrize("k", [0, 1])
 def test_fixed_fault_sampling_follows_the_ordinary_plan(k: int) -> None:
     fixed, frame = _programs(SIGNED_PAIR)

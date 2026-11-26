@@ -259,6 +259,13 @@ std::string ExecutablePlan::inspect_action(size_t action) const {
                     << " branch=s" << typed.branch << " record=r" << typed.record << " correction=e"
                     << typed.correction.register_id;
             },
+            [&](const ExecuteFrameRetirement&) { out << "FRAME_RETIREMENT"; },
+            [&](const ExecuteFrameRelease& typed) {
+                out << "FRAME_RELEASE "
+                    << format_pauli_product(frame_pauli_x(typed.pauli).words,
+                                            frame_pauli_z(typed.pauli).words)
+                    << " pivot=" << typed.pivot << " width=" << typed.width;
+            },
             [&](const ExecuteBoundary& typed) {
                 out << "INSTRUMENT_BOUNDARY site=" << typed.site
                     << " active_width=" << typed.active_width << " noise=[" << typed.noise_begin

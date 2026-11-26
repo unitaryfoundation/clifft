@@ -148,7 +148,9 @@ std::optional<SymbolId> defined_symbol(const SamplingAction& action) {
                                  std::is_same_v<T, WriteExpectationValue> ||
                                  std::is_same_v<T, InstrumentBoundary> ||
                                  std::is_same_v<T, ApplyConditionalClifford> ||
-                                 std::is_same_v<T, RotateFramePauli>) {
+                                 std::is_same_v<T, RotateFramePauli> ||
+                                 std::is_same_v<T, RetireFrame> ||
+                                 std::is_same_v<T, ReleaseFrameCoordinate>) {
                 return std::nullopt;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -422,7 +424,9 @@ uint32_t predicted_dense_passes(const SamplingAction& action) {
                                  std::is_same_v<T, WriteDetector> ||
                                  std::is_same_v<T, WriteObservable> ||
                                  std::is_same_v<T, InstrumentBoundary> ||
-                                 std::is_same_v<T, ApplyConditionalClifford>) {
+                                 std::is_same_v<T, ApplyConditionalClifford> ||
+                                 std::is_same_v<T, RetireFrame> ||
+                                 std::is_same_v<T, ReleaseFrameCoordinate>) {
                 return 0;
             } else {
                 static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
@@ -596,9 +600,11 @@ void SamplingPlan::validate() const {
     uint32_t observed_instrument_boundaries = 0;
     uint32_t previous_noise_boundary = 0;
     uint32_t previous_symbol_boundary = 0;
-    // Set by the first frame action. Later actions cannot address coefficient
-    // coordinates directly, because each shot's frame decides where they are.
+    // Set by a frame action and cleared when the frame retires. While it is
+    // set, actions cannot address coefficient coordinates directly, because
+    // each shot's frame decides where they are.
     bool frame_live = false;
+    bool frame_used = false;
     // Leading coordinates the frame has used so far: the active ones when it
     // started and every coordinate a frame Pauli has named. A shot's active
     // coordinates stay inside this set.
@@ -617,6 +623,7 @@ void SamplingPlan::validate() const {
         }
         validate_frame_pauli(pauli, frame_width, action_index);
         frame_live = true;
+        frame_used = true;
         frame_extent = std::max(frame_extent, active_before);
         for (size_t word = pauli.x.size(); word-- > 0;) {
             if (const uint64_t bits = pauli.x[word] | pauli.z[word]; bits != 0) {
@@ -856,6 +863,46 @@ void SamplingPlan::validate() const {
                                                  typed.branch, action_index);
                     validate_record(*this, typed.record, action_index, written_records);
                     record_values[index(typed.record)] = &typed.outcome;
+                } else if constexpr (std::is_same_v<T, RetireFrame>) {
+                    if (!frame_live) {
+                        invalid_plan("action " + std::to_string(action_index) +
+                                     " retires a runtime Clifford frame that is not live");
+                    }
+                    if (planned.active_after != 0) {
+                        invalid_plan("frame retirement leaves active coordinates");
+                    }
+                    frame_live = false;
+                    frame_extent = 0;
+                } else if constexpr (std::is_same_v<T, ReleaseFrameCoordinate>) {
+                    if (!frame_live) {
+                        invalid_plan("action " + std::to_string(action_index) +
+                                     " releases a coordinate of a runtime Clifford frame that "
+                                     "is not live");
+                    }
+                    validate_frame_pauli(typed.pauli, frame_width, action_index);
+                    const auto has = [&](const std::vector<uint64_t>& mask, uint32_t q) {
+                        return ((mask[q / 64] >> (q % 64)) & 1U) != 0;
+                    };
+                    // The release drops the last coordinate, so none the
+                    // frame has used may lie past it.
+                    bool inside = typed.width != 0 && typed.width <= frame_width &&
+                                  typed.width >= frame_extent && typed.pivot < typed.width;
+                    for (uint32_t q = typed.width; inside && q < frame_width; ++q) {
+                        inside = !has(typed.pauli.x, q) && !has(typed.pauli.z, q);
+                    }
+                    // The frame pairs the stabilizer with Z on the pivot, or
+                    // with X there when the stabilizer is diagonal, and the
+                    // two must anticommute.
+                    const bool diagonal =
+                        std::ranges::all_of(typed.pauli.x, [](uint64_t word) { return word == 0; });
+                    if (!inside || !has(diagonal ? typed.pauli.z : typed.pauli.x, typed.pivot)) {
+                        invalid_plan("frame release has an invalid stabilizer, pivot, or width");
+                    }
+                    // The released coordinate is dormant in every shot.
+                    if (planned.active_after != std::min(planned.active_before, typed.width - 1)) {
+                        invalid_plan("frame release has an invalid width bound");
+                    }
+                    frame_extent = typed.width - 1;
                 } else {
                     static_assert(kAlwaysFalse<T>, "Unhandled SamplingAction alternative");
                 }
@@ -868,7 +915,7 @@ void SamplingPlan::validate() const {
     if (observed_peak != peak_active_width) {
         invalid_plan("declared peak active width does not match the action stream");
     }
-    if (frame_live != (frame_width != 0)) {
+    if (frame_used != (frame_width != 0)) {
         invalid_plan("declared frame width does not match the action stream");
     }
     if (written_records.size() != total_records) {

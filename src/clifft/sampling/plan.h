@@ -223,6 +223,29 @@ struct MeasureFramePauli {
     RecordSlot record{};
 };
 
+// Ends a runtime Clifford frame whose state the plan knows: measurements have
+// fixed a stabilizer on every frame coordinate, and the planner has moved
+// their eigenvalue bits into the symbolic Pauli frame. Those measurements left
+// every frame coordinate dormant, so no shot keeps coefficients. Every shot's
+// frame returns to the identity, later actions address static coordinates
+// again, and a later signed T region can start a new frame.
+struct RetireFrame {};
+
+// Hands one coordinate of a live runtime Clifford frame back to the static
+// coordinates, while the rest of the frame continues. Measurements have left
+// the frame's state an eigenstate of `pauli`, a Pauli on the first `width`
+// frame coordinates, in every shot. The planner has changed coordinates so
+// that this stabilizer is Z on coordinate width - 1, with the coordinate that
+// was there in the place of `pivot`, and has moved its eigenvalue bit into the
+// symbolic Pauli frame. Each shot's frame follows that change and drops the
+// coordinate, which holds |0> and can serve a later region like any other
+// dormant coordinate.
+struct ReleaseFrameCoordinate {
+    FramePauli pauli;
+    uint32_t pivot = 0;
+    uint32_t width = 0;
+};
+
 // Writes a deterministic expression to visible or hidden circuit record
 // history without touching the state. Use DefineSymbol instead when an
 // internal parity needs a reusable name but no record slot.
@@ -359,7 +382,8 @@ using SamplingAction =
     std::variant<RotateActivePauli, PromoteDormantRotation, MeasureActivePauli,
                  MeasureDormantRandom, RecordClassical, DefineSymbol, ApplyReadoutNoise,
                  WriteDetector, WriteObservable, WriteExpectationValue, ApplyInstrument,
-                 InstrumentBoundary, ApplyConditionalClifford, RotateFramePauli, MeasureFramePauli>;
+                 InstrumentBoundary, ApplyConditionalClifford, RotateFramePauli, MeasureFramePauli,
+                 RetireFrame, ReleaseFrameCoordinate>;
 
 struct PlannedAction {
     // Dense active-coordinate widths immediately before and after this action.

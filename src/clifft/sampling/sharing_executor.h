@@ -140,6 +140,8 @@ class SharingExecutor : public BatchClassicalState {
     void execute_action(const ExecutablePlan::ExecuteFrameClifford&) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameRotation&) noexcept;
     void execute_action(const ExecutablePlan::ExecuteFrameMeasurement&) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameRetirement&) noexcept;
+    void execute_action(const ExecutablePlan::ExecuteFrameRelease&) noexcept;
 
     const EarlyPostselection* checks_;
     bool share_;

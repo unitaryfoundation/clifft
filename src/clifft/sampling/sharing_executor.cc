@@ -801,4 +801,12 @@ void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameMeasureme
     assert(false && "runtime Clifford frame actions are excluded during sharing setup");
 }
 
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&) noexcept {
+    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+}
+
+void SharingExecutor::execute_action(const ExecutablePlan::ExecuteFrameRelease&) noexcept {
+    assert(false && "runtime Clifford frame actions are excluded during sharing setup");
+}
+
 }  // namespace clifft::sampling

@@ -257,7 +257,9 @@ detail::Action ExecutablePlan::lower_action(const PlannedAction& planned) {
                     "CUDA execution does not support transition instruments");
             } else if constexpr (std::is_same_v<T, ApplyConditionalClifford> ||
                                  std::is_same_v<T, RotateFramePauli> ||
-                                 std::is_same_v<T, MeasureFramePauli>) {
+                                 std::is_same_v<T, MeasureFramePauli> ||
+                                 std::is_same_v<T, RetireFrame> ||
+                                 std::is_same_v<T, ReleaseFrameCoordinate>) {
                 throw std::invalid_argument(
                     "CUDA execution does not support runtime Clifford frames");
             } else {

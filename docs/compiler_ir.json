@@ -126,6 +126,18 @@
       "detail": "Each shot maps the Pauli through its own frame and then finds one of three cases: the outcome is fixed by the dormant frame coordinates, it is an unbiased coin flip that only updates the frame, or it depends on the coefficient state, which is sampled and collapsed with one active coordinate removed. The branch symbol holds the eigenvalue bit of the unsigned Pauli. The record bit combines it with the outcome expression's corrections from earlier stochastic events.",
       "operands": "Pauli product, branch, outcome, record"
     },
+    "RETIRE_FRAME": {
+      "category": "Measurement",
+      "summary": "Ends the runtime Clifford frame once measurements have fixed its whole state.",
+      "detail": "Each frame measurement leaves a stabilizer whose sign is that measurement's branch symbol. When such stabilizers determine every frame coordinate, for example after a factory's qubits have all been measured or reset, the planner turns each one into Z on a dormant coordinate and moves its sign into the symbolic Pauli frame. Those measurements leave no active coordinates, so this action only returns every shot's frame to the identity. Later actions address static coordinates again, and a later T region whose signs vary starts a new frame from the reference state.",
+      "operands": "none"
+    },
+    "RELEASE_FRAME": {
+      "category": "Measurement",
+      "summary": "Hands one coordinate of the runtime Clifford frame back to the static coordinates.",
+      "detail": "Used at the start of a T region when measurements have fixed part of a live frame's state, such as a factory's ancillas after their reset while its output stays unmeasured. The Pauli product is a stabilizer of the frame's state in every shot. The planner changes coordinates so that it becomes Z on the last frame coordinate, with the coordinate that was last in the pivot's place, and moves its sign into the symbolic Pauli frame. Each shot's frame follows that change and drops the coordinate, which holds |0>. The region that starts here can then be reduced on it as on any dormant coordinate, and the rest of the frame continues.",
+      "operands": "Pauli product, pivot, width"
+    },
     "RECORD_CLASSICAL": {
       "category": "Classical",
       "summary": "Writes a deterministic expression to the measurement record.",

@@ -259,6 +259,14 @@ void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameMeasurement
     assert(false && "runtime Clifford frame actions must remain on the scalar executor");
 }
 
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRetirement&) noexcept {
+    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+}
+
+void BatchExecutor::execute_action(const ExecutablePlan::ExecuteFrameRelease&) noexcept {
+    assert(false && "runtime Clifford frame actions must remain on the scalar executor");
+}
+
 bool BatchExecutor::should_compact(const ExecutablePlan::ExecuteDetector& detector) const noexcept {
     const uint64_t bit_columns = expression_registers_.num_columns() + records_.num_columns() +
                                  detectors_.num_columns() + observables_.num_columns() +

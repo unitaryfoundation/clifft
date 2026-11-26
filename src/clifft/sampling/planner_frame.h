@@ -37,8 +37,14 @@ class CoordinateFrame {
                          uint32_t dormant_pivot);
     void measure_dormant(const PlannerPauli& measured, uint32_t dormant_pivot);
     void measure_active(const PlannerPauli& measured, uint32_t active_width, uint32_t pivot);
+    // measure_active without the reordering a dense state needs: the measured
+    // Pauli still becomes Z on the last of the leading coordinates, and the
+    // coordinate that was there takes the pivot's place.
+    void release_active(const PlannerPauli& measured, uint32_t active_width, uint32_t pivot);
 
   private:
+    void localize_active(const PlannerPauli& measured, uint32_t active_width, uint32_t pivot,
+                         bool keep_order);
     void rebuild_transpose();
     void xor_x_generator_delta(uint32_t q, MaskView dx, MaskView dz);
     void xor_z_generator_delta(uint32_t q, MaskView dx, MaskView dz);
