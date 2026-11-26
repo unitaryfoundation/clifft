@@ -61,7 +61,7 @@ std::vector<BatchTuningCandidate> batch_tuning_candidates(
     (void)additional_worker_bit_columns;
     (void)noise;
 #else
-    // A plan with a runtime Clifford frame runs on the scalar executor only.
+    // The packed executor cannot run a runtime Clifford frame.
     if (candidates.empty() || intra_shot_workers > 1 || plan.uses_runtime_frame()) {
         return candidates;
     }

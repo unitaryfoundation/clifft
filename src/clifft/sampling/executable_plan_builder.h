@@ -6,6 +6,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <span>
 #include <vector>
 
@@ -132,6 +133,8 @@ class ExecutablePlanBuilder {
     ExpressionInterner expressions_;
     std::vector<uint32_t> boundary_noise_starts_;
     CommutingFramePrefix frame_prefix_;
+    // Stored frame Paulis by their X and Z words, so equal ones share an index.
+    std::map<std::vector<uint64_t>, uint32_t> frame_pauli_indices_;
     std::vector<uint8_t> bound_presampled_symbols_;
     std::vector<uint32_t> symbol_first_actions_;
     batch_detail::BatchLaneWork estimated_batch_lane_work_;
