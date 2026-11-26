@@ -5,6 +5,8 @@ ordinary ones and with Qiskit Aer through the public sampling functions, on
 the scalar executor and with ``sharing=True``.
 """
 
+from typing import Literal
+
 import numpy as np
 import pytest
 from qiskit_aer import AerSimulator
@@ -384,6 +386,8 @@ def test_runtime_frame_is_off_unless_requested() -> None:
     assert frame.runtime_frame_fallback_reason == ""
     assert frame.original_plan.peak_active_width == 0
     assert default.original_plan.peak_active_width > 0
+    with pytest.raises(ValueError, match="runtime_frame"):
+        clifft.compile(text, runtime_frame="always")  # type: ignore[arg-type]
     shots = 40_000
     expected = clifft.sample(default, shots, seed=3, keep_records="syndromes").detectors
     actual = clifft.sample(frame, shots, seed=4, keep_records="syndromes").detectors
@@ -399,13 +403,38 @@ def test_runtime_frame_true_keeps_the_ordinary_plan_where_no_sign_varies() -> No
     assert frame.original_plan.inspect() == ordinary.original_plan.inspect()
 
 
+@pytest.mark.parametrize(
+    ("pairs", "plain", "selected"),
+    [(16, 0, True), (15, 0, False), (4, 12, True), (3, 13, False)],
+    ids=["wide", "narrow", "four-fewer", "three-fewer"],
+)
+def test_automatic_runtime_frame_needs_a_wide_plan_and_a_clear_reduction(
+    pairs: int, plain: int, selected: bool
+) -> None:
+    # Without passes the ordinary plan holds every pair and plain qubit at once.
+    text = _signed_pairs(pairs, plain)
+    ordinary = clifft.compile(text, hir_passes=None, reconstruction=False)
+    assert ordinary.original_plan.peak_active_width == pairs + plain
+    forced = clifft.compile(text, hir_passes=None, reconstruction=False, runtime_frame=True)
+    assert forced.original_plan.peak_active_width == plain
+    automatic = clifft.compile(text, hir_passes=None, reconstruction=False, runtime_frame="auto")
+    assert automatic.original_plan.uses_runtime_frame is selected
+    assert (automatic.runtime_frame_fallback_reason == "") is selected
+    chosen = forced if selected else ordinary
+    assert automatic.original_plan.inspect() == chosen.original_plan.inspect()
+
+
 def test_runtime_frame_plans_a_circuit_too_wide_for_the_ordinary_plan() -> None:
     text = _signed_pairs(pairs=70, plain=0)
     with pytest.raises(OverflowError):
         clifft.compile(text, hir_passes=None, reconstruction=False)
-    program = clifft.compile(text, hir_passes=None, reconstruction=False, runtime_frame=True)
-    assert program.original_plan.uses_runtime_frame
-    assert program.original_plan.peak_active_width == 0
+    choices: tuple[bool | Literal["auto"], ...] = (True, "auto")
+    for runtime_frame in choices:
+        program = clifft.compile(
+            text, hir_passes=None, reconstruction=False, runtime_frame=runtime_frame
+        )
+        assert program.original_plan.uses_runtime_frame
+        assert program.original_plan.peak_active_width == 0
     result = clifft.sample(program, 256, seed=2, keep_records="syndromes")
     assert result.detectors.shape == (256, 70)
 
@@ -567,7 +596,10 @@ def test_normalized_reference_uses_the_frame_when_the_ordinary_plan_overflows() 
         assert (result.observables == expected).all()
 
 
-def test_normalized_reference_is_traced_from_the_circuit() -> None:
+@pytest.mark.parametrize("runtime_frame", [True, "auto"])
+def test_normalized_reference_is_traced_from_the_circuit(
+    runtime_frame: bool | Literal["auto"],
+) -> None:
     """The default passes split the regions a frame reduces.
 
     Without reconstruction the reference of 65 chained pairs needs a frame,
@@ -581,7 +613,7 @@ def test_normalized_reference_is_traced_from_the_circuit() -> None:
     text += "".join(f"CX {2 * p} {2 * p + 2}\n" for p in range(pairs - 1))
     text += "".join(f"MPP X{2 * p}*X{2 * p + 1}\nDETECTOR rec[-1]\n" for p in range(pairs))
     program = clifft.compile(
-        text, runtime_frame=True, normalize_syndromes=True, reconstruction=False
+        text, runtime_frame=runtime_frame, normalize_syndromes=True, reconstruction=False
     )
     assert program.peak_active_width == 0
     assert clifft.sample(program, 16, seed=3).detectors.shape == (16, pairs)

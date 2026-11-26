@@ -124,7 +124,7 @@ Circuit signed_pairs(uint32_t pairs, uint32_t plain) {
 TEST_CASE("Program keeps a runtime Clifford frame plan on request") {
     const Circuit source = signed_pairs(4, 1);
     const HirModule hir = trace(source);
-    const auto compile = [&](bool runtime_frame) {
+    const auto compile = [&](std::optional<bool> runtime_frame) {
         return Program::compile(source, hir, false, true, {}, runtime_frame);
     };
     const Program ordinary = compile(false);
@@ -162,6 +162,47 @@ TEST_CASE("Program keeps a runtime Clifford frame plan on request") {
             Program::compile(fixed, fixed_hir, false).original().inspect());
 }
 
+TEST_CASE("Automatic runtime frame selection needs a wide plan and a clear reduction") {
+    struct Case {
+        uint32_t pairs;
+        uint32_t plain;
+        bool selected;
+    };
+    // The ordinary width is pairs + plain and the frame's is plain.
+    const Case cases[] = {{16, 0, true}, {15, 0, false}, {4, 12, true}, {3, 13, false}};
+    for (const Case& c : cases) {
+        CAPTURE(c.pairs, c.plain);
+        const Circuit source = signed_pairs(c.pairs, c.plain);
+        const HirModule hir = trace(source);
+        const Program automatic = Program::compile(source, hir, false, true, {}, std::nullopt);
+        REQUIRE(automatic.original().uses_runtime_frame() == c.selected);
+        REQUIRE(automatic.runtime_frame_fallback_reason().empty() == c.selected);
+        REQUIRE(automatic.original().peak_active_width() ==
+                (c.selected ? c.plain : c.pairs + c.plain));
+    }
+    // Below the width floor the choice is made before a frame is planned, so
+    // the reason is the same with and without a signed region.
+    const Circuit narrow_fixed = parse("H 0 1\nT 0 1\nCX 0 1\nT 1\nH 0 1\nM 0 1\n");
+    const HirModule narrow_fixed_hir = trace(narrow_fixed);
+    const Circuit narrow_signed = signed_pairs(3, 0);
+    const std::string floor_reason =
+        Program::compile(narrow_signed, trace(narrow_signed), false, true, {}, std::nullopt)
+            .runtime_frame_fallback_reason();
+    REQUIRE(Program::compile(narrow_fixed, narrow_fixed_hir, false, true, {}, std::nullopt)
+                .runtime_frame_fallback_reason() == floor_reason);
+    REQUIRE(Program::compile(narrow_fixed, narrow_fixed_hir, false, true, {}, true)
+                .runtime_frame_fallback_reason() != floor_reason);
+
+    // An ordinary plan too wide for a dense state leaves only the frame plan.
+    const Circuit wide = signed_pairs(70, 0);
+    const HirModule wide_hir = trace(wide);
+    REQUIRE_THROWS_AS(Program::compile(wide, wide_hir, false), std::overflow_error);
+    const Program rescued = Program::compile(wide, wide_hir, false, true, {}, std::nullopt);
+    REQUIRE(rescued.has_original());
+    REQUIRE(rescued.original().uses_runtime_frame());
+    REQUIRE(rescued.original().peak_active_width() == 0);
+}
+
 TEST_CASE("Frame selection keeps a narrower plan that needs no frame", "[reconstruction]") {
     // T T is an S gate. The ordinary planner activates every qubit for the
     // first T; the frame planner reduces each pair and leaves no frame action.
@@ -172,24 +213,29 @@ TEST_CASE("Frame selection keeps a narrower plan that needs no frame", "[reconst
         }
         return parse("H" + all + "\nT" + all + "\nT" + all + "\nH" + all + "\nM" + all + "\n");
     };
-    const Circuit source = circuit(16);
-    const HirModule hir = trace(source);
-    const Program ordinary = Program::compile(source, hir, false);
-    REQUIRE(ordinary.original().peak_active_width() == 16);
-    const Program reduced = Program::compile(source, hir, false, true, {}, true);
-    REQUIRE_FALSE(reduced.original().uses_runtime_frame());
-    REQUIRE(reduced.original().peak_active_width() == 0);
-    REQUIRE_FALSE(reduced.runtime_frame_fallback_reason().empty());
-    REQUIRE(reduced.runtime_frame_fallback_reason() !=
+    for (const bool automatic : {false, true}) {
+        CAPTURE(automatic);
+        const std::optional<bool> runtime_frame = automatic ? std::nullopt : std::optional(true);
+        const Circuit source = circuit(16);
+        const HirModule hir = trace(source);
+        const Program ordinary = Program::compile(source, hir, false);
+        REQUIRE(ordinary.original().peak_active_width() == 16);
+        const Program reduced = Program::compile(source, hir, false, true, {}, runtime_frame);
+        REQUIRE_FALSE(reduced.original().uses_runtime_frame());
+        REQUIRE(reduced.original().peak_active_width() == 0);
+        REQUIRE_FALSE(reduced.runtime_frame_fallback_reason().empty());
+        REQUIRE(
+            reduced.runtime_frame_fallback_reason() !=
             Program::compile(parse("H 0\nM 0\n"), trace(parse("H 0\nM 0\n")), false, true, {}, true)
                 .runtime_frame_fallback_reason());
 
-    // The reduced plan is the only one a dense state can hold.
-    const Circuit wide = circuit(kDenseActiveWidthLimit + 5);
-    const HirModule wide_hir = trace(wide);
-    REQUIRE_THROWS_AS(Program::compile(wide, wide_hir, false), std::overflow_error);
-    const Program fits = Program::compile(wide, wide_hir, false, true, {}, true);
-    REQUIRE(fits.original().peak_active_width() == 0);
+        // The reduced plan is the only one a dense state can hold.
+        const Circuit wide = circuit(kDenseActiveWidthLimit + 5);
+        const HirModule wide_hir = trace(wide);
+        REQUIRE_THROWS_AS(Program::compile(wide, wide_hir, false), std::overflow_error);
+        const Program fits = Program::compile(wide, wide_hir, false, true, {}, runtime_frame);
+        REQUIRE(fits.original().peak_active_width() == 0);
+    }
 }
 
 TEST_CASE("Frame selection reports what a frame does not support", "[reconstruction]") {
@@ -207,6 +253,49 @@ TEST_CASE("Frame selection reports what a frame does not support", "[reconstruct
     sampling::ExecutablePlan frame(sampling::plan_sampling(trace(plain), {.runtime_frame = true}));
     REQUIRE(frame.uses_runtime_frame());
     REQUIRE(Program(std::move(frame)).runtime_frame_fallback_reason().empty());
+}
+
+TEST_CASE("Automatic frame selection takes a reconstruction below its width floor",
+          "[reconstruction]") {
+    // Bell pairs with a signed T pair each. A second T layer on eight of them
+    // can promote one coordinate per pair, so the frame plan's bound is 8 and
+    // its shots start at width 0. Reconstruction measures the pairs one at a
+    // time at width 1, which lies between the two.
+    std::string text;
+    std::string evens;
+    constexpr uint32_t kPairs = 20;
+    constexpr uint32_t kSecond = 8;
+    for (uint32_t p = 0; p < kPairs; ++p) {
+        const std::string a = std::to_string(2 * p);
+        const std::string b = std::to_string(2 * p + 1);
+        text += "H " + a + "\nCX " + a + " " + b + "\nX_ERROR(0.01) " + a + "\nT " + a +
+                "\nT_DAG " + b + "\n";
+        if (p < kSecond) {
+            evens += " " + a;
+        }
+    }
+    text += "H" + evens + "\nT" + evens + "\nH" + evens + "\n";
+    for (uint32_t p = 0; p < kPairs; ++p) {
+        const std::string a = std::to_string(2 * p);
+        const std::string b = std::to_string(2 * p + 1);
+        text += p < kSecond ? "M " + a + "\nMX " + b + "\n" : "MPP X" + a + "*X" + b + "\n";
+        text += "DETECTOR rec[-1]\n";
+    }
+    const Circuit source = parse(text);
+    const HirModule hir = trace(source);
+    const Program requested = Program::compile(source, hir, std::nullopt, true, {}, true);
+    const Program automatic = Program::compile(source, hir, std::nullopt, true, {}, std::nullopt);
+    for (const Program* program : {&requested, &automatic}) {
+        REQUIRE(program->original().uses_runtime_frame());
+        REQUIRE(program->original().initial_capacity_width() == 0);
+        REQUIRE(program->original().peak_active_width() == kSecond);
+    }
+    for (bool keep_records : {false, true}) {
+        CAPTURE(keep_records);
+        REQUIRE(requested.sampling_plan(keep_records).uses_runtime_frame());
+        REQUIRE_FALSE(automatic.sampling_plan(keep_records).uses_runtime_frame());
+        REQUIRE(automatic.sampling_plan(keep_records).peak_active_width() == 1);
+    }
 }
 
 TEST_CASE("A reconstruction replaces a runtime frame plan only up to its static width",

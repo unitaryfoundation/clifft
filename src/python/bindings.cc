@@ -1759,9 +1759,11 @@ NB_MODULE(_clifft_core, m) {
            std::vector<uint8_t> expected_detectors, std::vector<uint8_t> expected_observables,
            bool normalize_syndromes, clifft::HirPassManager* hir_passes,
            const BoolOrAutoOption& reconstruction_option, const std::string& input_format,
-           bool runtime_frame) {
+           const BoolOrAutoOption& runtime_frame_option) {
             const auto reconstruction =
                 parse_bool_or_auto_option(reconstruction_option, "reconstruction");
+            const auto runtime_frame =
+                parse_bool_or_auto_option(runtime_frame_option, "runtime_frame");
             if (input_format != "stim" && input_format != "qasm2") {
                 throw std::invalid_argument("input_format must be 'stim' or 'qasm2'");
             }
@@ -1772,7 +1774,8 @@ NB_MODULE(_clifft_core, m) {
                 hir_passes == nullptr || hir_passes->preserves_sampling_distribution();
             const auto hir = prepare_circuit_for_lowering(
                 circuit, postselection_mask, normalize_syndromes, hir_passes, expected_detectors,
-                expected_observables, reconstruction != false && preserves_sampling, runtime_frame);
+                expected_observables, reconstruction != false && preserves_sampling,
+                runtime_frame != false);
             return clifft::Program::compile(circuit, hir, reconstruction, preserves_sampling, {},
                                             runtime_frame);
         },
@@ -1781,7 +1784,8 @@ NB_MODULE(_clifft_core, m) {
         nb::arg("expected_observables") = std::vector<uint8_t>{},
         nb::arg("normalize_syndromes") = false, nb::arg("hir_passes") = nb::none(), nb::kw_only(),
         nb::arg("reconstruction") = BoolOrAutoOption(std::string("auto")),
-        nb::arg("input_format") = std::string("stim"), nb::arg("runtime_frame") = false,
+        nb::arg("input_format") = std::string("stim"),
+        nb::arg("runtime_frame") = BoolOrAutoOption(false),
         "Compile a quantum circuit string to an executable program.\n\n"
         "Compilation plans optimized HIR and prepares it for Clifft's sampler.\n"
         "\n"
@@ -1808,8 +1812,8 @@ NB_MODULE(_clifft_core, m) {
         "        the full reconstruction budget for strictly narrower plans; False\n"
         "        uses the original plan for all outputs.\n"
         "    input_format: 'stim' (default) or 'qasm2'.\n"
-        "    runtime_frame: False (default) or True. Plans signed T regions on a\n"
-        "        runtime Clifford frame; see clifft.compile().\n");
+        "    runtime_frame: False (default), True, or 'auto'. Plans signed T\n"
+        "        regions on a runtime Clifford frame; see clifft.compile().\n");
 
     m.def(
         "sample",
