@@ -712,10 +712,12 @@ class FrameRegions {
         added_.load(hir_.mask_view(hir_.ops[operation]));
         const MaskView x = added_.x();
         const MaskView z = added_.z();
+        // Commutation is linear in the Pauli and the entry rows are a basis of
+        // the pending axes, so the new axis commutes with every pending
+        // rotation exactly when it commutes with every row.
         const PauliCommutation axis(added_);
-        if (std::ranges::any_of(pending_, [&](const PendingRotation& other) {
-                scratch_.load(hir_.mask_view(hir_.ops[other.operation]));
-                return axis.anti_commutes(scratch_.x(), scratch_.z());
+        if (std::ranges::any_of(entry_rows_, [&](const EntryRow& row) {
+                return axis.anti_commutes(row.body.x(), row.body.z());
             })) {
             flush();
         }
